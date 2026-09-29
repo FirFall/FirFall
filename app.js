@@ -485,7 +485,7 @@ let upVisibility = 'private';
 let upStaged = null; // {file, thumb, duration, scan}
 function upShow(i) {
   upStage = i;
-  document.getElementById('upNext').disabled = false;
+  document.getElementById('upNextBtn').disabled = false;
   ['upStepFile', 'upStepDetails', 'upStepElements', 'upStepChecks', 'upStepVis'].forEach((id, k) =>
     document.getElementById(id).classList.toggle('hidden', k - 1 !== i));
   document.querySelectorAll('#upSteps span').forEach(s => {
@@ -494,7 +494,7 @@ function upShow(i) {
     s.classList.toggle('done', k < i);
   });
   document.getElementById('upBack').classList.toggle('hidden', i <= 0);
-  document.getElementById('upNext').textContent = 'Next';
+  document.getElementById('upNextBtn').textContent = 'Next';
 }
 function upSetVis(v) {
   upVisibility = v;
@@ -514,7 +514,7 @@ document.getElementById('createBtn').onclick = () => {
   document.getElementById('upLink').removeAttribute('href');
   upStaged = null;
   upSetVis('private');
-  const nb = document.getElementById('upNext');
+  const nb = document.getElementById('upNextBtn');
   nb.textContent = 'Next';
   nb.disabled = false;
   if (window._upNextDefault) nb.onclick = window._upNextDefault;
@@ -576,7 +576,7 @@ document.getElementById('upReuse').onclick = () => {
   document.getElementById('upDesc').value = document.getElementById('upDesc').value || 'New upload via FirFall.';
 };
 document.querySelectorAll('#upVisPills button').forEach(b => { b.onclick = () => upSetVis(b.dataset.vis); });
-document.getElementById('upNext').onclick = () => {
+document.getElementById('upNextBtn').onclick = () => {
   try {
     if (upStage === -1) { document.getElementById('upFile').click(); return; }
   if (upStage === 0 && !document.getElementById('upTitle').value.trim()) {
@@ -591,17 +591,17 @@ document.getElementById('upBack').onclick = () => { if (upStage > 0) upShow(upSt
 document.querySelectorAll('.el-add').forEach(b => {
   b.onclick = () => { document.getElementById('upFootStatus').textContent = 'Not in the test version yet — press Next to continue.'; };
 });
-window._upNextDefault = document.getElementById('upNext').onclick;
+window._upNextDefault = document.getElementById('upNextBtn').onclick;
 async function publishStaged() {
   const err = document.getElementById('upErr');
   err.textContent = '';
-  if (!upStaged) { err.textContent = 'Still preparing your file — wait for "Checks complete" then try again.'; btn.disabled = false; return; }
+  const btn = document.getElementById('upNextBtn');
+  const fail = (m) => { btn.disabled = false; err.textContent = m; };
+  if (!upStaged) { fail('Still preparing your file — wait for "Checks complete" then try again.'); return; }
   const title = document.getElementById('upTitle').value.trim();
   const desc = document.getElementById('upDesc').value.trim();
-  if (!title) { err.textContent = 'Title is required.'; return; }
-  const btn = document.getElementById('upNext');
+  if (!title) { fail('Title is required.'); return; }
   btn.disabled = true;
-  const fail = (m) => { btn.disabled = false; err.textContent = m; };
   document.getElementById('upProgOuter').classList.remove('hidden');
   const fill = document.getElementById('upProgFill');
   const status = (t) => { document.getElementById('upStatus').textContent = t; document.getElementById('upFootStatus').textContent = t; };
