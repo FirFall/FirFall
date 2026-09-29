@@ -485,6 +485,7 @@ let upVisibility = 'private';
 let upStaged = null; // {file, thumb, duration, scan}
 function upShow(i) {
   upStage = i;
+  document.getElementById('upNext').disabled = false;
   ['upStepFile', 'upStepDetails', 'upStepElements', 'upStepChecks', 'upStepVis'].forEach((id, k) =>
     document.getElementById(id).classList.toggle('hidden', k - 1 !== i));
   document.querySelectorAll('#upSteps span').forEach(s => {
@@ -515,6 +516,7 @@ document.getElementById('createBtn').onclick = () => {
   upSetVis('private');
   const nb = document.getElementById('upNext');
   nb.textContent = 'Next';
+  nb.disabled = false;
   if (window._upNextDefault) nb.onclick = window._upNextDefault;
   upShow(-1);
   uploadModal.classList.remove('hidden');
@@ -529,9 +531,9 @@ dropZone.addEventListener('drop', (e) => {
 document.getElementById('upFile').addEventListener('change', (e) => { if (e.target.files[0]) stageFile(e.target.files[0]); });
 const MAX_UPLOAD = 250_000_000;
 window.addEventListener('error', (e) => {
-  if (!uploadModal.classList.contains('hidden')) {
+  if (!uploadModal.classList.contains('hidden') && e && e.message) {
     const el = document.getElementById('upErr');
-    if (el && !el.textContent) el.textContent = 'Something broke: ' + (e.message || 'unknown error');
+    if (el && !el.textContent) el.textContent = 'Something broke: ' + e.message;
   }
 });
 async function stageFile(file) {
@@ -593,7 +595,7 @@ window._upNextDefault = document.getElementById('upNext').onclick;
 async function publishStaged() {
   const err = document.getElementById('upErr');
   err.textContent = '';
-  if (!upStaged) { err.textContent = 'Choose a file first.'; return; }
+  if (!upStaged) { err.textContent = 'Still preparing your file — wait for "Checks complete" then try again.'; btn.disabled = false; return; }
   const title = document.getElementById('upTitle').value.trim();
   const desc = document.getElementById('upDesc').value.trim();
   if (!title) { err.textContent = 'Title is required.'; return; }
@@ -689,6 +691,7 @@ function sampleFrames(file, n) {
         } catch { break; }
       }
       URL.revokeObjectURL(url);
+      v.pause(); v.removeAttribute('src'); v.load();
       resolve(shots);
     };
     v.onerror = () => { URL.revokeObjectURL(url); resolve([]); };
@@ -721,7 +724,7 @@ function getDuration(file) {
     const url = URL.createObjectURL(file);
     const v = document.createElement('video');
     v.preload = 'metadata'; v.src = url;
-    v.onloadedmetadata = () => { URL.revokeObjectURL(url); resolve(v.duration || 0); };
+    v.onloadedmetadata = () => { URL.revokeObjectURL(url); v.pause(); v.removeAttribute('src'); v.load(); resolve(v.duration || 0); };
     v.onerror = () => { URL.revokeObjectURL(url); resolve(0); };
   });
 }
@@ -737,6 +740,7 @@ function captureThumb(file) {
         c.width = 640; c.height = 360;
         c.getContext('2d').drawImage(v, 0, 0, 640, 360);
         URL.revokeObjectURL(url);
+        v.pause(); v.removeAttribute('src'); v.load();
         c.toBlob(b => resolve(b), 'image/jpeg', 0.7);
       };
     };
