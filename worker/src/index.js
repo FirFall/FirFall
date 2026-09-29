@@ -56,9 +56,11 @@ export default {
       const tok = m ? m[1] : url.searchParams.get('token');
       if (!tok) return null;
       const row = await env.DB.prepare(
-        'SELECT u.username FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=?'
+        'SELECT u.username,u.role,u.banned FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=?'
       ).bind(tok).first();
-      return row ? row.username : null;
+      if (!row) return null;
+      if (row.banned) return null;
+      return { username: row.username, role: row.role };
     }
 
     // ---- Backblaze B2 (native API, private bucket, multipart for big files) ----
@@ -157,6 +159,33 @@ export default {
     const VIDEO_EXTS = ['mp4', 'webm', 'mov', 'mkv'];
 
     try {
+      // ---------- Admin Panel (User list, Ban, Role) ----------
+      if (req.method === 'GET' && url.pathname === '/api/admin/users') {
+        const user = await authedUser();
+        if (!user || user.role !== 'admin') return json(403, { error: 'Admin only.' });
+        const rows = (await env.DB.prepare('SELECT username,role,banned FROM users ORDER BY created_at DESC').all()).results;
+        return json(200, { users: rows });
+      }
+      if (req.method === 'POST' && url.pathname === '/api/admin/user') {
+        const user = await authedUser();
+        if (!user || user.role !== 'admin') return json(403, { error: 'Admin only.' });
+        const { target, role, ban } = await req.json();
+        const updates = [];
+        const vals = [];
+        if (role !== undefined) { updates.push('role=?'); vals.push(role); }
+        if (ban !== undefined) { updates.push('banned=?'); vals.push(ban ? 1 : 0); }
+        if (!updates.length) return json(400, { error: 'No updates provided.' });
+        vals.push(target);
+        await env.DB.prepare('UPDATE users SET ' + updates.join(',') + ' WHERE username=?').bind(...vals).run();
+        return json(200, { ok: true });
+      }
+      if (req.method === 'POST' && url.pathname === '/api/admin/promote') {
+        const user = await authedUser();
+        if (!user || user.role !== 'admin') return json(403, { error: 'Admin only.' });
+        const { target } = await req.json();
+        await env.DB.prepare('UPDATE users SET role=? WHERE username=?').bind('Test Moderator', target).run();
+        return json(200, { ok: true });
+      }
       // ---------- Auth (unchanged behavior) ----------
       if (req.method === 'POST' && url.pathname === '/api/register') {
         const { username, password } = await req.json();
@@ -562,7 +591,27 @@ export default {
         return json(200, { ok: true });
       }
 
-      // ---------- Playback redirect (clean only; private needs owner token) ----------
+      if (req.method === 'GET' && url.pathname === '/api/admin/users') {
+        const user = await authedUser();
+        if (!user || (await env.DB.prepare('SELECT role FROM users WHERE username=?').bind(user).first()).role !== 'admin')
+          return json(403, { error: 'Admin only.' });
+        const rows = (await env.DB.prepare('SELECT id,username,role,banned FROM users ORDER BY created_at DESC').all()).results;
+        return json(200, { users: rows });
+      }
+      if (req.method === 'POST' && url.pathname === '/api/admin/update') {
+        const user = await authedUser();
+        if (!user || (await env.DB.prepare('SELECT role FROM users WHERE username=?').bind(user).first()).role !== 'admin')
+          return json(403, { error: 'Admin only.' });
+        const { target, role, banned } = await req.json();
+        if (!target) return json(400, { error: 'Target required.' });
+        const sets = []; const vals = [];
+        if (role !== undefined) { sets.push('role=?'); vals.push(role); }
+        if (banned !== undefined) { sets.push('banned=?'); vals.push(banned ? 1 : 0); }
+        if (!sets.length) return json(400, { error: 'Nothing to update.' });
+        vals.push(target);
+        await env.DB.prepare('UPDATE users SET ' + sets.join(',') + ' WHERE username=?').bind(...vals).run();
+        return json(200, { ok: true });
+      }
       if (req.method === 'GET' && url.pathname.startsWith('/v/')) {
         const id = url.pathname.slice(3);
         const row = await env.DB.prepare("SELECT r2_key,owner,visibility FROM videos WHERE id=? AND status='clean'").bind(id).first();

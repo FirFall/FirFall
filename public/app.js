@@ -165,7 +165,16 @@ authSubmit.onclick = async () => {
   } catch { authErr.textContent = 'Auth service unreachable — check connection.'; }
 };
 
-// ---- Local stores ----
+    // ---- Update Log (shown once per version) ----
+    const currentVer = '1.1';
+    const lastVer = store.get('firfall_ver', '0');
+    if (lastVer !== currentVer) {
+      const log = document.createElement('div');
+      log.className = 'update-log';
+      log.innerHTML = '<h3>Update ' + currentVer + '</h3><p>New Features: Real Subscriptions, Channel Art, Notifications, Admin Panel, & Moderation.</p><button id="upLogOk">Got it!</button>';
+      document.body.appendChild(log);
+      document.getElementById('upLogOk').onclick = () => { store.set('firfall_ver', currentVer); log.remove(); };
+    }
 const store = {
   get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch { return d; } },
   set(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
@@ -340,6 +349,9 @@ async function renderChannel(name) {
     document.getElementById('chSubBtn').style.display = '';
     meta.dataset.owner = c.username;
     wireSubBtn(document.getElementById('chSubBtn'), c.username, document.getElementById('chBellBtn'));
+    // Add Moderator badge
+    const nameEl = document.getElementById('chName');
+    nameEl.innerHTML = c.username + (c.role === 'moderator' ? ' <span class="badge-mod">🔨 Mod</span>' : '');
     // Banner + avatar (custom or defaults)
     const banner = document.getElementById('chBanner');
     if (c.banner) { banner.src = API + c.banner + '?t=' + Date.now(); banner.classList.remove('hidden'); }
@@ -514,7 +526,7 @@ async function renderWatch(id) {
     player.src = API + '/v/' + v.id + q;
     player.playbackRate = 1;
     document.getElementById('speedBtn').textContent = '1x';
-    document.getElementById('wTitle').textContent = v.title;
+    document.getElementById('wTitle').textContent = v.title + (v.role === 'moderator' ? ' <span class=\"badge-mod\">🔨 Mod</span>' : '');
     document.getElementById('wStats').textContent = fmt(v.views || 0) + ' views • ' + new Date(v.created_at).toLocaleDateString() + (v.duration ? ' • ' + fmtDur(v.duration) : '');
     const ch = document.getElementById('wChannelLink');
     document.getElementById('wChannel').textContent = '@' + v.owner;
