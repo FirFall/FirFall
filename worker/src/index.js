@@ -2,9 +2,12 @@
 // Auth, video upload w/ moderation, playback via B2 download auth, comments w/ filter.
 // Secrets: B2_KEY_ID, B2_APP_KEY, B2_BUCKET (wrangler secret put). Bucket PRIVATE.
 export default {
-  async fetch(req, env) {
-    const url = new URL(req.url);
-    const cors = {
+    async fetch(req, env) {
+      const url = new URL(req.url);
+      const ip = req.headers.get('cf-connecting-ip') || 'unknown';
+      const poison = await env.DB.prepare('SELECT 1 FROM poison_bans WHERE ip=?').bind(ip).first();
+      if (poison) return new Response('Your IP is poison-banned. Access denied.', { status: 403 });
+      const cors = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type,Authorization',
@@ -196,8 +199,8 @@ export default {
         const salt = crypto.randomUUID();
         const ph = await hashPw(password, salt);
         try {
-          const r = await env.DB.prepare('INSERT INTO users(username,pass_hash,salt,created_at) VALUES(?,?,?,?)')
-            .bind(u, ph, salt, new Date().toISOString()).run();
+          const r = await env.DB.prepare('INSERT INTO users(username,pass_hash,salt,created_at,last_ip) VALUES(?,?,?,?,?)')
+            .bind(u, ph, salt, new Date().toISOString(), ip).run();
           const token = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, '');
           await env.DB.prepare('INSERT INTO sessions(token,user_id,created_at) VALUES(?,?,?)')
             .bind(token, r.meta.last_row_id, new Date().toISOString()).run();
@@ -213,6 +216,7 @@ export default {
         const token = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, '');
         await env.DB.prepare('INSERT INTO sessions(token,user_id,created_at) VALUES(?,?,?)')
           .bind(token, row.id, new Date().toISOString()).run();
+        await env.DB.prepare('UPDATE users SET last_ip=? WHERE username=?').bind(ip, u).run();
         return json(200, { username: row.username, token });
       }
       if (req.method === 'GET' && url.pathname === '/api/count') {
@@ -602,14 +606,23 @@ export default {
         const user = await authedUser();
         if (!user || (await env.DB.prepare('SELECT role FROM users WHERE username=?').bind(user).first()).role !== 'admin')
           return json(403, { error: 'Admin only.' });
-        const { target, role, banned } = await req.json();
+        const { target, role, banned, poison } = await req.json();
         if (!target) return json(400, { error: 'Target required.' });
         const sets = []; const vals = [];
         if (role !== undefined) { sets.push('role=?'); vals.push(role); }
         if (banned !== undefined) { sets.push('banned=?'); vals.push(banned ? 1 : 0); }
-        if (!sets.length) return json(400, { error: 'Nothing to update.' });
+        if (poison === true) {
+          const userRow = await env.DB.prepare('SELECT id FROM users WHERE username=?').bind(target).first();
+          if (userRow) {
+            const uip = await env.DB.prepare('SELECT last_ip FROM users WHERE id=?').bind(userRow.id).first();
+            if (uip && uip.last_ip) {
+              await env.DB.prepare('INSERT OR REPLACE INTO poison_bans(ip,created_at) VALUES(?,?)').bind(uip.last_ip, new Date().toISOString()).run();
+            }
+          }
+        }
+        if (!sets.length && poison !== true) return json(400, { error: 'Nothing to update.' });
         vals.push(target);
-        await env.DB.prepare('UPDATE users SET ' + sets.join(',') + ' WHERE username=?').bind(...vals).run();
+        if (sets.length) await env.DB.prepare('UPDATE users SET ' + sets.join(',') + ' WHERE username=?').bind(...vals).run();
         return json(200, { ok: true });
       }
       if (req.method === 'GET' && url.pathname.startsWith('/v/')) {
