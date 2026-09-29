@@ -95,22 +95,29 @@ export default {
     }
     async function b2call(op, body, retryAuth = true) {
       const a = await b2auth();
-      const r = await fetch(a.apiUrl + '/b2api/v2/' + op, {
-        method: 'POST', headers: { Authorization: a.token, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      if (r.status === 401 && retryAuth) {
-        globalThis.__b2 = null;
-        const a2 = await b2auth();
-        const r2 = await fetch(a2.apiUrl + '/b2api/v2/' + op, {
-          method: 'POST', headers: { Authorization: a2.token, 'Content-Type': 'application/json' },
+      const callOnce = async (tok, api) => {
+        const r = await fetch(api + '/b2api/v2/' + op, {
+          method: 'POST', headers: { Authorization: tok, 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
         });
-        if (!r2.ok) throw new Error(op + ' ' + r2.status);
-        return await r2.json();
+        if (!r.ok) {
+          const detail = await r.text().catch(() => '');
+          const err = new Error(op + ' ' + r.status + ' ' + detail.slice(0, 200));
+          err.status = r.status;
+          throw err;
+        }
+        return await r.json();
+      };
+      try {
+        return await callOnce(a.token, a.apiUrl);
+      } catch (e) {
+        if (e.status === 401 && retryAuth) {
+          globalThis.__b2 = null;
+          const a2 = await b2auth();
+          return await callOnce(a2.token, a2.apiUrl);
+        }
+        throw e;
       }
-      if (!r.ok) throw new Error(op + ' ' + r.status);
-      return await r.json();
     }
     async function b2freshPartUrl(fileId) {
       const j = await b2call('b2_get_upload_part_url', { fileId });
