@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS videos(
   flag_reason TEXT,
   scan TEXT,
   views INTEGER NOT NULL DEFAULT 0,
+  duration REAL NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_videos_owner ON videos(owner);
@@ -39,6 +40,7 @@ CREATE INDEX IF NOT EXISTS idx_comments_video ON comments(video_id);
 CREATE TABLE IF NOT EXISTS video_likes(
   video_id TEXT NOT NULL,
   username TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'like',
   created_at TEXT NOT NULL,
   PRIMARY KEY (video_id, username)
 );

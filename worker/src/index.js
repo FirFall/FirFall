@@ -148,6 +148,7 @@ export default {
         if (file.size > MAX_VIDEO_BYTES) return json(400, { error: 'Max 100MB per upload (test version).' });
         if (title.length < 1 || title.length > 100) return json(400, { error: 'Title 1-100 chars.' });
         if (desc.length > 2000) return json(400, { error: 'Description max 2000 chars.' });
+        let duration = Math.max(0, Math.min(36000, parseFloat(form.get('duration')) || 0));
         if (clientScan === 'blocked') return json(400, { error: 'Blocked: on-device scan flagged this video as explicit.' });
         // Title policy: profanity tolerated; NSFW/gore held; racism/extremism/severe rejected.
         const verdict = scanText(title, desc, file.name);
@@ -162,8 +163,8 @@ export default {
         // Held-for-review content never touches storage: reject the bytes now.
         if (status !== 'clean') {
           await env.DB.prepare(
-            'INSERT INTO videos(id,owner,title,description,r2_key,thumb_key,mime,size,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
-          ).bind(id, user, title, desc, '', null, file.type, file.size, status, flagReason, clientScan, new Date().toISOString()).run();
+            'INSERT INTO videos(id,owner,title,description,r2_key,thumb_key,mime,size,duration,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)'
+          ).bind(id, user, title, desc, '', null, file.type, file.size, duration, status, flagReason, clientScan, new Date().toISOString()).run();
           return json(202, { id, status, message: 'Held for review: auto-filter matched (' + verdict + '). File discarded.' });
         }
         await supaPut(key, file.stream(), file.type);
@@ -183,15 +184,15 @@ export default {
             if (top.some(l => l.score > 0.5 && risky.some(r => String(l.label || '').toLowerCase().includes(r)))) {
               try { await supaDelete([key, thumbKey]); } catch {}
               await env.DB.prepare(
-                'INSERT INTO videos(id,owner,title,description,r2_key,thumb_key,mime,size,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
-              ).bind(id, user, title, desc, '', null, file.type, file.size, 'flagged', 'auto-vision: explicit thumbnail', clientScan, new Date().toISOString()).run();
+                'INSERT INTO videos(id,owner,title,description,r2_key,thumb_key,mime,size,duration,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)'
+              ).bind(id, user, title, desc, '', null, file.type, file.size, duration, 'flagged', 'auto-vision: explicit thumbnail', clientScan, new Date().toISOString()).run();
               return json(202, { id, status: 'flagged', message: 'Held for review: thumbnail failed the explicit-content check. File discarded.' });
             }
           } catch { /* AI unavailable — text + client checks still apply */ }
         }
         await env.DB.prepare(
-          'INSERT INTO videos(id,owner,title,description,r2_key,thumb_key,mime,size,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
-        ).bind(id, user, title, desc, key, thumbKey, file.type, file.size, 'clean', null, clientScan, new Date().toISOString()).run();
+          'INSERT INTO videos(id,owner,title,description,r2_key,thumb_key,mime,size,duration,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)'
+        ).bind(id, user, title, desc, key, thumbKey, file.type, file.size, duration, 'clean', null, clientScan, new Date().toISOString()).run();
         return json(200, { id, status: 'clean', message: 'Uploaded.' });
       }
 
@@ -199,18 +200,21 @@ export default {
       if (req.method === 'GET' && url.pathname === '/api/videos') {
         const owner = url.searchParams.get('owner');
         const rows = owner
-          ? (await env.DB.prepare("SELECT id,owner,title,description,mime,size,views,created_at FROM videos WHERE status='clean' AND owner=? ORDER BY created_at DESC LIMIT 50").bind(owner.toLowerCase()).all()).results
-          : (await env.DB.prepare("SELECT id,owner,title,description,mime,size,views,created_at FROM videos WHERE status='clean' ORDER BY created_at DESC LIMIT 50").all()).results;
+          ? (await env.DB.prepare("SELECT id,owner,title,description,mime,size,views,duration,created_at FROM videos WHERE status='clean' AND owner=? ORDER BY created_at DESC LIMIT 50").bind(owner.toLowerCase()).all()).results
+          : (await env.DB.prepare("SELECT id,owner,title,description,mime,size,views,duration,created_at FROM videos WHERE status='clean' ORDER BY created_at DESC LIMIT 50").all()).results;
         return json(200, { videos: rows });
       }
       if (req.method === 'GET' && url.pathname === '/api/video') {
-        const row = await env.DB.prepare("SELECT id,owner,title,description,mime,size,views,created_at FROM videos WHERE id=? AND status='clean'").bind(url.searchParams.get('id')).first();
+        const row = await env.DB.prepare("SELECT id,owner,title,description,mime,size,views,duration,created_at FROM videos WHERE id=? AND status='clean'").bind(url.searchParams.get('id')).first();
         if (!row) return json(404, { error: 'Video not found.' });
-        const likes = (await env.DB.prepare('SELECT COUNT(*) c FROM video_likes WHERE video_id=?').bind(row.id).first()).c;
-        let liked = false;
+        const likes = (await env.DB.prepare("SELECT COUNT(*) c FROM video_likes WHERE video_id=? AND kind='like'").bind(row.id).first()).c;
+        let reaction = 'none';
         const u = await authedUser();
-        if (u) liked = !!(await env.DB.prepare('SELECT 1 x FROM video_likes WHERE video_id=? AND username=?').bind(row.id, u).first());
-        return json(200, { video: row, likes, liked });
+        if (u) {
+          const mine = await env.DB.prepare('SELECT kind FROM video_likes WHERE video_id=? AND username=?').bind(row.id, u).first();
+          if (mine) reaction = mine.kind;
+        }
+        return json(200, { video: row, likes, reaction });
       }
       // ---------- Real channel lookup (unknown users 404 — no fake channels) ----------
       if (req.method === 'GET' && url.pathname === '/api/user') {
@@ -226,17 +230,21 @@ export default {
         await env.DB.prepare("UPDATE videos SET views=views+1 WHERE id=? AND status='clean'").bind(id).run();
         return json(200, { ok: true });
       }
-      if (req.method === 'POST' && url.pathname === '/api/video/like') {
+      if (req.method === 'POST' && url.pathname === '/api/video/react') {
         const user = await authedUser();
-        if (!user) return json(401, { error: 'Sign in to like.' });
-        const { id } = await req.json();
+        if (!user) return json(401, { error: 'Sign in to react.' });
+        const { id, kind } = await req.json();
         const vid = await env.DB.prepare("SELECT id FROM videos WHERE id=? AND status='clean'").bind(id).first();
         if (!vid) return json(404, { error: 'Video not found.' });
-        const has = await env.DB.prepare('SELECT 1 x FROM video_likes WHERE video_id=? AND username=?').bind(id, user).first();
-        if (has) await env.DB.prepare('DELETE FROM video_likes WHERE video_id=? AND username=?').bind(id, user).run();
-        else await env.DB.prepare('INSERT INTO video_likes(video_id,username,created_at) VALUES(?,?,?)').bind(id, user, new Date().toISOString()).run();
-        const likes = (await env.DB.prepare('SELECT COUNT(*) c FROM video_likes WHERE video_id=?').bind(id).first()).c;
-        return json(200, { likes, liked: !has });
+        if (kind === 'none') await env.DB.prepare('DELETE FROM video_likes WHERE video_id=? AND username=?').bind(id, user).run();
+        else if (kind === 'like' || kind === 'dislike') await env.DB.prepare(
+          'INSERT INTO video_likes(video_id,username,kind,created_at) VALUES(?,?,?,?) ON CONFLICT(video_id,username) DO UPDATE SET kind=excluded.kind'
+        ).bind(id, user, kind, new Date().toISOString()).run();
+        else return json(400, { error: 'Bad reaction.' });
+        const likes = (await env.DB.prepare("SELECT COUNT(*) c FROM video_likes WHERE video_id=? AND kind='like'").bind(id).first()).c;
+        const dislikes = (await env.DB.prepare("SELECT COUNT(*) c FROM video_likes WHERE video_id=? AND kind='dislike'").bind(id).first()).c;
+        const mine = await env.DB.prepare('SELECT kind FROM video_likes WHERE video_id=? AND username=?').bind(id, user).first();
+        return json(200, { likes, dislikes, reaction: mine ? mine.kind : 'none' });
       }
 
       // ---------- Playback redirect (clean only, signed, 1h) ----------

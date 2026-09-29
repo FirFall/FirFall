@@ -79,21 +79,37 @@
     <div class="yt-grid" id="grid"></div>
    </div>
    <div id="watchView" class="hidden">
-     <video id="player" controls playsinline></video>
-     <h2 id="wTitle"></h2>
-     <p id="wStats" class="modal-sub"></p>
-     <div class="w-row">
-       <a id="wChannel" href="#/"></a>
-       <button id="wSubBtn" class="sub-btn">Subscribe</button>
-       <span class="w-space"></span>
-       <button id="wLikeBtn" class="pill-btn">♡ <span id="wLikes">0</span></button>
-       <button id="wSaveBtn" class="pill-btn">+ Watch later</button>
+     <div class="watch-cols">
+      <div class="watch-primary">
+       <video id="player" controls playsinline></video>
+       <h2 id="wTitle" class="w-title"></h2>
+       <div class="w-row">
+         <a id="wChannelLink" class="w-channel" href="#/">
+           <span id="wAvatar" class="avatar">?</span>
+           <span class="w-chmeta"><strong id="wChannel">@channel</strong><span id="wSubCount" class="modal-sub"></span></span>
+         </a>
+         <button id="wSubBtn" class="sub-btn">Subscribe</button>
+         <span class="w-space"></span>
+         <span class="seg">
+           <button id="wLikeBtn">♡ <span id="wLikes">0</span></button><button id="wDislikeBtn" title="I dislike this">♡</button>
+         </span>
+         <button id="wShareBtn" class="pill-btn">⇪ Share</button>
+         <button id="wSaveBtn" class="pill-btn">+ Watch later</button>
+       </div>
+       <div id="wDescBox" class="w-descbox collapsed"><p id="wStats" class="w-stats"></p><p id="wDesc" class="w-desc"></p></div>
+       <h3 id="cCount">Comments</h3>
+       <div class="c-form"><span id="cAvatar" class="avatar sm">?</span><input id="cInput" maxlength="500" placeholder="Add a comment..." /><button id="cSend" class="auth-go">Comment</button></div>
+       <p id="cErr" class="auth-err"></p>
+       <div id="cList"></div>
+      </div>
+      <div class="watch-secondary">
+        <div class="yt-chips slim" id="upChips">
+          <button class="yt-chip active" data-uq="">All</button>
+          <button class="yt-chip" data-uq="from">From this channel</button>
+        </div>
+        <div id="upNext"></div>
+      </div>
      </div>
-     <p id="wDesc" class="w-desc"></p>
-     <h3>Comments</h3>
-     <div class="c-form"><input id="cInput" maxlength="500" placeholder="Add a comment..." /><button id="cSend" class="auth-go">Comment</button></div>
-     <p id="cErr" class="auth-err"></p>
-     <div id="cList"></div>
    </div>
    <div id="channelView" class="hidden">
      <div class="ch-head">

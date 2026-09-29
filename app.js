@@ -101,6 +101,12 @@ function baseSubs(name) {
   return 12 + (h % 4800);
 }
 function fmt(n) { return n >= 1000 ? (n / 1000).toFixed(1).replace('.0', '') + 'K' : String(n); }
+function fmtDur(s) {
+  s = Math.round(s || 0);
+  const m = Math.floor(s / 60), h = Math.floor(m / 60);
+  const ss = String(s % 60).padStart(2, '0');
+  return h ? h + ':' + String(m % 60).padStart(2, '0') + ':' + ss : m + ':' + ss;
+}
 function pushHistory(v) {
   const h = store.get('firfall_history', []).filter(x => x.id !== v.id);
   h.unshift({ id: v.id, title: v.title, owner: v.owner, at: Date.now() });
@@ -137,7 +143,8 @@ let homeQuery = '';
 function card(v) {
   const d = document.createElement('div');
   d.className = 'card';
-  d.innerHTML = '<video muted preload="metadata" playsinline src="' + API + '/v/' + v.id + '" poster="' + API + '/t/' + v.id + '"></video>' +
+  d.innerHTML = '<div class="thumb"><video muted preload="metadata" playsinline src="' + API + '/v/' + v.id + '" poster="' + API + '/t/' + v.id + '"></video>' +
+    (v.duration ? '<span class="duration">' + fmtDur(v.duration) + '</span>' : '') + '</div>' +
     '<div class="meta"><div class="chan">' + (v.owner[0] || '?').toUpperCase() + '</div><div><h3></h3><p></p></div></div>';
   d.querySelector('h3').textContent = v.title;
   d.querySelector('p').textContent = v.owner + ' • ' + fmt(v.views || 0) + ' views • ' + new Date(v.created_at).toLocaleDateString();
@@ -205,46 +212,99 @@ async function renderChannel(name) {
 }
 
 let currentVideo = null;
+let upFilter = '';
 async function renderWatch(id) {
   show(watchView); markNav('');
   const player = document.getElementById('player');
   player.pause(); player.removeAttribute('src'); player.load();
+  document.getElementById('wDescBox').classList.add('collapsed');
   try {
     const r = await fetch(API + '/api/video?id=' + encodeURIComponent(id));
     if (!r.ok) { document.getElementById('wTitle').textContent = 'Video not found.'; return; }
-    const { video: v, likes, liked } = await r.json();
+    const { video: v, likes, reaction } = await r.json();
     currentVideo = v;
     player.poster = API + '/t/' + v.id;
     player.src = API + '/v/' + v.id;
     document.getElementById('wTitle').textContent = v.title;
-    document.getElementById('wStats').textContent = fmt(v.views || 0) + ' views • ' + new Date(v.created_at).toLocaleDateString();
-    const ch = document.getElementById('wChannel');
-    ch.textContent = '@' + v.owner; ch.href = '#/channel/' + v.owner;
+    document.getElementById('wStats').textContent = fmt(v.views || 0) + ' views • ' + new Date(v.created_at).toLocaleDateString() + (v.duration ? ' • ' + fmtDur(v.duration) : '');
+    const ch = document.getElementById('wChannelLink');
+    document.getElementById('wChannel').textContent = '@' + v.owner;
+    document.getElementById('wAvatar').textContent = v.owner[0].toUpperCase();
+    ch.href = '#/channel/' + v.owner;
     wireSubBtn(document.getElementById('wSubBtn'), v.owner);
-    paintLike(!!liked, likes || 0);
+    paintReact(reaction || 'none', likes || 0);
     paintSave();
-    document.getElementById('wDesc').textContent = v.description || '';
+    const cAv = document.getElementById('cAvatar');
+    cAv.textContent = me() ? me()[0].toUpperCase() : '?';
+    document.getElementById('wDesc').textContent = v.description || 'No description.';
     pushHistory(v);
     fetch(API + '/api/video/view', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }).catch(() => {});
     loadComments(v.id);
+    loadUpNext(v);
   } catch { document.getElementById('wTitle').textContent = 'Could not load video.'; }
 }
-function paintLike(liked, n) {
-  const b = document.getElementById('wLikeBtn');
-  b.innerHTML = (liked ? '♥ ' : '♡ ') + '<span>' + n + '</span>';
-  b.classList.toggle('on', !!liked);
+function paintReact(reaction, n) {
+  const like = document.getElementById('wLikeBtn');
+  const dis = document.getElementById('wDislikeBtn');
+  like.innerHTML = (reaction === 'like' ? '♥ ' : '♡ ') + '<span>' + n + '</span>';
+  dis.textContent = reaction === 'dislike' ? '♥' : '♡';
+  dis.classList.toggle('on', reaction === 'dislike');
+  like.classList.toggle('on', reaction === 'like');
 }
-document.getElementById('wLikeBtn').onclick = async () => {
+async function react(kind) {
   if (!me()) { setMode('login'); modal.classList.remove('hidden'); return; }
+  const want = (document.getElementById(kind === 'like' ? 'wLikeBtn' : 'wDislikeBtn').classList.contains('on')) ? 'none' : kind;
   try {
-    const r = await fetch(API + '/api/video/like', {
+    const r = await fetch(API + '/api/video/react', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
-      body: JSON.stringify({ id: currentVideo.id })
+      body: JSON.stringify({ id: currentVideo.id, kind: want })
     });
     const j = await r.json();
-    if (r.ok) paintLike(j.liked, j.likes);
+    if (r.ok) paintReact(j.reaction, j.likes);
   } catch {}
+}
+document.getElementById('wLikeBtn').onclick = () => react('like');
+document.getElementById('wDislikeBtn').onclick = () => react('dislike');
+document.getElementById('wShareBtn').onclick = async () => {
+  const link = location.href;
+  try { await navigator.clipboard.writeText(link); document.getElementById('wShareBtn').textContent = '✓ Copied'; }
+  catch { prompt('Copy link:', link); }
+  setTimeout(() => { document.getElementById('wShareBtn').textContent = '⇪ Share'; }, 1500);
 };
+document.getElementById('wDescBox').onclick = (e) => {
+  if (e.target.closest('a')) return;
+  document.getElementById('wDescBox').classList.toggle('collapsed');
+};
+async function loadUpNext(v) {
+  const box = document.getElementById('upNext');
+  box.innerHTML = '';
+  try {
+    const r = await fetch(API + '/api/videos');
+    const { videos } = await r.json();
+    let list = videos.filter(x => x.id !== v.id);
+    if (upFilter === 'from') list = list.filter(x => x.owner === v.owner);
+    list.slice(0, 12).forEach(x => {
+      const d = document.createElement('div');
+      d.className = 'upnext';
+      d.innerHTML = '<div class="thumb"><video muted preload="metadata" playsinline poster="' + API + '/t/' + x.id + '"></video>' +
+        (x.duration ? '<span class="duration">' + fmtDur(x.duration) + '</span>' : '') + '</div>' +
+        '<div><h4></h4><p></p></div>';
+      d.querySelector('h4').textContent = x.title;
+      d.querySelector('p').textContent = x.owner + ' • ' + fmt(x.views || 0) + ' views';
+      d.onclick = () => { location.hash = '#/watch/' + x.id; };
+      box.appendChild(d);
+    });
+    if (!list.length) box.innerHTML = '<p class="modal-sub">Nothing else here yet.</p>';
+  } catch { box.innerHTML = ''; }
+}
+document.getElementById('upChips').addEventListener('click', (e) => {
+  const c = e.target.closest('.yt-chip');
+  if (!c || !currentVideo) return;
+  document.querySelectorAll('#upChips .yt-chip').forEach(x => x.classList.remove('active'));
+  c.classList.add('active');
+  upFilter = c.dataset.uq || '';
+  loadUpNext(currentVideo);
+});
 function paintSave() {
   const later = store.get('firfall_later', []);
   const saved = later.some(x => x.id === currentVideo.id);
@@ -266,6 +326,7 @@ async function loadComments(vid) {
   try {
     const r = await fetch(API + '/api/comments?video=' + encodeURIComponent(vid));
     const { comments } = await r.json();
+    document.getElementById('cCount').textContent = comments.length + ' Comments';
     if (!comments.length) list.innerHTML = '<p class="modal-sub">No comments yet.</p>';
     comments.forEach(c => {
       const d = document.createElement('div');
@@ -393,6 +454,15 @@ async function scanVideo(file, status) {
     return (porn >= 1 || sexy >= 2) ? 'blocked' : 'clean';
   } catch (e) { return 'skipped'; }
 }
+function getDuration(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.preload = 'metadata'; v.src = url;
+    v.onloadedmetadata = () => { URL.revokeObjectURL(url); resolve(v.duration || 0); };
+    v.onerror = () => { URL.revokeObjectURL(url); resolve(0); };
+  });
+}
 function captureThumb(file) {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
@@ -428,12 +498,14 @@ document.getElementById('upSubmit').onclick = async () => {
     if (scan === 'blocked') { err.textContent = 'Blocked: on-device scan flagged explicit content.'; return; }
     status('Capturing thumbnail…');
     const thumb = await captureThumb(file);
+    const duration = await getDuration(file);
     status('Uploading…');
     const form = new FormData();
     form.append('file', file);
     if (thumb) form.append('thumb', thumb, 'thumb.jpg');
     form.append('title', title);
     form.append('description', desc);
+    form.append('duration', String(duration));
     form.append('scan', scan);
     const r = await fetch(API + '/api/videos/upload', {
       method: 'POST', headers: { 'Authorization': 'Bearer ' + token() }, body: form
