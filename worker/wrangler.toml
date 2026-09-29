@@ -1,0 +1,8 @@
+name = "firfall-auth"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "firfall_users"
+database_id = "REPLACE_WITH_D1_ID"

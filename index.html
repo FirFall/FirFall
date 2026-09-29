@@ -34,8 +34,9 @@
     <button class="yt-icon-btn" aria-label="Create">
       <svg viewBox="0 0 24 24" width="22" height="22"><path d="M14 13h-3v3H9v-3H6v-2h3V8h2v3h3v2zm2-8H8a4 4 0 0 0-4 4v6a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4V9a4 4 0 0 0-4-4zm0 12H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2z" fill="currentColor"/></svg>
     </button>
-    <button class="yt-icon-btn" aria-label="Notifications">
-      <svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22zm7-5H5V9a7 7 0 0 1 5-6.71V1.5a1.5 1.5 0 0 1 3 0v.79A7 7 0 0 1 19 9v8zm-2 0V9a5 5 0 0 0-3.5-4.78V4a1.5 1.5 0 0 0-3 0v.22A5 5 0 0 0 7 9v8h10z" fill="currentColor"/></svg>
+    <button id="signInBtn" class="yt-signin">
+      <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0 2c-3.3 0-8 1.7-8 5v3h16v-3c0-3.3-4.7-5-8-5z" fill="currentColor"/></svg>
+      <span id="signInLabel">Sign in</span>
     </button>
   </div>
 </header>
@@ -64,10 +65,23 @@
   <main class="yt-main">
     <div class="blank-state">
       <h2>Blank canvas — ready for backend</h2>
-      <p>No videos, no login yet. Frontend shell only.</p>
+      <p>No videos yet. Sign-in is live.</p>
     </div>
     <div class="yt-grid" id="grid"></div>
   </main>
+</div>
+
+<div id="authModal" class="modal hidden">
+  <div class="modal-box">
+    <button id="authClose" class="modal-x">✕</button>
+    <h2 id="authTitle">Sign in</h2>
+    <p class="modal-sub">FirFall account • stored in unlimited local SQLite DB</p>
+    <input id="authUser" type="text" placeholder="Username" autocomplete="username" />
+    <input id="authPass" type="password" placeholder="Password" autocomplete="current-password" />
+    <p id="authErr" class="auth-err"></p>
+    <button id="authSubmit" class="auth-go">Sign in</button>
+    <button id="authSwitch" class="auth-switch">New here? Create account</button>
+  </div>
 </div>
 
 <script src="app.js"></script>

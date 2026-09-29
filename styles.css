@@ -22,6 +22,18 @@
 .yt-sidebar a.active,.yt-sidebar a:hover{background:#272727}
 .yt-sidebar hr{border:0;border-top:1px solid #272727;margin:12px 0}
 .yt-main{flex:1;padding:24px;min-width:0}
+.yt-signin{display:flex;align-items:center;gap:8px;background:transparent;color:#3ea6ff;border:1px solid #3ea6ff;padding:8px 14px;border-radius:20px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap}
+.yt-signin:hover{background:#3ea6ff22}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:50}
+.modal.hidden{display:none}
+.modal-box{position:relative;background:#212121;border:1px solid #3d3d3d;border-radius:16px;padding:28px;width:340px;display:flex;flex-direction:column;gap:12px}
+.modal-box h2{margin:0}.modal-sub{margin:0;color:#aaa;font-size:13px}
+.modal-box input{background:#121212;border:1px solid #303030;border-radius:8px;color:#fff;padding:11px 12px;font-size:14px;outline:none}
+.modal-box input:focus{border-color:#3ea6ff}
+.auth-go{background:#3ea6ff;border:0;color:#003300;font-weight:700;padding:11px;border-radius:20px;cursor:pointer}
+.auth-switch{background:transparent;border:0;color:#3ea6ff;cursor:pointer;font-size:13px}
+.auth-err{color:#ff6b6b;font-size:13px;min-height:16px;margin:0}
+.modal-x{position:absolute;top:10px;right:12px;background:transparent;border:0;color:#aaa;font-size:16px;cursor:pointer}
 .blank-state{text-align:center;color:#aaa;padding:80px 20px;border:1px dashed #303030;border-radius:12px}
 .blank-state h2{color:#fff;margin:0 0 8px}
 .yt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px 14px;margin-top:16px}
