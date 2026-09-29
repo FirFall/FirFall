@@ -72,7 +72,7 @@ export default {
       await fetch(supaBase() + '/storage/v1/object/videos', {
         method: 'DELETE',
         headers: { apikey: supaKey(), Authorization: 'Bearer ' + supaKey(), 'Content-Type': 'application/json' },
-        body: JSON.stringify(paths)
+        body: JSON.stringify({ prefixes: paths })
       });
     }
     // Signed playback URL (clean videos only — flagged keys are never signed)
@@ -84,7 +84,7 @@ export default {
       });
       if (!r.ok) return null;
       const j = await r.json();
-      return j.signedURL ? supaBase() + j.signedURL : null;
+      return j.signedURL ? supaBase() + '/storage/v1' + j.signedURL : null;
     }
 
     const MAX_VIDEO_BYTES = 100_000_000; // Workers request limit
