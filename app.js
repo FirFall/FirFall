@@ -628,10 +628,12 @@ async function publishStaged() {
   const sessionId = start.sessionId, chunkSize = start.chunkSize || 6000000;
   const file = upStaged.file;
   status('Uploading 0%…');
-  for (let off = 0; off < file.size; off += chunkSize) {
+  let off = 0, still = 0;
+  while (off < file.size) {
     const chunk = file.slice(off, Math.min(off + chunkSize, file.size));
     const f = new FormData();
     f.append('sessionId', sessionId);
+    f.append('off', String(off));
     f.append('chunk', chunk, 'part');
     let ok = false;
     for (let attempt = 0; attempt < 3 && !ok; attempt++) {
@@ -639,10 +641,13 @@ async function publishStaged() {
         const r = await fetch(API + '/api/uploads/chunk', {
           method: 'POST', headers: { 'Authorization': 'Bearer ' + token() }, body: f
         });
-        const j = await r.json();
-        if (!r.ok) { fail(j.error || 'Chunk failed.'); return; }
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { fail((j.error || 'Chunk failed.') + ' (code ' + r.status + ')'); return; }
+        if (typeof j.uploaded !== 'number') { fail('Chunk failed — bad response.'); return; }
+        if (j.uploaded <= off) { if (++still >= 3) { fail('Upload stalled — check connection and retry.'); return; } }
+        else { still = 0; off = j.uploaded; }
         ok = true;
-        const pct = Math.round((j.uploaded / file.size) * 100);
+        const pct = Math.round((off / file.size) * 100);
         fill.style.width = pct + '%';
         status('Uploading ' + pct + '%…');
       } catch { if (attempt === 2) { fail('Upload failed — service unreachable.'); return; } }

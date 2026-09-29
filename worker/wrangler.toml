@@ -7,9 +7,9 @@ binding = "DB"
 database_name = "firfall_users"
 database_id = "b90b3973-c415-43bd-9b1b-55b78b3a4690"
 
-# Video storage: Supabase Storage (free 1GB, no card).
-# Secrets set via: wrangler secret put SUPABASE_URL / SUPABASE_SERVICE_KEY
-# (bucket 'videos' must exist and be PRIVATE)
+# Video storage: Backblaze B2 (10GB free, no card, private bucket).
+# Secrets set via: wrangler secret put B2_KEY_ID / B2_APP_KEY / B2_BUCKET
+# (create bucket + app key with file capabilities in the B2 dashboard first)
 
 [ai]
 binding = "AI"

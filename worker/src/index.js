@@ -1,6 +1,6 @@
-// FirFall backend — Cloudflare Worker + D1 + Supabase Storage (free tier, no card).
-// Auth, video upload w/ moderation, playback via signed URLs, comments w/ filter.
-// Secrets: SUPABASE_URL, SUPABASE_SERVICE_KEY (wrangler secret put). Bucket 'videos' PRIVATE.
+// FirFall backend — Cloudflare Worker + D1 + Backblaze B2 (10GB free, no card).
+// Auth, video upload w/ moderation, playback via B2 download auth, comments w/ filter.
+// Secrets: B2_KEY_ID, B2_APP_KEY, B2_BUCKET (wrangler secret put). Bucket PRIVATE.
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
@@ -61,40 +61,91 @@ export default {
       return row ? row.username : null;
     }
 
-    // ---- Supabase Storage (private bucket 'videos') ----
-    const supaKey = () => env.SUPABASE_SERVICE_KEY || '';
-    const supaBase = () => (env.SUPABASE_URL || '').replace(/\/$/, '');
-    const storageConfigured = () => !!(env.SUPABASE_URL && env.SUPABASE_SERVICE_KEY);
-    async function supaPut(path, body, contentType) {
-      const r = await fetch(supaBase() + '/storage/v1/object/videos/' + path, {
-        method: 'PUT',
-        headers: { apikey: supaKey(), Authorization: 'Bearer ' + supaKey(), 'Content-Type': contentType, 'x-upsert': 'true' },
-        body
-      });
-      if (!r.ok) throw new Error('storage put failed: ' + r.status);
+    // ---- Backblaze B2 (native API, private bucket, multipart for big files) ----
+    const storageConfigured = () => !!(env.B2_KEY_ID && env.B2_APP_KEY && env.B2_BUCKET);
+    async function sha1hex(buf) {
+      const d = await crypto.subtle.digest('SHA-1', buf);
+      return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
     }
-    async function supaDelete(paths) {
-      await fetch(supaBase() + '/storage/v1/object/videos', {
-        method: 'DELETE',
-        headers: { apikey: supaKey(), Authorization: 'Bearer ' + supaKey(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prefixes: paths })
+    async function b2auth() {
+      const now = Date.now();
+      const c = globalThis.__b2;
+      if (c && c.exp > now + 60000) return c;
+      const cred = btoa(env.B2_KEY_ID + ':' + env.B2_APP_KEY);
+      const r = await fetch('https://api.backblazeb2.com/b2api/v2/b2_authorize_account', {
+        headers: { Authorization: 'Basic ' + cred }
       });
-    }
-    // Signed playback URL (clean videos only — flagged keys are never signed)
-    async function supaSign(path, expiresIn) {
-      const r = await fetch(supaBase() + '/storage/v1/object/sign/videos/' + path, {
-        method: 'POST',
-        headers: { apikey: supaKey(), Authorization: 'Bearer ' + supaKey(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expiresIn })
-      });
-      if (!r.ok) return null;
+      if (!r.ok) throw new Error('b2 auth ' + r.status);
       const j = await r.json();
-      return j.signedURL ? supaBase() + '/storage/v1' + j.signedURL : null;
+      let bucketId = (j.allowed && j.allowed.bucketId) || null;
+      if (!bucketId) {
+        const lb = await fetch(j.apiUrl + '/b2api/v2/b2_list_buckets', {
+          method: 'POST', headers: { Authorization: j.authorizationToken, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accountId: j.accountId })
+        });
+        if (!lb.ok) throw new Error('b2 buckets ' + lb.status);
+        const bj = await lb.json();
+        const b = (bj.buckets || []).find(x => x.bucketName === env.B2_BUCKET);
+        if (!b) throw new Error('b2 bucket not found');
+        bucketId = b.bucketId;
+      }
+      const auth = { token: j.authorizationToken, apiUrl: j.apiUrl, downloadUrl: j.downloadUrl, bucketId, exp: now + 20 * 3600 * 1000 };
+      globalThis.__b2 = auth;
+      return auth;
+    }
+    async function b2call(op, body, retryAuth = true) {
+      const a = await b2auth();
+      const r = await fetch(a.apiUrl + '/b2api/v2/' + op, {
+        method: 'POST', headers: { Authorization: a.token, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (r.status === 401 && retryAuth) {
+        globalThis.__b2 = null;
+        const a2 = await b2auth();
+        const r2 = await fetch(a2.apiUrl + '/b2api/v2/' + op, {
+          method: 'POST', headers: { Authorization: a2.token, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (!r2.ok) throw new Error(op + ' ' + r2.status);
+        return await r2.json();
+      }
+      if (!r.ok) throw new Error(op + ' ' + r.status);
+      return await r.json();
+    }
+    async function b2freshPartUrl(fileId) {
+      const j = await b2call('b2_get_upload_part_url', { fileId });
+      return { uploadUrl: j.uploadUrl, token: j.authorizationToken };
+    }
+    // Small-file PUT (thumbnails). Returns {fileId}.
+    async function b2SmallPut(name, bytes, mime) {
+      const a = await b2auth();
+      const u = await b2call('b2_get_upload_url', { bucketId: a.bucketId });
+      const hex = await sha1hex(bytes);
+      const encName = String(name).split('/').map(encodeURIComponent).join('/');
+      const r = await fetch(u.uploadUrl, {
+        method: 'POST',
+        headers: { Authorization: u.authorizationToken, 'X-Bz-File-Name': encName, 'Content-Type': mime,
+          'Content-Length': String(bytes.byteLength), 'X-Bz-Content-Sha1': hex },
+        body: bytes
+      });
+      if (!r.ok) throw new Error('b2 put ' + r.status);
+      return await r.json();
+    }
+    async function b2Delete(name, fileId) {
+      if (!fileId) return;
+      try { await b2call('b2_delete_file_version', { fileName: name, fileId }); } catch {}
+    }
+    // Time-boxed download URL for a private object (playback / thumbs).
+    async function b2PlayUrl(name, seconds) {
+      const a = await b2auth();
+      const j = await b2call('b2_get_download_authorization',
+        { bucketId: a.bucketId, fileNamePrefix: name, validDurationInSeconds: seconds });
+      return a.downloadUrl + '/file/' + env.B2_BUCKET + '/' + name + '?Authorization=' + j.authorizationToken;
     }
 
-    const MAX_VIDEO_BYTES = 250_000_000; // 250MB via chunked TUS relay (6MB parts)
+    const MAX_VIDEO_BYTES = 250_000_000; // 250MB via B2 large-file multipart (6MB parts)
     const CHUNK_BYTES = 6_000_000;
-    const STORAGE_QUOTA_BYTES = 900_000_000; // stay under Supabase free 1GB
+    const STORAGE_QUOTA_BYTES = 9_000_000_000; // stay under B2 free 10GB
     const VIDEO_MIMES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska'];
     const VIDEO_EXTS = ['mp4', 'webm', 'mov', 'mkv'];
 
@@ -133,38 +184,27 @@ export default {
         return json(200, { users: row.c });
       }
 
-      // ---------- Chunked upload via TUS relay (250MB cap, 6MB parts) ----------
-      const tusHead = () => ({ apikey: supaKey(), Authorization: 'Bearer ' + supaKey() });
-      const b64 = (s) => btoa(unescape(encodeURIComponent(s)));
-      async function tusCreate(key, mime, size) {
-        const meta = 'bucketName ' + b64('videos') + ',objectName ' + b64(key) + ',contentType ' + b64(mime) + ',cacheControl ' + b64('3600');
-        const endpoint = supaBase().replace('.supabase.co', '.storage.supabase.co') + '/storage/v1/upload/resumable';
-        let lastErr = 'unknown';
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            const r = await fetch(endpoint, {
-              method: 'POST',
-              headers: { ...tusHead(), 'Tus-Resumable': '1.0.0', 'Upload-Length': String(size), 'Upload-Metadata': meta, 'x-upsert': 'true' }
-            });
-            if (r.status === 201) {
-              const loc = r.headers.get('location');
-              if (!loc) { lastErr = 'no location header'; continue; }
-              return loc.startsWith('http') ? loc : supaBase().replace('.supabase.co', '.storage.supabase.co') + loc;
-            }
-            lastErr = 'tus create ' + r.status;
-          } catch (e) { lastErr = 'tus net: ' + String(e && e.message || e); }
-          await new Promise(res => setTimeout(res, 1000 * (attempt + 1)));
-        }
-        throw new Error(lastErr);
-      }
-      async function tusPatch(tusUrl, offset, chunk) {
-        const r = await fetch(tusUrl, {
-          method: 'PATCH',
-          headers: { ...tusHead(), 'Tus-Resumable': '1.0.0', 'Upload-Offset': String(offset), 'Content-Type': 'application/offset+octet-stream' },
-          body: chunk
+      // ---------- Chunked upload via B2 large-file multipart (250MB cap, 6MB parts) ----------
+      async function b2UploadPart(fileId, uploadUrl, partToken, partNum, bytes) {
+        const hex = await sha1hex(bytes);
+        const send = async (u, tok) => fetch(u, {
+          method: 'POST',
+          headers: { Authorization: tok, 'X-Bz-Part-Number': String(partNum),
+            'Content-Length': String(bytes.byteLength), 'X-Bz-Content-Sha1': hex },
+          body: bytes
         });
-        if (!r.ok) throw new Error('tus patch ' + r.status);
-        return parseInt(r.headers.get('upload-offset') || '0', 10);
+        let r = await send(uploadUrl, partToken);
+        if (!r.ok && (r.status === 401 || r.status === 503)) {
+          const fresh = await b2freshPartUrl(fileId).catch(() => null);
+          if (fresh) {
+            await env.DB.prepare('UPDATE uploads SET b2_upload_url=?, b2_part_token=? WHERE b2_file_id=?')
+              .bind(fresh.uploadUrl, fresh.token, fileId).run();
+            r = await send(fresh.uploadUrl, fresh.token);
+          }
+        }
+        if (!r.ok) throw new Error('b2 part ' + r.status);
+        const j = await r.json();
+        return j.contentSha1 || hex;
       }
       if (req.method === 'POST' && url.pathname === '/api/uploads/start') {
         const user = await authedUser();
@@ -188,12 +228,17 @@ export default {
         const key = 'v/' + id + '.' + ext;
         const dur = Math.max(0, Math.min(36000, parseFloat(duration) || 0));
         const vis = ['public', 'unlisted', 'private'].includes(visibility) ? visibility : 'public';
-        let tusUrl;
-        try { tusUrl = await tusCreate(key, mime, size); }
-        catch (e) { console.error('tusCreate failed:', String(e && e.message || e)); return json(500, { error: 'Storage unavailable (' + String(e && e.message || 'unknown') + ') — try again.' }); }
+        let fileId, partUrl;
+        try {
+          const a = await b2auth();
+          const st = await b2call('b2_start_large_file', { bucketId: a.bucketId, fileName: key, contentType: mime });
+          fileId = st.fileId;
+          partUrl = await b2freshPartUrl(fileId);
+        }
+        catch (e) { console.error('b2 start failed:', String(e && e.message || e)); return json(500, { error: 'Storage unavailable (' + String(e && e.message || 'unknown') + ') — try again.' }); }
         await env.DB.prepare(
-          'INSERT INTO uploads(id,owner,title,description,storage_key,mime,size,duration,visibility,tus_url,uploaded,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)'
-        ).bind(id, user, t, d, key, mime, size, dur, vis, tusUrl, 0, String(scan || 'skipped'), new Date().toISOString()).run();
+          'INSERT INTO uploads(id,owner,title,description,storage_key,mime,size,duration,visibility,b2_file_id,b2_upload_url,b2_part_token,part_num,parts_json,uploaded,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+        ).bind(id, user, t, d, key, mime, size, dur, vis, fileId, partUrl.uploadUrl, partUrl.token, 0, '[]', 0, String(scan || 'skipped'), new Date().toISOString()).run();
         // NSFW/gore verdicts are enforced at complete-time (bytes discarded, row flagged).
         return json(200, { sessionId: id, chunkSize: CHUNK_BYTES });
       }
@@ -202,17 +247,29 @@ export default {
         if (!user) return json(401, { error: 'Sign in to upload.' });
         const form = await req.formData();
         const sessionId = String(form.get('sessionId') || '');
+        const off = parseInt(String(form.get('off') || '0'), 10) || 0;
         const chunk = form.get('chunk');
         const up = await env.DB.prepare('SELECT * FROM uploads WHERE id=?').bind(sessionId).first();
         if (!up || up.owner !== user) return json(404, { error: 'Upload session not found.' });
+        // Idempotent: client may resend a part whose response was lost.
+        if (off < up.uploaded) return json(200, { uploaded: up.uploaded, size: up.size });
+        if (off > up.uploaded) return json(400, { error: 'Out of order — restart the upload.' });
         if (!(chunk instanceof File) || chunk.size === 0 || chunk.size > CHUNK_BYTES + 1024)
           return json(400, { error: 'Bad chunk.' });
         if (up.uploaded + chunk.size > up.size) return json(400, { error: 'Chunk overflow.' });
-        let offset;
-        try { offset = await tusPatch(up.tus_url, up.uploaded, chunk.stream()); }
-        catch { return json(500, { error: 'Chunk failed — retrying resumes automatically.' }); }
-        await env.DB.prepare('UPDATE uploads SET uploaded=? WHERE id=?').bind(offset, sessionId).run();
-        return json(200, { uploaded: offset, size: up.size });
+        const partNum = up.part_num + 1;
+        let partSha;
+        try {
+          const bytes = await chunk.arrayBuffer();
+          partSha = await b2UploadPart(up.b2_file_id, up.b2_upload_url, up.b2_part_token, partNum, bytes);
+        }
+        catch (e) { console.error('b2 part failed:', String(e && e.message || e)); return json(500, { error: 'Chunk failed (' + String(e && e.message || 'storage') + ') — retrying resumes automatically.' }); }
+        const parts = JSON.parse(up.parts_json || '[]');
+        parts.push(partSha);
+        const uploaded = up.uploaded + chunk.size;
+        await env.DB.prepare('UPDATE uploads SET uploaded=?, part_num=?, parts_json=? WHERE id=?')
+          .bind(uploaded, partNum, JSON.stringify(parts), sessionId).run();
+        return json(200, { uploaded, size: up.size });
       }
       if (req.method === 'POST' && url.pathname === '/api/uploads/complete') {
         const user = await authedUser();
@@ -225,23 +282,37 @@ export default {
         if (!up || up.owner !== user) return json(404, { error: 'Upload session not found.' });
         if (up.uploaded < up.size) return json(400, { error: 'Upload incomplete — missing bytes.' });
         const verdict = scanText(up.title, up.description, up.storage_key);
-        const finalize = async (status, flagReason, thumbKey) => {
+        const cancel = async () => { try { await b2call('b2_cancel_large_file', { fileId: up.b2_file_id }); } catch {} };
+        const finalize = async (status, flagReason, thumbKey, thumbId, fileId) => {
+          if (status !== 'clean') { await cancel(); }
           await env.DB.prepare(
-            'INSERT INTO videos(id,owner,title,description,r2_key,thumb_key,mime,size,duration,visibility,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-          ).bind(up.id, user, up.title, up.description, status === 'clean' ? up.storage_key : '', thumbKey,
-            up.mime, up.size, up.duration, up.visibility, status, flagReason, up.scan, new Date().toISOString()).run();
+            'INSERT INTO videos(id,owner,title,description,r2_key,file_id,thumb_key,thumb_id,mime,size,duration,visibility,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+          ).bind(up.id, user, up.title, up.description, status === 'clean' ? up.storage_key : '', fileId || null, thumbKey,
+            thumbId || null, up.mime, up.size, up.duration, up.visibility, status, flagReason, up.scan, new Date().toISOString()).run();
           await env.DB.prepare('DELETE FROM uploads WHERE id=?').bind(up.id).run();
         };
         if (verdict === 'nsfw' || verdict === 'gore') {
-          try { await supaDelete([up.storage_key]); } catch {}
-          await finalize('flagged', 'auto-filter: ' + verdict, null);
+          await finalize('flagged', 'auto-filter: ' + verdict, null, null, null);
           return json(202, { id: up.id, status: 'flagged', message: 'Held for review: auto-filter matched (' + verdict + '). File discarded.' });
         }
-        let thumbKey = null;
+        // Assemble parts into the final object.
+        try {
+          await b2call('b2_finish_large_file', { fileId: up.b2_file_id, partSha1Array: JSON.parse(up.parts_json || '[]') });
+        } catch (e) {
+          console.error('b2 finish failed:', String(e && e.message || e));
+          await cancel();
+          await env.DB.prepare('DELETE FROM uploads WHERE id=?').bind(up.id).run();
+          return json(500, { error: 'Storage assemble failed (' + String(e && e.message || 'unknown') + ') — try again.' });
+        }
+        let thumbKey = null, thumbId = null;
         const thumb = body.thumb;
         if (thumb instanceof File && thumb.size > 0 && thumb.size < 5_000_000 && thumb.type.startsWith('image/')) {
           thumbKey = 't/' + up.id + '.jpg';
-          try { await supaPut(thumbKey, thumb.stream(), 'image/jpeg'); } catch { thumbKey = null; }
+          try {
+            const tb = await thumb.arrayBuffer();
+            const put = await b2SmallPut(thumbKey, tb, 'image/jpeg');
+            thumbId = put.fileId;
+          } catch { thumbKey = null; }
         }
         if (thumbKey && env.AI) {
           try {
@@ -250,13 +321,14 @@ export default {
             const risky = ['bikini', 'maillot', 'brassiere', 'miniskirt', 'nudity'];
             const top = (Array.isArray(labels) ? labels : []).slice(0, 3);
             if (top.some(l => l.score > 0.5 && risky.some(r => String(l.label || '').toLowerCase().includes(r)))) {
-              try { await supaDelete([up.storage_key, thumbKey]); } catch {}
-              await finalize('flagged', 'auto-vision: explicit thumbnail', null);
+              try { await b2Delete(up.storage_key, up.b2_file_id); } catch {}
+              if (thumbId) { try { await b2Delete(thumbKey, thumbId); } catch {} }
+              await finalize('flagged', 'auto-vision: explicit thumbnail', null, null, null);
               return json(202, { id: up.id, status: 'flagged', message: 'Held for review: thumbnail failed the explicit-content check. File discarded.' });
             }
           } catch { /* AI unavailable — text + client checks still apply */ }
         }
-        await finalize('clean', null, thumbKey);
+        await finalize('clean', null, thumbKey, thumbId, up.b2_file_id);
         return json(200, { id: up.id, status: 'clean', message: 'Uploaded.' });
       }
       if (req.method === 'POST' && url.pathname === '/api/uploads/abort') {
@@ -265,7 +337,7 @@ export default {
         const { sessionId } = await req.json();
         const up = await env.DB.prepare('SELECT * FROM uploads WHERE id=?').bind(sessionId).first();
         if (up && up.owner === user) {
-          try { await supaDelete([up.storage_key]); } catch {}
+          try { await b2call('b2_cancel_large_file', { fileId: up.b2_file_id }); } catch {}
           await env.DB.prepare('DELETE FROM uploads WHERE id=?').bind(sessionId).run();
         }
         return json(200, { ok: true });
@@ -339,9 +411,10 @@ export default {
           const u = await authedUser();
           if (!u || u !== row.owner) return new Response('Not found', { status: 404 });
         }
-        const signed = await supaSign(row.r2_key, 3600);
-        if (!signed) return new Response('Not found', { status: 404 });
-        return Response.redirect(signed, 302);
+        try {
+          const play = await b2PlayUrl(row.r2_key, 3600);
+          return Response.redirect(play, 302);
+        } catch { return new Response('Not found', { status: 404 }); }
       }
       if (req.method === 'GET' && url.pathname.startsWith('/t/')) {
         const id = url.pathname.slice(3);
@@ -351,9 +424,10 @@ export default {
           const u = await authedUser();
           if (!u || u !== row.owner) return new Response('Not found', { status: 404 });
         }
-        const signed = await supaSign(row.thumb_key, 86400);
-        if (!signed) return new Response('Not found', { status: 404 });
-        return Response.redirect(signed, 302);
+        try {
+          const play = await b2PlayUrl(row.thumb_key, 86400);
+          return Response.redirect(play, 302);
+        } catch { return new Response('Not found', { status: 404 }); }
       }
 
       // ---------- Comments (filter enforced) ----------
@@ -386,10 +460,12 @@ export default {
         const user = await authedUser();
         if (!user) return json(401, { error: 'Sign in.' });
         const { id } = await req.json();
-        const row = await env.DB.prepare('SELECT r2_key,thumb_key,owner FROM videos WHERE id=?').bind(id).first();
+        const row = await env.DB.prepare('SELECT r2_key,file_id,thumb_key,thumb_id,owner FROM videos WHERE id=?').bind(id).first();
         if (!row || row.owner !== user) return json(404, { error: 'Video not found.' });
-        const paths = [row.r2_key, row.thumb_key].filter(Boolean);
-        if (paths.length && storageConfigured()) { try { await supaDelete(paths); } catch {} }
+        if (storageConfigured()) {
+          await b2Delete(row.r2_key, row.file_id);
+          if (row.thumb_key) await b2Delete(row.thumb_key, row.thumb_id);
+        }
         await env.DB.prepare('DELETE FROM comments WHERE video_id=?').bind(id).run();
         await env.DB.prepare('DELETE FROM videos WHERE id=?').bind(id).run();
         return json(200, { ok: true });
