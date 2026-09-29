@@ -575,13 +575,15 @@ document.getElementById('upReuse').onclick = () => {
 };
 document.querySelectorAll('#upVisPills button').forEach(b => { b.onclick = () => upSetVis(b.dataset.vis); });
 document.getElementById('upNext').onclick = () => {
-  if (upStage === -1) { document.getElementById('upFile').click(); return; }
+  try {
+    if (upStage === -1) { document.getElementById('upFile').click(); return; }
   if (upStage === 0 && !document.getElementById('upTitle').value.trim()) {
     document.getElementById('upErr').textContent = 'Title is required.'; return;
   }
   document.getElementById('upErr').textContent = '';
   if (upStage < 3) { upShow(upStage + 1); return; }
   publishStaged();
+  } catch (e) { document.getElementById('upErr').textContent = 'Something broke: ' + (e.message || e); }
 };
 document.getElementById('upBack').onclick = () => { if (upStage > 0) upShow(upStage - 1); };
 document.querySelectorAll('.el-add').forEach(b => {
@@ -695,7 +697,10 @@ function sampleFrames(file, n) {
 async function scanVideo(file, status) {
   try {
     status('Loading on-device safety scan…');
-    const nsfw = await import('https://esm.sh/nsfwjs@4.2.1');
+    const nsfw = await Promise.race([
+      import('https://esm.sh/nsfwjs@4.2.1'),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('scan lib timeout')), 20000))
+    ]);
     const model = await nsfw.load();
     const frames = await sampleFrames(file, 5);
     if (!frames.length) return 'skipped';
