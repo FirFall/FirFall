@@ -138,13 +138,24 @@ export default {
       const b64 = (s) => btoa(unescape(encodeURIComponent(s)));
       async function tusCreate(key, mime, size) {
         const meta = 'bucketName ' + b64('videos') + ',objectName ' + b64(key) + ',contentType ' + b64(mime) + ',cacheControl ' + b64('3600');
-        const r = await fetch(supaBase().replace('.supabase.co', '.storage.supabase.co') + '/storage/v1/upload/resumable', {
-          method: 'POST',
-          headers: { ...tusHead(), 'Tus-Resumable': '1.0.0', 'Upload-Length': String(size), 'Upload-Metadata': meta, 'x-upsert': 'true' }
-        });
-        if (r.status !== 201) throw new Error('tus create ' + r.status);
-        const loc = r.headers.get('location');
-        return loc.startsWith('http') ? loc : supaBase().replace('.supabase.co', '.storage.supabase.co') + loc;
+        const endpoint = supaBase().replace('.supabase.co', '.storage.supabase.co') + '/storage/v1/upload/resumable';
+        let lastErr = 'unknown';
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const r = await fetch(endpoint, {
+              method: 'POST',
+              headers: { ...tusHead(), 'Tus-Resumable': '1.0.0', 'Upload-Length': String(size), 'Upload-Metadata': meta, 'x-upsert': 'true' }
+            });
+            if (r.status === 201) {
+              const loc = r.headers.get('location');
+              if (!loc) { lastErr = 'no location header'; continue; }
+              return loc.startsWith('http') ? loc : supaBase().replace('.supabase.co', '.storage.supabase.co') + loc;
+            }
+            lastErr = 'tus create ' + r.status;
+          } catch (e) { lastErr = 'tus net: ' + String(e && e.message || e); }
+          await new Promise(res => setTimeout(res, 1000 * (attempt + 1)));
+        }
+        throw new Error(lastErr);
       }
       async function tusPatch(tusUrl, offset, chunk) {
         const r = await fetch(tusUrl, {
@@ -179,7 +190,7 @@ export default {
         const vis = ['public', 'unlisted', 'private'].includes(visibility) ? visibility : 'public';
         let tusUrl;
         try { tusUrl = await tusCreate(key, mime, size); }
-        catch { return json(500, { error: 'Storage unavailable — try again.' }); }
+        catch (e) { console.error('tusCreate failed:', String(e && e.message || e)); return json(500, { error: 'Storage unavailable (' + String(e && e.message || 'unknown') + ') — try again.' }); }
         await env.DB.prepare(
           'INSERT INTO uploads(id,owner,title,description,storage_key,mime,size,duration,visibility,tus_url,uploaded,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)'
         ).bind(id, user, t, d, key, mime, size, dur, vis, tusUrl, 0, String(scan || 'skipped'), new Date().toISOString()).run();
