@@ -147,7 +147,7 @@ function card(v) {
     (v.duration ? '<span class="duration">' + fmtDur(v.duration) + '</span>' : '') + '</div>' +
     '<div class="meta"><div class="chan">' + (v.owner[0] || '?').toUpperCase() + '</div><div><h3></h3><p></p></div></div>';
   d.querySelector('h3').textContent = v.title;
-  d.querySelector('p').textContent = v.owner + ' • ' + fmt(v.views || 0) + ' views • ' + new Date(v.created_at).toLocaleDateString();
+  d.querySelector('p').textContent = v.owner + (v.visibility && v.visibility !== 'public' ? ' • ' + v.visibility : '') + ' • ' + fmt(v.views || 0) + ' views • ' + new Date(v.created_at).toLocaleDateString();
   const vid = d.querySelector('video');
   vid.onmouseenter = () => { vid.play().catch(() => {}); };
   vid.onmouseleave = () => { vid.pause(); };
@@ -200,7 +200,8 @@ async function renderChannel(name) {
     meta.dataset.owner = u.user.username;
     wireSubBtn(document.getElementById('chSubBtn'), u.user.username);
     document.getElementById('chAbout').textContent = '@' + u.user.username + ' • joined ' + new Date(u.user.joined).toLocaleDateString();
-    const r = await fetch(API + '/api/videos?owner=' + encodeURIComponent(u.user.username));
+    const r = await fetch(API + '/api/videos?owner=' + encodeURIComponent(u.user.username),
+      me() ? { headers: { 'Authorization': 'Bearer ' + token() } } : undefined);
     const { videos } = await r.json();
     const subs = getSubs();
     const count = baseSubs(u.user.username) + (subs[u.user.username] ? 1 : 0);
@@ -213,6 +214,82 @@ async function renderChannel(name) {
 
 let currentVideo = null;
 let upFilter = '';
+// ---- Custom player: YouTube layout, orange fire progress ----
+const player = document.getElementById('player');
+const playerWrap = document.getElementById('playerWrap');
+const ppBtn = document.getElementById('ppBtn');
+const bigPlay = document.getElementById('bigPlay');
+function fmtT(s) {
+  s = Math.max(0, Math.floor(s || 0));
+  const m = Math.floor(s / 60), h = Math.floor(m / 60);
+  return (h ? h + ':' + String(m % 60).padStart(2, '0') + ':' : m + ':') + String(s % 60).padStart(2, '0');
+}
+function syncPlayUI() {
+  const playing = !player.paused && !player.ended;
+  ppBtn.textContent = playing ? '❚❚' : '▶';
+  bigPlay.classList.toggle('hidden', playing);
+  playerWrap.classList.toggle('paused', !playing);
+}
+function seekTo(clientX) {
+  const r = document.getElementById('progTrack').getBoundingClientRect();
+  const frac = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+  if (player.duration) player.currentTime = frac * player.duration;
+}
+(function initPlayer() {
+  let dragging = false;
+  player.addEventListener('play', syncPlayUI);
+  player.addEventListener('pause', syncPlayUI);
+  player.addEventListener('loadedmetadata', () => {
+    document.getElementById('timeLabel').textContent = '0:00 / ' + fmtT(player.duration);
+  });
+  player.addEventListener('timeupdate', () => {
+    const f = player.duration ? (player.currentTime / player.duration) * 100 : 0;
+    document.getElementById('progFill').style.width = f + '%';
+    document.getElementById('progDot').style.left = f + '%';
+    document.getElementById('timeLabel').textContent = fmtT(player.currentTime) + ' / ' + fmtT(player.duration);
+  });
+  player.addEventListener('progress', () => {
+    try {
+      if (player.buffered.length && player.duration)
+        document.getElementById('progBuf').style.width = (player.buffered.end(player.buffered.length - 1) / player.duration) * 100 + '%';
+    } catch {}
+  });
+  ppBtn.onclick = (e) => { e.stopPropagation(); player.paused ? player.play() : player.pause(); };
+  bigPlay.onclick = () => player.play();
+  player.onclick = () => player.paused ? player.play() : player.pause();
+  player.ondblclick = () => toggleFS();
+  const track = document.getElementById('progTrack');
+  track.addEventListener('pointerdown', (e) => { dragging = true; track.setPointerCapture(e.pointerId); seekTo(e.clientX); });
+  track.addEventListener('pointermove', (e) => { if (dragging) seekTo(e.clientX); });
+  track.addEventListener('pointerup', () => { dragging = false; });
+  document.getElementById('muteBtn').onclick = (e) => {
+    e.stopPropagation();
+    player.muted = !player.muted;
+    e.target.textContent = player.muted ? '🔇' : '🔊';
+  };
+  document.getElementById('volSlider').oninput = (e) => { player.volume = +e.target.value; player.muted = false; document.getElementById('muteBtn').textContent = '🔊'; };
+  const speeds = [1, 1.25, 1.5, 2, 0.5];
+  document.getElementById('speedBtn').onclick = (e) => {
+    e.stopPropagation();
+    const i = (speeds.indexOf(player.playbackRate) + 1) % speeds.length;
+    player.playbackRate = speeds[i];
+    e.target.textContent = speeds[i] + 'x';
+  };
+  document.getElementById('fsBtn').onclick = (e) => { e.stopPropagation(); toggleFS(); };
+  function toggleFS() {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else playerWrap.requestFullscreen && playerWrap.requestFullscreen();
+  }
+  playerWrap.addEventListener('keydown', (e) => {
+    if (e.target.matches('input,textarea')) return;
+    const k = e.key.toLowerCase();
+    if (k === ' ' || k === 'k') { e.preventDefault(); player.paused ? player.play() : player.pause(); }
+    else if (k === 'arrowright') player.currentTime += 5;
+    else if (k === 'arrowleft') player.currentTime -= 5;
+    else if (k === 'f') toggleFS();
+    else if (k === 'm') player.muted = !player.muted;
+  });
+})();
 async function renderWatch(id) {
   show(watchView); markNav('');
   const player = document.getElementById('player');
@@ -223,8 +300,11 @@ async function renderWatch(id) {
     if (!r.ok) { document.getElementById('wTitle').textContent = 'Video not found.'; return; }
     const { video: v, likes, reaction } = await r.json();
     currentVideo = v;
-    player.poster = API + '/t/' + v.id;
-    player.src = API + '/v/' + v.id;
+    const q = me() ? '?token=' + encodeURIComponent(token()) : '';
+    player.poster = API + '/t/' + v.id + q;
+    player.src = API + '/v/' + v.id + q;
+    player.playbackRate = 1;
+    document.getElementById('speedBtn').textContent = '1x';
     document.getElementById('wTitle').textContent = v.title;
     document.getElementById('wStats').textContent = fmt(v.views || 0) + ' views • ' + new Date(v.created_at).toLocaleDateString() + (v.duration ? ' • ' + fmtDur(v.duration) : '');
     const ch = document.getElementById('wChannelLink');
@@ -397,15 +477,96 @@ document.querySelectorAll('[data-chtab]').forEach(t => {
   };
 });
 
-// ---- Upload with on-device NSFW scan ----
+// ---- Studio-style upload: file → details+checks → visibility → publish ----
 const uploadModal = document.getElementById('uploadModal');
+const upStepFile = document.getElementById('upStepFile');
+const upStepDetails = document.getElementById('upStepDetails');
+const upStepVis = document.getElementById('upStepVis');
+let upStaged = null; // {file, thumb, duration, scan, checksText}
+function upShow(step) {
+  [upStepFile, upStepDetails, upStepVis].forEach(s => s.classList.add('hidden'));
+  step.classList.remove('hidden');
+}
 document.getElementById('createBtn').onclick = () => {
   if (!me()) { setMode('login'); modal.classList.remove('hidden'); return; }
   document.getElementById('upErr').textContent = '';
   document.getElementById('upStatus').textContent = '';
+  document.getElementById('upProgOuter').classList.add('hidden');
+  upStaged = null;
+  upShow(upStepFile);
   uploadModal.classList.remove('hidden');
 };
 document.getElementById('uploadClose').onclick = () => uploadModal.classList.add('hidden');
+const dropZone = document.getElementById('dropZone');
+['dragover', 'dragenter'].forEach(ev => dropZone.addEventListener(ev, (e) => { e.preventDefault(); dropZone.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => dropZone.addEventListener(ev, (e) => { e.preventDefault(); dropZone.classList.remove('over'); }));
+dropZone.addEventListener('drop', (e) => {
+  if (e.dataTransfer.files.length) { document.getElementById('upFile').files = e.dataTransfer.files; stageFile(e.dataTransfer.files[0]); }
+});
+document.getElementById('upFile').addEventListener('change', (e) => { if (e.target.files[0]) stageFile(e.target.files[0]); });
+async function stageFile(file) {
+  const err = document.getElementById('upErr');
+  err.textContent = '';
+  if (file.size > 100_000_000) { err.textContent = 'File too big — max 100MB in test version.'; upShow(upStepFile); return; }
+  upShow(upStepDetails);
+  document.getElementById('upTitle').value = file.name.replace(/\.[^.]+$/, '').replace(/[._-]+/g, ' ').slice(0, 100);
+  const checks = document.getElementById('upChecks');
+  checks.textContent = 'Running safety checks…';
+  const [scan, thumb, duration] = await Promise.all([
+    scanVideo(file, (t) => { checks.textContent = t; }),
+    captureThumb(file),
+    getDuration(file)
+  ]);
+  if (scan === 'blocked') { err.textContent = 'Blocked: on-device scan flagged explicit content.'; upShow(upStepFile); return; }
+  const prev = document.getElementById('upThumbPrev');
+  if (thumb) prev.src = URL.createObjectURL(thumb); else prev.removeAttribute('src');
+  checks.textContent = 'Checks: file OK • ' + fmtDur(duration) + ' • explicit scan ' + scan + ' • server re-checks on publish';
+  upStaged = { file, thumb, duration, scan };
+}
+document.getElementById('upToVis').onclick = () => {
+  if (!document.getElementById('upTitle').value.trim()) { document.getElementById('upErr').textContent = 'Title is required.'; return; }
+  upShow(upStepVis);
+};
+document.getElementById('upBack').onclick = () => upShow(upStepDetails);
+document.getElementById('upSubmit').onclick = () => {
+  const err = document.getElementById('upErr');
+  err.textContent = '';
+  if (!upStaged) { err.textContent = 'Choose a file first.'; return; }
+  const title = document.getElementById('upTitle').value.trim();
+  const desc = document.getElementById('upDesc').value.trim();
+  if (!title) { err.textContent = 'Title is required.'; return; }
+  const visibility = (document.querySelector('input[name=vis]:checked') || {}).value || 'public';
+  const btn = document.getElementById('upSubmit');
+  btn.disabled = true;
+  document.getElementById('upProgOuter').classList.remove('hidden');
+  const fill = document.getElementById('upProgFill');
+  const status = (t) => { document.getElementById('upStatus').textContent = t; };
+  status('Uploading…');
+  const form = new FormData();
+  form.append('file', upStaged.file);
+  if (upStaged.thumb) form.append('thumb', upStaged.thumb, 'thumb.jpg');
+  form.append('title', title);
+  form.append('description', desc);
+  form.append('duration', String(upStaged.duration));
+  form.append('visibility', visibility);
+  form.append('scan', upStaged.scan);
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', API + '/api/videos/upload');
+  xhr.setRequestHeader('Authorization', 'Bearer ' + token());
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) fill.style.width = (e.loaded / e.total * 100) + '%'; };
+  xhr.onload = () => {
+    btn.disabled = false;
+    let j = {};
+    try { j = JSON.parse(xhr.responseText); } catch {}
+    if (xhr.status < 200 || xhr.status >= 300) { err.textContent = j.error || 'Upload failed.'; return; }
+    uploadModal.classList.add('hidden');
+    upStaged = null;
+    if (j.status === 'flagged') { alert('Held for review: ' + (j.message || 'auto-filter matched.')); loadHome(); }
+    else location.hash = '#/watch/' + j.id;
+  };
+  xhr.onerror = () => { btn.disabled = false; err.textContent = 'Upload failed — service unreachable.'; };
+  xhr.send(form);
+};
 
 function sampleFrames(file, n) {
   return new Promise((resolve) => {
@@ -481,49 +642,6 @@ function captureThumb(file) {
     v.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
   });
 }
-document.getElementById('upSubmit').onclick = async () => {
-  const err = document.getElementById('upErr');
-  const status = (t) => { document.getElementById('upStatus').textContent = t; };
-  err.textContent = '';
-  const file = document.getElementById('upFile').files[0];
-  const title = document.getElementById('upTitle').value.trim();
-  const desc = document.getElementById('upDesc').value.trim();
-  if (!file) { err.textContent = 'Choose a video file.'; return; }
-  if (!title) { err.textContent = 'Title is required.'; return; }
-  if (file.size > 100_000_000) { err.textContent = 'Max 100MB in test version.'; return; }
-  const btn = document.getElementById('upSubmit');
-  btn.disabled = true;
-  try {
-    const scan = await scanVideo(file, status);
-    if (scan === 'blocked') { err.textContent = 'Blocked: on-device scan flagged explicit content.'; return; }
-    status('Capturing thumbnail…');
-    const thumb = await captureThumb(file);
-    const duration = await getDuration(file);
-    status('Uploading…');
-    const form = new FormData();
-    form.append('file', file);
-    if (thumb) form.append('thumb', thumb, 'thumb.jpg');
-    form.append('title', title);
-    form.append('description', desc);
-    form.append('duration', String(duration));
-    form.append('scan', scan);
-    const r = await fetch(API + '/api/videos/upload', {
-      method: 'POST', headers: { 'Authorization': 'Bearer ' + token() }, body: form
-    });
-    const j = await r.json();
-    if (!r.ok) { err.textContent = j.error || 'Upload failed.'; return; }
-    uploadModal.classList.add('hidden');
-    document.getElementById('upFile').value = '';
-    document.getElementById('upTitle').value = '';
-    document.getElementById('upDesc').value = '';
-    status('');
-    if (j.status === 'flagged') alert('Held for review: ' + (j.message || 'auto-filter matched.'));
-    else location.hash = '#/watch/' + j.id;
-    loadHome();
-  } catch { err.textContent = 'Upload failed — service unreachable.'; }
-  finally { btn.disabled = false; }
-};
-
 window.addEventListener('hashchange', router);
 refreshAuthUI();
 router();

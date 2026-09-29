@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS videos(
   scan TEXT,
   views INTEGER NOT NULL DEFAULT 0,
   duration REAL NOT NULL DEFAULT 0,
+  visibility TEXT NOT NULL DEFAULT 'public',
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_videos_owner ON videos(owner);
