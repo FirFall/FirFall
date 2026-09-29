@@ -31,7 +31,7 @@
     </button>
   </div>
   <div class="h-right">
-    <button class="yt-icon-btn" aria-label="Create">
+    <button id="createBtn" class="yt-icon-btn" aria-label="Create">
       <svg viewBox="0 0 24 24" width="22" height="22"><path d="M14 13h-3v3H9v-3H6v-2h3V8h2v3h3v2zm2-8H8a4 4 0 0 0-4 4v6a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4V9a4 4 0 0 0-4-4zm0 12H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2z" fill="currentColor"/></svg>
     </button>
     <button id="signInBtn" class="yt-signin">
@@ -68,21 +68,29 @@
     <a href="#/"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M17.77 10.32 7.9 4.5v14.9l9.87-5.83-.68-1.13 2.62-1.56-.68-1.13 2.62-1.56-.68-1.13 2.62-1.56-.68-1.13 2.62-1.56-.68-1.12zM7 15.5V7.9l7.9 3.85L7 15.5z" fill="currentColor"/></svg><span>Shorts</span></a>
     <a href="#/"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M20 8H4V6h16v2zm-2 4H6v6h12v-6zm2 8H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2z" fill="currentColor"/></svg><span>Subscriptions</span></a>
     <hr/>
-    <p class="side-title">CHANNELS</p>
-    <a href="#/channel/lavalab">● <span>LavaLab</span></a>
-    <a href="#/channel/campfire_cooks">● <span>Campfire Cooks</span></a>
-    <a href="#/channel/blaze_gaming">● <span>Blaze Gaming</span></a>
-    <hr/>
     <a href="#/"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 13a1.5 1.5 0 0 0 1.5-1.5c0-.65-.42-1.2-1-1.41V7.5a.5.5 0 0 0-1 0v2.59c-.58.21-1 .76-1 1.41A1.5 1.5 0 0 0 12 13zm0-9a9 9 0 1 0 9 9h-2a7 7 0 1 1-7-7V4z" fill="currentColor"/></svg><span>History</span></a>
     <a href="#/"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 4a8 8 0 1 0 8 8h-2a6 6 0 1 1-6-6V4zm1 2v6l5 3-.8 1.28L11 12.5V6h1z" fill="currentColor"/></svg><span>Watch Later</span></a>
   </aside>
   <main class="yt-main">
    <div id="homeView">
-    <div class="blank-state">
-      <h2>Blank canvas — ready for backend</h2>
-      <p>No videos yet. Sign-in is live.</p>
+    <div id="emptyState" class="blank-state">
+      <h2>No videos yet</h2>
+      <p>Be the first to upload.</p>
     </div>
     <div class="yt-grid" id="grid"></div>
+   </div>
+   <div id="watchView" class="hidden">
+     <video id="player" controls playsinline></video>
+     <h2 id="wTitle"></h2>
+     <div class="w-row">
+       <a id="wChannel" href="#/"></a>
+       <button id="wSubBtn" class="sub-btn">Subscribe</button>
+     </div>
+     <p id="wDesc" class="w-desc"></p>
+     <h3>Comments</h3>
+     <div class="c-form"><input id="cInput" maxlength="500" placeholder="Add a comment..." /><button id="cSend" class="auth-go">Comment</button></div>
+     <p id="cErr" class="auth-err"></p>
+     <div id="cList"></div>
    </div>
    <div id="channelView" class="hidden">
      <div class="ch-banner"></div>
@@ -99,6 +107,20 @@
      <div id="tabAbout" class="blank-state hidden"><p id="chAbout"></p></div>
    </div>
   </main>
+</div>
+
+<div id="uploadModal" class="modal hidden">
+  <div class="modal-box wide">
+    <button id="uploadClose" class="modal-x">✕</button>
+    <h2>Upload video</h2>
+    <p class="modal-sub">MP4/WebM/MOV/MKV • max 100MB • auto-screened for NSFW, gore & illegal content</p>
+    <input id="upFile" type="file" accept="video/mp4,video/webm,video/quicktime,video/x-matroska" />
+    <input id="upTitle" type="text" maxlength="100" placeholder="Title (required)" />
+    <textarea id="upDesc" maxlength="2000" placeholder="Description"></textarea>
+    <p id="upStatus" class="modal-sub"></p>
+    <p id="upErr" class="auth-err"></p>
+    <button id="upSubmit" class="auth-go">Upload</button>
+  </div>
 </div>
 
 <div id="authModal" class="modal hidden">
