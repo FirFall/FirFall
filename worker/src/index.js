@@ -25,6 +25,8 @@ export default {
     const PROFANITY = ['fuck','shit','bitch','dick','asshole','bastard','whore','slut','cunt','faggot','retard'];
     const NSFW = ['porn','pornhub','xvideos','xxx','hentai','onlyfans','escort','camgirl','nude','naked','sex video','erotic'];
     const GORE = ['gore','beheading','decapitat','dismember','snuff','mutilat','guro'];
+    const RACISM = ['nigger','nigga','kike','chink','spic','raghead','towelhead','gook','coon','darkie','paki','camel jockey','sand nigger','white power','kkk'];
+    const EXTREMISM = ['isis','al qaeda','al-qaeda','boko haram','heil hitler','1488','taliban'];
     const SEVERE = ['child porn','childporn','preteen','loli','shota','bestiality','zoophilia','necrophilia','cp video','rape'];
     const hit = (text, words) => {
       const t = ' ' + String(text || '').toLowerCase() + ' ';
@@ -32,10 +34,12 @@ export default {
         ? t.includes(' ' + w + ' ') || t.includes(w)
         : new RegExp('[^a-z0-9]' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[^a-z0-9]').test(t));
     };
-    // -> 'clean' | 'profanity' | 'nsfw' | 'gore' | 'severe'
+    // -> 'clean' | 'profanity' | 'nsfw' | 'gore' | 'racism' | 'extremism' | 'severe'
     function scanText(...parts) {
       const text = parts.join(' \n ');
       if (hit(text, SEVERE)) return 'severe';
+      if (hit(text, RACISM)) return 'racism';
+      if (hit(text, EXTREMISM)) return 'extremism';
       if (hit(text, GORE)) return 'gore';
       if (hit(text, NSFW)) return 'nsfw';
       if (hit(text, PROFANITY)) return 'profanity';
@@ -145,18 +149,21 @@ export default {
         if (title.length < 1 || title.length > 100) return json(400, { error: 'Title 1-100 chars.' });
         if (desc.length > 2000) return json(400, { error: 'Description max 2000 chars.' });
         if (clientScan === 'blocked') return json(400, { error: 'Blocked: on-device scan flagged this video as explicit.' });
+        // Title policy: profanity tolerated; NSFW/gore held; racism/extremism/severe rejected.
         const verdict = scanText(title, desc, file.name);
-        if (verdict === 'severe') return json(400, { error: 'Blocked: prohibited content. Uploads like this get accounts banned.' });
+        if (verdict === 'severe' || verdict === 'racism' || verdict === 'extremism')
+          return json(400, { error: 'Blocked: prohibited content (' + verdict + '). Uploads like this get accounts banned.' });
         const used = (await env.DB.prepare('SELECT COALESCE(SUM(size),0) s FROM videos').first()).s;
         if (used + file.size > STORAGE_QUOTA_BYTES) return json(400, { error: 'Site storage full (free tier). Try a smaller file.' });
         const id = crypto.randomUUID().slice(0, 12);
         const key = 'v/' + id + '.' + ext;
-        const status = verdict === 'clean' ? 'clean' : 'flagged';
+        let status = verdict === 'clean' || verdict === 'profanity' ? 'clean' : 'flagged';
+        let flagReason = status === 'clean' ? null : 'auto-filter: ' + verdict;
         // Held-for-review content never touches storage: reject the bytes now.
         if (status !== 'clean') {
           await env.DB.prepare(
             'INSERT INTO videos(id,owner,title,description,r2_key,thumb_key,mime,size,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
-          ).bind(id, user, title, desc, '', null, file.type, file.size, status, 'auto-filter: ' + verdict, clientScan, new Date().toISOString()).run();
+          ).bind(id, user, title, desc, '', null, file.type, file.size, status, flagReason, clientScan, new Date().toISOString()).run();
           return json(202, { id, status, message: 'Held for review: auto-filter matched (' + verdict + '). File discarded.' });
         }
         await supaPut(key, file.stream(), file.type);
@@ -165,6 +172,22 @@ export default {
         if (thumb instanceof File && thumb.size > 0 && thumb.size < 5_000_000 && thumb.type.startsWith('image/')) {
           thumbKey = 't/' + id + '.jpg';
           try { await supaPut(thumbKey, thumb.stream(), 'image/jpeg'); } catch { thumbKey = null; }
+        }
+        // Server-side vision check on the thumbnail (can't be skipped like client JS).
+        if (thumbKey && env.AI) {
+          try {
+            const buf = await thumb.arrayBuffer();
+            const labels = await env.AI.run('@cf/microsoft/resnet-50', { image: [...new Uint8Array(buf)] });
+            const risky = ['bikini', 'maillot', 'brassiere', 'miniskirt', 'nudity'];
+            const top = (Array.isArray(labels) ? labels : []).slice(0, 3);
+            if (top.some(l => l.score > 0.5 && risky.some(r => String(l.label || '').toLowerCase().includes(r)))) {
+              try { await supaDelete([key, thumbKey]); } catch {}
+              await env.DB.prepare(
+                'INSERT INTO videos(id,owner,title,description,r2_key,thumb_key,mime,size,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
+              ).bind(id, user, title, desc, '', null, file.type, file.size, 'flagged', 'auto-vision: explicit thumbnail', clientScan, new Date().toISOString()).run();
+              return json(202, { id, status: 'flagged', message: 'Held for review: thumbnail failed the explicit-content check. File discarded.' });
+            }
+          } catch { /* AI unavailable — text + client checks still apply */ }
         }
         await env.DB.prepare(
           'INSERT INTO videos(id,owner,title,description,r2_key,thumb_key,mime,size,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
@@ -176,14 +199,44 @@ export default {
       if (req.method === 'GET' && url.pathname === '/api/videos') {
         const owner = url.searchParams.get('owner');
         const rows = owner
-          ? (await env.DB.prepare("SELECT id,owner,title,description,mime,size,created_at FROM videos WHERE status='clean' AND owner=? ORDER BY created_at DESC LIMIT 50").bind(owner.toLowerCase()).all()).results
-          : (await env.DB.prepare("SELECT id,owner,title,description,mime,size,created_at FROM videos WHERE status='clean' ORDER BY created_at DESC LIMIT 50").all()).results;
+          ? (await env.DB.prepare("SELECT id,owner,title,description,mime,size,views,created_at FROM videos WHERE status='clean' AND owner=? ORDER BY created_at DESC LIMIT 50").bind(owner.toLowerCase()).all()).results
+          : (await env.DB.prepare("SELECT id,owner,title,description,mime,size,views,created_at FROM videos WHERE status='clean' ORDER BY created_at DESC LIMIT 50").all()).results;
         return json(200, { videos: rows });
       }
       if (req.method === 'GET' && url.pathname === '/api/video') {
-        const row = await env.DB.prepare("SELECT id,owner,title,description,mime,size,created_at FROM videos WHERE id=? AND status='clean'").bind(url.searchParams.get('id')).first();
+        const row = await env.DB.prepare("SELECT id,owner,title,description,mime,size,views,created_at FROM videos WHERE id=? AND status='clean'").bind(url.searchParams.get('id')).first();
         if (!row) return json(404, { error: 'Video not found.' });
-        return json(200, { video: row });
+        const likes = (await env.DB.prepare('SELECT COUNT(*) c FROM video_likes WHERE video_id=?').bind(row.id).first()).c;
+        let liked = false;
+        const u = await authedUser();
+        if (u) liked = !!(await env.DB.prepare('SELECT 1 x FROM video_likes WHERE video_id=? AND username=?').bind(row.id, u).first());
+        return json(200, { video: row, likes, liked });
+      }
+      // ---------- Real channel lookup (unknown users 404 — no fake channels) ----------
+      if (req.method === 'GET' && url.pathname === '/api/user') {
+        const name = String(url.searchParams.get('u') || '').toLowerCase();
+        const row = await env.DB.prepare('SELECT username,created_at FROM users WHERE username=?').bind(name).first();
+        if (!row) return json(404, { error: 'Channel not found.' });
+        const nv = (await env.DB.prepare("SELECT COUNT(*) c FROM videos WHERE owner=? AND status='clean'").bind(name).first()).c;
+        return json(200, { user: { username: row.username, joined: row.created_at, videos: nv } });
+      }
+      // ---------- Views + likes ----------
+      if (req.method === 'POST' && url.pathname === '/api/video/view') {
+        const { id } = await req.json();
+        await env.DB.prepare("UPDATE videos SET views=views+1 WHERE id=? AND status='clean'").bind(id).run();
+        return json(200, { ok: true });
+      }
+      if (req.method === 'POST' && url.pathname === '/api/video/like') {
+        const user = await authedUser();
+        if (!user) return json(401, { error: 'Sign in to like.' });
+        const { id } = await req.json();
+        const vid = await env.DB.prepare("SELECT id FROM videos WHERE id=? AND status='clean'").bind(id).first();
+        if (!vid) return json(404, { error: 'Video not found.' });
+        const has = await env.DB.prepare('SELECT 1 x FROM video_likes WHERE video_id=? AND username=?').bind(id, user).first();
+        if (has) await env.DB.prepare('DELETE FROM video_likes WHERE video_id=? AND username=?').bind(id, user).run();
+        else await env.DB.prepare('INSERT INTO video_likes(video_id,username,created_at) VALUES(?,?,?)').bind(id, user, new Date().toISOString()).run();
+        const likes = (await env.DB.prepare('SELECT COUNT(*) c FROM video_likes WHERE video_id=?').bind(id).first()).c;
+        return json(200, { likes, liked: !has });
       }
 
       // ---------- Playback redirect (clean only, signed, 1h) ----------

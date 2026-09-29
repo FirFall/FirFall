@@ -7,6 +7,8 @@ document.getElementById('menuBtn').onclick = () => {
 const modal = document.getElementById('authModal');
 const signInBtn = document.getElementById('signInBtn');
 const signInLabel = document.getElementById('signInLabel');
+const signInAvatar = document.getElementById('signInAvatar');
+const signInIcon = document.getElementById('signInIcon');
 const authTitle = document.getElementById('authTitle');
 const authUser = document.getElementById('authUser');
 const authPass = document.getElementById('authPass');
@@ -25,7 +27,9 @@ function refreshAuthUI() {
   const u = me();
   signInBtn.classList.toggle('logged-in', !!u);
   signInLabel.textContent = u ? u : 'Sign in';
-  if (u) { menuUser.textContent = '@' + u; menuAvatar.textContent = u[0].toUpperCase(); }
+  signInAvatar.classList.toggle('hidden', !u);
+  signInIcon.classList.toggle('hidden', !!u);
+  if (u) { signInAvatar.textContent = u[0].toUpperCase(); menuUser.textContent = '@' + u; menuAvatar.textContent = u[0].toUpperCase(); }
   else accountMenu.classList.add('hidden');
 }
 function setMode(m) {
@@ -85,14 +89,23 @@ authSubmit.onclick = async () => {
   } catch { authErr.textContent = 'Auth service unreachable — check connection.'; }
 };
 
-// ---- Subscriptions ----
-const getSubs = () => { try { return JSON.parse(localStorage.getItem('firfall_subs') || '{}'); } catch { return {}; } };
-const setSubs = (s) => localStorage.setItem('firfall_subs', JSON.stringify(s));
+// ---- Local stores ----
+const store = {
+  get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch { return d; } },
+  set(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
+};
+const getSubs = () => store.get('firfall_subs', {});
+const setSubs = (s) => store.set('firfall_subs', s);
 function baseSubs(name) {
   let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return 12 + (h % 4800);
 }
 function fmt(n) { return n >= 1000 ? (n / 1000).toFixed(1).replace('.0', '') + 'K' : String(n); }
+function pushHistory(v) {
+  const h = store.get('firfall_history', []).filter(x => x.id !== v.id);
+  h.unshift({ id: v.id, title: v.title, owner: v.owner, at: Date.now() });
+  store.set('firfall_history', h.slice(0, 50));
+}
 function wireSubBtn(btn, name) {
   const subs = getSubs();
   const isOwn = me() && me().toLowerCase() === name.toLowerCase();
@@ -113,79 +126,139 @@ function wireSubBtn(btn, name) {
 const homeView = document.getElementById('homeView');
 const channelView = document.getElementById('channelView');
 const watchView = document.getElementById('watchView');
-function show(el) { [homeView, channelView, watchView].forEach(v => v.classList.add('hidden')); el.classList.remove('hidden'); }
+const listView = document.getElementById('listView');
+function show(el) { [homeView, channelView, watchView, listView].forEach(v => v.classList.add('hidden')); el.classList.remove('hidden'); }
+function markNav(name) {
+  document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === name));
+}
+let homeCache = [];
+let homeQuery = '';
+
+function card(v) {
+  const d = document.createElement('div');
+  d.className = 'card';
+  d.innerHTML = '<video muted preload="metadata" playsinline src="' + API + '/v/' + v.id + '" poster="' + API + '/t/' + v.id + '"></video>' +
+    '<div class="meta"><div class="chan">' + (v.owner[0] || '?').toUpperCase() + '</div><div><h3></h3><p></p></div></div>';
+  d.querySelector('h3').textContent = v.title;
+  d.querySelector('p').textContent = v.owner + ' • ' + fmt(v.views || 0) + ' views • ' + new Date(v.created_at).toLocaleDateString();
+  const vid = d.querySelector('video');
+  vid.onmouseenter = () => { vid.play().catch(() => {}); };
+  vid.onmouseleave = () => { vid.pause(); };
+  d.onclick = () => { location.hash = '#/watch/' + v.id; };
+  return d;
+}
 
 async function loadHome() {
-  show(homeView);
+  show(homeView); markNav('home');
   const grid = document.getElementById('grid');
   grid.innerHTML = '';
   try {
     const r = await fetch(API + '/api/videos');
-    const { videos } = await r.json();
-    document.getElementById('emptyState').style.display = videos.length ? 'none' : '';
-    videos.forEach(v => {
-      const d = document.createElement('div');
-      d.className = 'card';
-      d.innerHTML = '<video muted preload="metadata" playsinline src="' + API + '/v/' + v.id + '" poster="' + API + '/t/' + v.id + '"></video>' +
-        '<div class="meta"><div class="chan">' + v.owner[0].toUpperCase() + '</div><div><h3></h3><p></p></div></div>';
-      d.querySelector('h3').textContent = v.title;
-      d.querySelector('p').textContent = v.owner + ' • ' + new Date(v.created_at).toLocaleDateString();
-      d.querySelector('video').onmouseenter = (e) => { e.target.play().catch(() => {}); };
-      d.querySelector('video').onmouseleave = (e) => { e.target.pause(); };
-      d.onclick = () => { location.hash = '#/watch/' + v.id; };
-      grid.appendChild(d);
-    });
-  } catch { document.getElementById('emptyState').style.display = ''; }
+    const j = await r.json();
+    homeCache = j.videos || [];
+  } catch { homeCache = []; }
+  const q = homeQuery.toLowerCase();
+  const list = homeCache.filter(v => !q || (v.title + ' ' + v.owner).toLowerCase().includes(q));
+  document.getElementById('emptyState').style.display = list.length ? 'none' : '';
+  if (!list.length && homeCache.length)
+    document.querySelector('#emptyState p').textContent = 'No videos match "' + homeQuery + '".';
+  else if (!list.length)
+    document.querySelector('#emptyState p').textContent = 'Be the first to upload.';
+  list.forEach(v => grid.appendChild(card(v)));
 }
+// Search + chips (working)
+document.getElementById('searchInput').addEventListener('input', (e) => { homeQuery = e.target.value.trim(); loadHome(); });
+document.getElementById('chips').addEventListener('click', (e) => {
+  const c = e.target.closest('.yt-chip');
+  if (!c) return;
+  document.querySelectorAll('.yt-chip').forEach(x => x.classList.remove('active'));
+  c.classList.add('active');
+  homeQuery = c.dataset.q || '';
+  document.getElementById('searchInput').value = homeQuery;
+  location.hash = '#/';
+  loadHome();
+});
 
 async function renderChannel(name) {
-  show(channelView);
+  show(channelView); markNav('');
   document.getElementById('chAvatar').textContent = name[0].toUpperCase();
   document.getElementById('chName').textContent = name;
   const meta = document.getElementById('chMeta');
-  meta.dataset.owner = name.toLowerCase();
-  wireSubBtn(document.getElementById('chSubBtn'), name);
-  document.getElementById('chAbout').textContent = '@' + name.toLowerCase() + ' • joined FirFall test version';
   const tab = document.getElementById('tabVideos');
   tab.innerHTML = '<h2>Loading…</h2>';
   try {
-    const r = await fetch(API + '/api/videos?owner=' + encodeURIComponent(name.toLowerCase()));
+    const u = await (await fetch(API + '/api/user?u=' + encodeURIComponent(name.toLowerCase()))).json();
+    if (!u.user) { tab.innerHTML = '<h2>Channel not found</h2><p>No such FirFall account.</p>'; meta.textContent = ''; wireSubBtn(document.getElementById('chSubBtn'), name + '_missing_' + Date.now()); document.getElementById('chSubBtn').style.display = 'none'; return; }
+    document.getElementById('chSubBtn').style.display = '';
+    meta.dataset.owner = u.user.username;
+    wireSubBtn(document.getElementById('chSubBtn'), u.user.username);
+    document.getElementById('chAbout').textContent = '@' + u.user.username + ' • joined ' + new Date(u.user.joined).toLocaleDateString();
+    const r = await fetch(API + '/api/videos?owner=' + encodeURIComponent(u.user.username));
     const { videos } = await r.json();
     const subs = getSubs();
-    const count = baseSubs(name.toLowerCase()) + (subs[name.toLowerCase()] ? 1 : 0);
-    meta.textContent = '@' + name.toLowerCase() + ' • ' + fmt(count) + ' subscribers • ' + videos.length + ' videos';
+    const count = baseSubs(u.user.username) + (subs[u.user.username] ? 1 : 0);
+    meta.textContent = '@' + u.user.username + ' • ' + fmt(count) + ' subscribers • ' + videos.length + ' videos';
     tab.innerHTML = videos.length ? '' : '<h2>No videos yet</h2><p>This channel hasn\'t uploaded anything.</p>';
-    videos.forEach(v => {
-      const d = document.createElement('div');
-      d.className = 'card';
-      d.innerHTML = '<video muted preload="metadata" playsinline poster="' + API + '/t/' + v.id + '"></video><div class="meta"><div><h3></h3></div></div>';
-      d.querySelector('h3').textContent = v.title;
-      d.onclick = () => { location.hash = '#/watch/' + v.id; };
-      tab.appendChild(d);
-    });
+    tab.className = videos.length ? 'yt-grid' : 'blank-state';
+    videos.forEach(v => tab.appendChild(card(v)));
   } catch { tab.innerHTML = '<h2>Could not load channel.</h2>'; }
 }
 
 let currentVideo = null;
 async function renderWatch(id) {
-  show(watchView);
+  show(watchView); markNav('');
   const player = document.getElementById('player');
   player.pause(); player.removeAttribute('src'); player.load();
   try {
     const r = await fetch(API + '/api/video?id=' + encodeURIComponent(id));
     if (!r.ok) { document.getElementById('wTitle').textContent = 'Video not found.'; return; }
-    const { video: v } = await r.json();
+    const { video: v, likes, liked } = await r.json();
     currentVideo = v;
     player.poster = API + '/t/' + v.id;
     player.src = API + '/v/' + v.id;
     document.getElementById('wTitle').textContent = v.title;
+    document.getElementById('wStats').textContent = fmt(v.views || 0) + ' views • ' + new Date(v.created_at).toLocaleDateString();
     const ch = document.getElementById('wChannel');
     ch.textContent = '@' + v.owner; ch.href = '#/channel/' + v.owner;
     wireSubBtn(document.getElementById('wSubBtn'), v.owner);
+    paintLike(!!liked, likes || 0);
+    paintSave();
     document.getElementById('wDesc').textContent = v.description || '';
+    pushHistory(v);
+    fetch(API + '/api/video/view', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }).catch(() => {});
     loadComments(v.id);
   } catch { document.getElementById('wTitle').textContent = 'Could not load video.'; }
 }
+function paintLike(liked, n) {
+  const b = document.getElementById('wLikeBtn');
+  b.innerHTML = (liked ? '♥ ' : '♡ ') + '<span>' + n + '</span>';
+  b.classList.toggle('on', !!liked);
+}
+document.getElementById('wLikeBtn').onclick = async () => {
+  if (!me()) { setMode('login'); modal.classList.remove('hidden'); return; }
+  try {
+    const r = await fetch(API + '/api/video/like', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+      body: JSON.stringify({ id: currentVideo.id })
+    });
+    const j = await r.json();
+    if (r.ok) paintLike(j.liked, j.likes);
+  } catch {}
+};
+function paintSave() {
+  const later = store.get('firfall_later', []);
+  const saved = later.some(x => x.id === currentVideo.id);
+  const b = document.getElementById('wSaveBtn');
+  b.textContent = saved ? '✓ Saved' : '+ Watch later';
+  b.classList.toggle('on', saved);
+}
+document.getElementById('wSaveBtn').onclick = () => {
+  let later = store.get('firfall_later', []);
+  if (later.some(x => x.id === currentVideo.id)) later = later.filter(x => x.id !== currentVideo.id);
+  else later.unshift({ id: currentVideo.id, title: currentVideo.title, owner: currentVideo.owner });
+  store.set('firfall_later', later.slice(0, 100));
+  paintSave();
+};
 
 async function loadComments(vid) {
   const list = document.getElementById('cList');
@@ -221,11 +294,37 @@ document.getElementById('cSend').onclick = async () => {
   } catch { err.textContent = 'Service unreachable.'; }
 };
 
+// ---- Library views: subs / history / later ----
+function renderList(title, items, empty) {
+  show(listView); markNav(title === 'Subscriptions' ? 'subs' : title === 'History' ? 'history' : 'later');
+  document.getElementById('listTitle').textContent = title;
+  const g = document.getElementById('listGrid');
+  g.innerHTML = items.length ? '' : '<p class="modal-sub">' + empty + '</p>';
+  items.forEach(v => g.appendChild(card(v)));
+}
+async function renderSubs() {
+  const names = Object.keys(getSubs());
+  if (!names.length) { renderList('Subscriptions', [], 'Channels you subscribe to will show up here.'); return; }
+  try {
+    const all = await (await fetch(API + '/api/videos')).json();
+    renderList('Subscriptions', (all.videos || []).filter(v => names.includes(v.owner)), 'No uploads from your subscriptions yet.');
+  } catch { renderList('Subscriptions', [], 'Could not load.'); }
+}
+function renderHistory() {
+  renderList('History', store.get('firfall_history', []), 'Videos you watch will show up here.');
+}
+function renderLater() {
+  renderList('Watch later', store.get('firfall_later', []), 'Save videos with + Watch later to find them here.');
+}
+
 function router() {
   let m = location.hash.match(/^#\/watch\/([A-Za-z0-9-]+)\/?$/);
   if (m) { renderWatch(m[1]); return; }
   m = location.hash.match(/^#\/channel\/([A-Za-z0-9_]+)\/?$/);
   if (m) { renderChannel(m[1]); return; }
+  if (location.hash === '#/subs') { renderSubs(); return; }
+  if (location.hash === '#/history') { renderHistory(); return; }
+  if (location.hash === '#/later') { renderLater(); return; }
   loadHome();
 }
 document.querySelectorAll('[data-chtab]').forEach(t => {

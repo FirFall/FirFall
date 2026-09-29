@@ -35,7 +35,8 @@
       <svg viewBox="0 0 24 24" width="22" height="22"><path d="M14 13h-3v3H9v-3H6v-2h3V8h2v3h3v2zm2-8H8a4 4 0 0 0-4 4v6a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4V9a4 4 0 0 0-4-4zm0 12H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2z" fill="currentColor"/></svg>
     </button>
     <button id="signInBtn" class="yt-signin">
-      <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0 2c-3.3 0-8 1.7-8 5v3h16v-3c0-3.3-4.7-5-8-5z" fill="currentColor"/></svg>
+      <span id="signInAvatar" class="avatar sm hidden">?</span>
+      <svg id="signInIcon" viewBox="0 0 24 24" width="20" height="20"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0 2c-3.3 0-8 1.7-8 5v3h16v-3c0-3.3-4.7-5-8-5z" fill="currentColor"/></svg>
       <span id="signInLabel">Sign in</span>
     </button>
     <div id="accountMenu" class="account-menu hidden">
@@ -50,26 +51,24 @@
   </div>
 </header>
 
-<div class="yt-chips">
-  <button class="yt-chip active">All</button>
-  <button class="yt-chip">Music</button>
-  <button class="yt-chip">Gaming</button>
-  <button class="yt-chip">Live</button>
-  <button class="yt-chip">Podcasts</button>
-  <button class="yt-chip">Cooking</button>
-  <button class="yt-chip">Tech</button>
-  <button class="yt-chip">Sports</button>
-  <button class="yt-chip">News</button>
+<div class="yt-chips" id="chips">
+  <button class="yt-chip active" data-q="">All</button>
+  <button class="yt-chip" data-q="music">Music</button>
+  <button class="yt-chip" data-q="gaming">Gaming</button>
+  <button class="yt-chip" data-q="live">Live</button>
+  <button class="yt-chip" data-q="cook">Cooking</button>
+  <button class="yt-chip" data-q="tech">Tech</button>
+  <button class="yt-chip" data-q="sport">Sports</button>
+  <button class="yt-chip" data-q="news">News</button>
 </div>
 
 <div class="yt-layout">
   <aside class="yt-sidebar" id="sidebar">
-    <a href="#/"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 3 2 12h3v8h6v-6h2v6h6v-8h3L12 3z" fill="currentColor"/></svg><span>Home</span></a>
-    <a href="#/"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M17.77 10.32 7.9 4.5v14.9l9.87-5.83-.68-1.13 2.62-1.56-.68-1.13 2.62-1.56-.68-1.13 2.62-1.56-.68-1.13 2.62-1.56-.68-1.12zM7 15.5V7.9l7.9 3.85L7 15.5z" fill="currentColor"/></svg><span>Shorts</span></a>
-    <a href="#/"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M20 8H4V6h16v2zm-2 4H6v6h12v-6zm2 8H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2z" fill="currentColor"/></svg><span>Subscriptions</span></a>
+    <a href="#/" data-nav="home"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 3 2 12h3v8h6v-6h2v6h6v-8h3L12 3z" fill="currentColor"/></svg><span>Home</span></a>
+    <a href="#/subs" data-nav="subs"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M20 8H4V6h16v2zm-2 4H6v6h12v-6zm2 8H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2z" fill="currentColor"/></svg><span>Subscriptions</span></a>
     <hr/>
-    <a href="#/"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 13a1.5 1.5 0 0 0 1.5-1.5c0-.65-.42-1.2-1-1.41V7.5a.5.5 0 0 0-1 0v2.59c-.58.21-1 .76-1 1.41A1.5 1.5 0 0 0 12 13zm0-9a9 9 0 1 0 9 9h-2a7 7 0 1 1-7-7V4z" fill="currentColor"/></svg><span>History</span></a>
-    <a href="#/"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 4a8 8 0 1 0 8 8h-2a6 6 0 1 1-6-6V4zm1 2v6l5 3-.8 1.28L11 12.5V6h1z" fill="currentColor"/></svg><span>Watch Later</span></a>
+    <a href="#/history" data-nav="history"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 13a1.5 1.5 0 0 0 1.5-1.5c0-.65-.42-1.2-1-1.41V7.5a.5.5 0 0 0-1 0v2.59c-.58.21-1 .76-1 1.41A1.5 1.5 0 0 0 12 13zm0-9a9 9 0 1 0 9 9h-2a7 7 0 1 1-7-7V4z" fill="currentColor"/></svg><span>History</span></a>
+    <a href="#/later" data-nav="later"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 4a8 8 0 1 0 8 8h-2a6 6 0 1 1-6-6V4zm1 2v6l5 3-.8 1.28L11 12.5V6h1z" fill="currentColor"/></svg><span>Watch Later</span></a>
   </aside>
   <main class="yt-main">
    <div id="homeView">
@@ -82,9 +81,13 @@
    <div id="watchView" class="hidden">
      <video id="player" controls playsinline></video>
      <h2 id="wTitle"></h2>
+     <p id="wStats" class="modal-sub"></p>
      <div class="w-row">
        <a id="wChannel" href="#/"></a>
        <button id="wSubBtn" class="sub-btn">Subscribe</button>
+       <span class="w-space"></span>
+       <button id="wLikeBtn" class="pill-btn">♡ <span id="wLikes">0</span></button>
+       <button id="wSaveBtn" class="pill-btn">+ Watch later</button>
      </div>
      <p id="wDesc" class="w-desc"></p>
      <h3>Comments</h3>
@@ -93,7 +96,6 @@
      <div id="cList"></div>
    </div>
    <div id="channelView" class="hidden">
-     <div class="ch-banner"></div>
      <div class="ch-head">
        <div id="chAvatar" class="ch-avatar">?</div>
        <div class="ch-info"><h2 id="chName">channel</h2><p id="chMeta"></p></div>
@@ -106,6 +108,10 @@
      <div id="tabVideos" class="blank-state"><h2>No videos yet</h2><p>This channel hasn't uploaded anything.</p></div>
      <div id="tabAbout" class="blank-state hidden"><p id="chAbout"></p></div>
    </div>
+    <div id="listView" class="hidden">
+      <h2 id="listTitle"></h2>
+      <div class="yt-grid" id="listGrid"></div>
+    </div>
   </main>
 </div>
 
@@ -113,7 +119,7 @@
   <div class="modal-box wide">
     <button id="uploadClose" class="modal-x">✕</button>
     <h2>Upload video</h2>
-    <p class="modal-sub">MP4/WebM/MOV/MKV • max 100MB • auto-screened for NSFW, gore & illegal content</p>
+    <p class="modal-sub">MP4/WebM/MOV/MKV • max 100MB • screened: explicit, gore, hate & illegal content blocked</p>
     <input id="upFile" type="file" accept="video/mp4,video/webm,video/quicktime,video/x-matroska" />
     <input id="upTitle" type="text" maxlength="100" placeholder="Title (required)" />
     <textarea id="upDesc" maxlength="2000" placeholder="Description"></textarea>

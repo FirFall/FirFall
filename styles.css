@@ -52,6 +52,15 @@
 .ch-tabs{display:flex;gap:4px;border-bottom:1px solid #272727;margin-bottom:16px}
 .ch-tabs button{background:transparent;border:0;color:#aaa;font-size:14px;font-weight:600;padding:10px 14px;cursor:pointer;border-bottom:2px solid transparent}
 .ch-tabs button.active{color:#fff;border-bottom-color:#fff}
+.avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#ffb800,#ff2d00);display:inline-flex;align-items:center;justify-content:center;font-weight:800;color:#180a00;flex-shrink:0}
+.avatar.sm{width:24px;height:24px;font-size:13px}
+.yt-signin.logged-in{color:#fff;border-color:#4d4d4d}
+.yt-signin.logged-in svg.hidden{display:none}
+.pill-btn{background:#272727;color:#fff;border:0;padding:9px 16px;border-radius:20px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap}
+.pill-btn:hover{background:#3d3d3d}
+.pill-btn.on{background:#3ea6ff22;color:#3ea6ff}
+.w-space{flex:1}
+#listView h2{margin:4px 0 16px}
 .modal-box.wide{width:420px}
 .modal-box textarea{background:#121212;border:1px solid #303030;border-radius:8px;color:#fff;padding:11px 12px;font-size:14px;outline:none;min-height:70px;resize:vertical;font-family:inherit}
 .modal-box input[type=file]{color:#aaa;font-size:13px}
