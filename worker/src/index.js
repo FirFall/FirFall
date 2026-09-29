@@ -236,14 +236,18 @@ export default {
         const key = 'v/' + id + '.' + ext;
         const dur = Math.max(0, Math.min(36000, parseFloat(duration) || 0));
         const vis = ['public', 'unlisted', 'private'].includes(visibility) ? visibility : 'public';
-        let fileId, partUrl;
-        try {
-          const a = await b2auth();
-          const st = await b2call('b2_start_large_file', { bucketId: a.bucketId, fileName: key, contentType: mime });
-          fileId = st.fileId;
-          partUrl = await b2freshPartUrl(fileId);
+        // B2 large files need >=2 parts: single-chunk files use simple upload instead.
+        const simple = size <= CHUNK_BYTES;
+        let fileId = 'PENDING-SMALL', partUrl = { uploadUrl: '', token: '' };
+        if (!simple) {
+          try {
+            const a = await b2auth();
+            const st = await b2call('b2_start_large_file', { bucketId: a.bucketId, fileName: key, contentType: mime });
+            fileId = st.fileId;
+            partUrl = await b2freshPartUrl(fileId);
+          }
+          catch (e) { console.error('b2 start failed:', String(e && e.message || e)); return json(500, { error: 'Storage unavailable (' + String(e && e.message || 'unknown') + ') — try again.' }); }
         }
-        catch (e) { console.error('b2 start failed:', String(e && e.message || e)); return json(500, { error: 'Storage unavailable (' + String(e && e.message || 'unknown') + ') — try again.' }); }
         await env.DB.prepare(
           'INSERT INTO uploads(id,owner,title,description,storage_key,mime,size,duration,visibility,b2_file_id,b2_upload_url,b2_part_token,part_num,parts_json,uploaded,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
         ).bind(id, user, t, d, key, mime, size, dur, vis, fileId, partUrl.uploadUrl, partUrl.token, 0, '[]', 0, String(scan || 'skipped'), new Date().toISOString()).run();
@@ -265,6 +269,18 @@ export default {
         if (!(chunk instanceof File) || chunk.size === 0 || chunk.size > CHUNK_BYTES + 1024)
           return json(400, { error: 'Bad chunk.' });
         if (up.uploaded + chunk.size > up.size) return json(400, { error: 'Chunk overflow.' });
+        // Single-part file: whole bytes go up in one simple PUT.
+        if (up.b2_file_id === 'PENDING-SMALL') {
+          if (off !== 0 || chunk.size !== up.size)
+            return json(400, { error: 'Out of order — restart the upload.' });
+          try {
+            const bytes = await chunk.arrayBuffer();
+            const put = await b2SmallPut(up.storage_key, bytes, up.mime);
+            await env.DB.prepare('UPDATE uploads SET uploaded=?, b2_file_id=? WHERE id=?')
+              .bind(chunk.size, put.fileId, sessionId).run();
+            return json(200, { uploaded: chunk.size, size: up.size });
+          } catch (e) { console.error('b2 small put failed:', String(e && e.message || e)); return json(500, { error: 'Chunk failed (' + String(e && e.message || 'storage') + ') — retrying resumes automatically.' }); }
+        }
         const partNum = up.part_num + 1;
         let partSha;
         try {
@@ -303,14 +319,18 @@ export default {
           await finalize('flagged', 'auto-filter: ' + verdict, null, null, null);
           return json(202, { id: up.id, status: 'flagged', message: 'Held for review: auto-filter matched (' + verdict + '). File discarded.' });
         }
-        // Assemble parts into the final object.
-        try {
-          await b2call('b2_finish_large_file', { fileId: up.b2_file_id, partSha1Array: JSON.parse(up.parts_json || '[]') });
-        } catch (e) {
-          console.error('b2 finish failed:', String(e && e.message || e));
-          await cancel();
-          await env.DB.prepare('DELETE FROM uploads WHERE id=?').bind(up.id).run();
-          return json(500, { error: 'Storage assemble failed (' + String(e && e.message || 'unknown') + ') — try again.' });
+        // Assemble parts into the final object (skipped for single-part simple uploads).
+        if (up.part_num > 0) {
+          try {
+            await b2call('b2_finish_large_file', { fileId: up.b2_file_id, partSha1Array: JSON.parse(up.parts_json || '[]') });
+          } catch (e) {
+            console.error('b2 finish failed:', String(e && e.message || e));
+            await cancel();
+            await env.DB.prepare('DELETE FROM uploads WHERE id=?').bind(up.id).run();
+            return json(500, { error: 'Storage assemble failed (' + String(e && e.message || 'unknown') + ') — try again.' });
+          }
+        } else if (!up.b2_file_id || up.b2_file_id === 'PENDING-SMALL') {
+          return json(400, { error: 'Upload incomplete — missing bytes.' });
         }
         let thumbKey = null, thumbId = null;
         const thumb = body.thumb;
@@ -345,7 +365,11 @@ export default {
         const { sessionId } = await req.json();
         const up = await env.DB.prepare('SELECT * FROM uploads WHERE id=?').bind(sessionId).first();
         if (up && up.owner === user) {
-          try { await b2call('b2_cancel_large_file', { fileId: up.b2_file_id }); } catch {}
+          try {
+            if (!up.b2_file_id || up.b2_file_id === 'PENDING-SMALL') { /* nothing stored yet */ }
+            else if (up.part_num > 0) await b2call('b2_cancel_large_file', { fileId: up.b2_file_id });
+            else await b2Delete(up.storage_key, up.b2_file_id);
+          } catch {}
           await env.DB.prepare('DELETE FROM uploads WHERE id=?').bind(sessionId).run();
         }
         return json(200, { ok: true });
