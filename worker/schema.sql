@@ -3,6 +3,9 @@ CREATE TABLE IF NOT EXISTS users(
   username TEXT UNIQUE NOT NULL,
   pass_hash TEXT NOT NULL,
   salt TEXT NOT NULL,
+  about TEXT NOT NULL DEFAULT '',
+  banner_key TEXT,
+  avatar_key TEXT,
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sessions(
@@ -47,6 +50,22 @@ CREATE TABLE IF NOT EXISTS video_likes(
   created_at TEXT NOT NULL,
   PRIMARY KEY (video_id, username)
 );
+CREATE TABLE IF NOT EXISTS subscriptions(
+  channel TEXT NOT NULL,
+  subscriber TEXT NOT NULL,
+  notify TEXT NOT NULL DEFAULT 'all',
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (channel, subscriber)
+);
+CREATE INDEX IF NOT EXISTS idx_subs_subscriber ON subscriptions(subscriber);
+CREATE TABLE IF NOT EXISTS notifications(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL,
+  video_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  read INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(username, id DESC);
 CREATE TABLE IF NOT EXISTS uploads(
   id TEXT PRIMARY KEY,
   owner TEXT NOT NULL,

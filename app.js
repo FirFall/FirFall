@@ -29,8 +29,16 @@ function refreshAuthUI() {
   signInLabel.textContent = u ? u : 'Sign in';
   signInAvatar.classList.toggle('hidden', !u);
   signInIcon.classList.toggle('hidden', !!u);
-  if (u) { signInAvatar.textContent = u[0].toUpperCase(); menuUser.textContent = '@' + u; menuAvatar.textContent = u[0].toUpperCase(); }
-  else accountMenu.classList.add('hidden');
+  notifBtn.classList.toggle('hidden', !u);
+  if (u) {
+    signInAvatar.textContent = u[0].toUpperCase(); menuUser.textContent = '@' + u; menuAvatar.textContent = u[0].toUpperCase();
+    notifKnown = parseInt(localStorage.getItem('firfall_notif_known') || '0', 10) || 0;
+    loadNotifs(false);
+  } else {
+    accountMenu.classList.add('hidden');
+    notifPanel.classList.add('hidden');
+    notifBadge.classList.add('hidden');
+  }
 }
 function setMode(m) {
   mode = m;
@@ -60,6 +68,74 @@ document.getElementById('menuSignout').onclick = () => {
   refreshAuthUI();
   if (location.hash.startsWith('#/channel/')) location.hash = '#/';
 };
+// ---- Notifications: bell feed + browser alerts while the site is open ----
+const notifBtn = document.getElementById('notifBtn');
+const notifPanel = document.getElementById('notifPanel');
+const notifBadge = document.getElementById('notifBadge');
+let notifKnown = 0; // highest notification id already seen this session
+async function loadNotifs(markRead) {
+  if (!me()) return;
+  try {
+    const r = await fetch(API + '/api/notifications', { headers: { 'Authorization': 'Bearer ' + token() } });
+    const j = await r.json();
+    const list = j.notifications || [];
+    notifBadge.classList.toggle('hidden', !(j.unread > 0));
+    if (j.unread > 0) notifBadge.textContent = j.unread > 9 ? '9+' : String(j.unread);
+    const box = document.getElementById('notifList');
+    box.innerHTML = list.length ? '' : '<p class="modal-sub" style="padding:12px 16px">No notifications yet. Subscribe to channels with the bell on.</p>';
+    list.forEach(n => {
+      const d = document.createElement('div');
+      d.className = 'notif-item' + (n.read ? '' : ' unread');
+      d.innerHTML = '<div class="thumb"><video muted preload="metadata" playsinline poster="' + API + '/t/' + n.video_id + '"></video></div>' +
+        '<div><h4></h4><p></p></div>';
+      d.querySelector('h4').textContent = n.title || 'New upload';
+      d.querySelector('p').textContent = '@' + n.owner + ' • ' + timeAgo(n.created_at);
+      d.onclick = () => {
+        notifPanel.classList.add('hidden');
+        fetch(API + '/api/notifications/read', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+          body: JSON.stringify({ ids: [n.id] })
+        }).catch(() => {});
+        location.hash = '#/watch/' + n.video_id;
+      };
+      box.appendChild(d);
+    });
+    // Foreground browser alerts for newly arrived items (site must be open).
+    const fresh = list.filter(n => n.id > notifKnown);
+    if (notifKnown && fresh.length && 'Notification' in window && Notification.permission === 'granted') {
+      const n = fresh[0];
+      try { new Notification(n.title || 'New upload', { body: '@' + n.owner + ' uploaded a video' }); } catch {}
+    }
+    if (list.length) {
+      notifKnown = Math.max(notifKnown, ...list.map(n => n.id));
+      try { localStorage.setItem('firfall_notif_known', String(notifKnown)); } catch {}
+    }
+    if (markRead && j.unread > 0) {
+      fetch(API + '/api/notifications/read', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+        body: JSON.stringify({})
+      }).then(() => loadNotifs(false)).catch(() => {});
+    }
+  } catch {}
+}
+notifBtn.onclick = (e) => {
+  e.stopPropagation();
+  if (notifPanel.classList.contains('hidden')) { notifPanel.classList.remove('hidden'); loadNotifs(true); }
+  else notifPanel.classList.add('hidden');
+};
+document.addEventListener('click', (e) => {
+  if (!notifPanel.classList.contains('hidden') && !e.target.closest('#notifPanel') && !e.target.closest('#notifBtn'))
+    notifPanel.classList.add('hidden');
+});
+document.getElementById('notifEnable').onclick = () => {
+  askNotifPermission();
+  setTimeout(() => {
+    document.getElementById('notifEnable').textContent =
+      ('Notification' in window && Notification.permission === 'granted') ? 'Alerts on ✓' : 'Browser blocked alerts';
+  }, 800);
+};
+setInterval(() => { if (me() && !document.hidden) loadNotifs(false); }, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) loadNotifs(false); });
 authSwitch.onclick = () => setMode(mode === 'login' ? 'register' : 'login');
 authSubmit.onclick = async () => {
   authErr.textContent = '';
@@ -94,13 +170,85 @@ const store = {
   get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch { return d; } },
   set(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
 };
-const getSubs = () => store.get('firfall_subs', {});
-const setSubs = (s) => store.set('firfall_subs', s);
-function baseSubs(name) {
-  let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return 12 + (h % 4800);
-}
 function fmt(n) { return n >= 1000 ? (n / 1000).toFixed(1).replace('.0', '') + 'K' : String(n); }
+function timeAgo(iso) {
+  const s = Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 60) return s + 's ago';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  const d = Math.floor(h / 24);
+  if (d < 30) return d + 'd ago';
+  return new Date(iso).toLocaleDateString();
+}
+// ---- Real subscriptions (server-side; no fake counts anywhere) ----
+async function subStatus(name) {
+  try {
+    const r = await fetch(API + '/api/substatus?channel=' + encodeURIComponent(name.toLowerCase()),
+      me() ? { headers: { 'Authorization': 'Bearer ' + token() } } : undefined);
+    return await r.json();
+  } catch { return { subscribed: false, notify: 'none', subscribers: 0, own: false }; }
+}
+function paintBell(bell, notify, subscribed) {
+  if (!bell) return;
+  bell.classList.toggle('hidden', !subscribed);
+  bell.textContent = notify === 'all' ? '🔔' : '🔕';
+  bell.title = notify === 'all' ? 'Notified of all uploads (click to mute)' : 'Muted (click for all notifications)';
+}
+async function wireSubBtn(btn, name, bellBtn) {
+  name = String(name || '').toLowerCase();
+  const st = await subStatus(name);
+  const paint = (s) => {
+    btn.textContent = s.own ? 'This is you' : (s.subscribed ? 'Subscribed' : 'Subscribe');
+    btn.disabled = !!s.own;
+    btn.classList.toggle('subbed', s.subscribed && !s.own);
+    paintBell(bellBtn, s.notify, s.subscribed && !s.own);
+    btn._sub = s;
+  };
+  paint(st);
+  btn.onclick = async () => {
+    if (!me()) { setMode('login'); modal.classList.remove('hidden'); return; }
+    const cur = btn._sub || st;
+    if (cur.own) return;
+    btn.disabled = true;
+    try {
+      const r = await fetch(API + '/api/subscribe', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+        body: JSON.stringify({ channel: name, action: cur.subscribed ? 'unsub' : 'sub' })
+      });
+      const j = await r.json();
+      if (r.ok) {
+        paint({ subscribed: j.subscribed, notify: j.notify, subscribers: j.subscribers, own: false });
+        if (j.subscribed) { askNotifPermission(); loadNotifs(); }
+        const m = document.getElementById('chMeta');
+        if (m && m.dataset.owner === name) renderChannel(name);
+        const w = document.getElementById('wSubCount');
+        if (w && w.dataset.owner === name) w.textContent = fmt(j.subscribers) + ' subscribers';
+      }
+    } catch {}
+    btn.disabled = false;
+  };
+  if (bellBtn) bellBtn.onclick = async (e) => {
+    e.stopPropagation();
+    const cur = btn._sub || st;
+    if (!cur.subscribed || cur.own) return;
+    const want = cur.notify === 'all' ? 'none' : 'all';
+    try {
+      const r = await fetch(API + '/api/subscribe', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+        body: JSON.stringify({ channel: name, notify: want })
+      });
+      const j = await r.json();
+      if (r.ok) { cur.notify = j.notify; paintBell(bellBtn, j.notify, true); if (want === 'all') askNotifPermission(); }
+    } catch {}
+  };
+}
+function askNotifPermission() {
+  try {
+    if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
+  } catch {}
+}
 function fmtDur(s) {
   s = Math.round(s || 0);
   const m = Math.floor(s / 60), h = Math.floor(m / 60);
@@ -111,21 +259,6 @@ function pushHistory(v) {
   const h = store.get('firfall_history', []).filter(x => x.id !== v.id);
   h.unshift({ id: v.id, title: v.title, owner: v.owner, at: Date.now() });
   store.set('firfall_history', h.slice(0, 50));
-}
-function wireSubBtn(btn, name) {
-  const subs = getSubs();
-  const isOwn = me() && me().toLowerCase() === name.toLowerCase();
-  const subscribed = !!subs[name.toLowerCase()];
-  btn.textContent = isOwn ? 'This is you' : (subscribed ? 'Subscribed' : 'Subscribe');
-  btn.disabled = !!isOwn;
-  btn.classList.toggle('subbed', subscribed && !isOwn);
-  btn.onclick = () => {
-    const s = getSubs();
-    if (s[name.toLowerCase()]) delete s[name.toLowerCase()]; else s[name.toLowerCase()] = 1;
-    setSubs(s); wireSubBtn(btn, name);
-    const m = document.getElementById('chMeta');
-    if (m && m.dataset.owner === name.toLowerCase()) renderChannel(name);
-  };
 }
 
 // ---- Views / router ----
@@ -186,6 +319,7 @@ document.getElementById('chips').addEventListener('click', (e) => {
   loadHome();
 });
 
+let chSortVal = 'latest';
 async function renderChannel(name) {
   show(channelView); markNav('');
   document.getElementById('chAvatar').textContent = name[0].toUpperCase();
@@ -194,23 +328,98 @@ async function renderChannel(name) {
   const tab = document.getElementById('tabVideos');
   tab.innerHTML = '<h2>Loading…</h2>';
   try {
-    const u = await (await fetch(API + '/api/user?u=' + encodeURIComponent(name.toLowerCase()))).json();
-    if (!u.user) { tab.innerHTML = '<h2>Channel not found</h2><p>No such FirFall account.</p>'; meta.textContent = ''; wireSubBtn(document.getElementById('chSubBtn'), name + '_missing_' + Date.now()); document.getElementById('chSubBtn').style.display = 'none'; return; }
+    const u = await (await fetch(API + '/api/channel?u=' + encodeURIComponent(name.toLowerCase()))).json();
+    if (!u.channel) {
+      tab.innerHTML = '<h2>Channel not found</h2><p>No such FirFall account.</p>'; meta.textContent = '';
+      document.getElementById('chSubBtn').style.display = 'none';
+      document.getElementById('chBellBtn').classList.add('hidden');
+      return;
+    }
+    const c = u.channel;
+    const own = me() && me().toLowerCase() === c.username;
     document.getElementById('chSubBtn').style.display = '';
-    meta.dataset.owner = u.user.username;
-    wireSubBtn(document.getElementById('chSubBtn'), u.user.username);
-    document.getElementById('chAbout').textContent = '@' + u.user.username + ' • joined ' + new Date(u.user.joined).toLocaleDateString();
-    const r = await fetch(API + '/api/videos?owner=' + encodeURIComponent(u.user.username),
+    meta.dataset.owner = c.username;
+    wireSubBtn(document.getElementById('chSubBtn'), c.username, document.getElementById('chBellBtn'));
+    // Banner + avatar (custom or defaults)
+    const banner = document.getElementById('chBanner');
+    if (c.banner) { banner.src = API + c.banner + '?t=' + Date.now(); banner.classList.remove('hidden'); }
+    else banner.classList.add('hidden');
+    const avImg = document.getElementById('chAvatarImg'), avFb = document.getElementById('chAvatar');
+    if (c.avatar) { avImg.src = API + c.avatar + '?t=' + Date.now(); avImg.classList.remove('hidden'); avFb.classList.add('hidden'); }
+    else { avImg.classList.add('hidden'); avFb.classList.remove('hidden'); avFb.textContent = c.username[0].toUpperCase(); }
+    document.getElementById('chOwnBar').classList.toggle('hidden', !own);
+    meta.textContent = '@' + c.username + ' • ' + fmt(c.subscribers) + ' subscribers • ' + c.videos + ' videos';
+    document.getElementById('chAbout').textContent = c.about || 'This channel has no description yet.';
+    document.getElementById('chStats').textContent = fmt(c.views) + ' total views • joined ' + new Date(c.joined).toLocaleDateString();
+    const r = await fetch(API + '/api/videos?owner=' + encodeURIComponent(c.username),
       me() ? { headers: { 'Authorization': 'Bearer ' + token() } } : undefined);
     const { videos } = await r.json();
-    const subs = getSubs();
-    const count = baseSubs(u.user.username) + (subs[u.user.username] ? 1 : 0);
-    meta.textContent = '@' + u.user.username + ' • ' + fmt(count) + ' subscribers • ' + videos.length + ' videos';
-    tab.innerHTML = videos.length ? '' : '<h2>No videos yet</h2><p>This channel hasn\'t uploaded anything.</p>';
-    tab.className = videos.length ? 'yt-grid' : 'blank-state';
-    videos.forEach(v => tab.appendChild(card(v)));
+    const list = (videos || []).slice();
+    if (chSortVal === 'popular') list.sort((a, b) => (b.views || 0) - (a.views || 0));
+    else if (chSortVal === 'oldest') list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    else list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    tab.innerHTML = list.length ? '' : '<h2>No videos yet</h2><p>This channel hasn\'t uploaded anything.</p>';
+    tab.className = list.length ? 'yt-grid' : 'blank-state';
+    list.forEach(v => tab.appendChild(card(v)));
   } catch { tab.innerHTML = '<h2>Could not load channel.</h2>'; }
 }
+document.querySelectorAll('#chSort button').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('#chSort button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    chSortVal = b.dataset.sort;
+    const m = document.getElementById('chMeta');
+    if (m && m.dataset.owner) renderChannel(m.dataset.owner);
+  };
+});
+document.querySelectorAll('[data-chtab]').forEach(t => {
+  t.onclick = () => {
+    document.querySelectorAll('[data-chtab]').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('tabVideos').classList.toggle('hidden', t.dataset.chtab !== 'videos');
+    document.getElementById('tabAbout').classList.toggle('hidden', t.dataset.chtab !== 'about');
+    document.getElementById('chSort').style.display = t.dataset.chtab === 'videos' ? '' : 'none';
+  };
+});
+// Own-channel customization (banner / picture / description)
+document.getElementById('chBannerEdit').onclick = () => document.getElementById('chBannerFile').click();
+document.getElementById('chAvatarEdit').onclick = () => document.getElementById('chAvatarFile').click();
+async function uploadChannelArt(kind, file) {
+  const err = document.getElementById('chAboutErr');
+  if (file.size > 5_000_000) { alert('Image must be under 5MB.'); return; }
+  const f = new FormData();
+  f.append(kind, file, kind + '.jpg');
+  try {
+    const r = await fetch(API + '/api/channel/edit', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + token() }, body: f
+    });
+    const j = await r.json();
+    if (!r.ok) { alert(j.error || 'Upload failed.'); return; }
+    const m = document.getElementById('chMeta');
+    if (m && m.dataset.owner) renderChannel(m.dataset.owner);
+  } catch { alert('Upload failed — service unreachable.'); }
+}
+document.getElementById('chBannerFile').addEventListener('change', (e) => { if (e.target.files[0]) uploadChannelArt('banner', e.target.files[0]); e.target.value = ''; });
+document.getElementById('chAvatarFile').addEventListener('change', (e) => { if (e.target.files[0]) uploadChannelArt('avatar', e.target.files[0]); e.target.value = ''; });
+document.getElementById('chAboutEdit').onclick = () => {
+  document.getElementById('chAboutForm').classList.remove('hidden');
+  document.getElementById('chAboutText').value = document.getElementById('chAbout').textContent === 'This channel has no description yet.' ? '' : document.getElementById('chAbout').textContent;
+};
+document.getElementById('chAboutSave').onclick = async () => {
+  const err = document.getElementById('chAboutErr');
+  err.textContent = '';
+  try {
+    const r = await fetch(API + '/api/channel/edit', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+      body: JSON.stringify({ about: document.getElementById('chAboutText').value })
+    });
+    const j = await r.json();
+    if (!r.ok) { err.textContent = j.error || 'Save failed.'; return; }
+    document.getElementById('chAboutForm').classList.add('hidden');
+    const m = document.getElementById('chMeta');
+    if (m && m.dataset.owner) renderChannel(m.dataset.owner);
+  } catch { err.textContent = 'Save failed — service unreachable.'; }
+};
 
 let currentVideo = null;
 let upFilter = '';
@@ -311,7 +520,13 @@ async function renderWatch(id) {
     document.getElementById('wChannel').textContent = '@' + v.owner;
     document.getElementById('wAvatar').textContent = v.owner[0].toUpperCase();
     ch.href = '#/channel/' + v.owner;
-    wireSubBtn(document.getElementById('wSubBtn'), v.owner);
+    wireSubBtn(document.getElementById('wSubBtn'), v.owner, document.getElementById('wBellBtn'));
+    try {
+      const st = await subStatus(v.owner);
+      const w = document.getElementById('wSubCount');
+      w.dataset.owner = v.owner.toLowerCase();
+      w.textContent = fmt(st.subscribers) + ' subscribers';
+    } catch {}
     paintReact(reaction || 'none', likes || 0);
     paintSave();
     const cAv = document.getElementById('cAvatar');
@@ -444,9 +659,11 @@ function renderList(title, items, empty) {
   items.forEach(v => g.appendChild(card(v)));
 }
 async function renderSubs() {
-  const names = Object.keys(getSubs());
-  if (!names.length) { renderList('Subscriptions', [], 'Channels you subscribe to will show up here.'); return; }
+  if (!me()) { renderList('Subscriptions', [], 'Sign in to see uploads from channels you subscribe to.'); return; }
   try {
+    const s = await (await fetch(API + '/api/subscriptions', { headers: { 'Authorization': 'Bearer ' + token() } })).json();
+    const names = (s.subscriptions || []).map(x => x.channel);
+    if (!names.length) { renderList('Subscriptions', [], 'Channels you subscribe to will show up here.'); return; }
     const all = await (await fetch(API + '/api/videos')).json();
     renderList('Subscriptions', (all.videos || []).filter(v => names.includes(v.owner)), 'No uploads from your subscriptions yet.');
   } catch { renderList('Subscriptions', [], 'Could not load.'); }
@@ -468,14 +685,6 @@ function router() {
   if (location.hash === '#/later') { renderLater(); return; }
   loadHome();
 }
-document.querySelectorAll('[data-chtab]').forEach(t => {
-  t.onclick = () => {
-    document.querySelectorAll('[data-chtab]').forEach(x => x.classList.remove('active'));
-    t.classList.add('active');
-    document.getElementById('tabVideos').classList.toggle('hidden', t.dataset.chtab !== 'videos');
-    document.getElementById('tabAbout').classList.toggle('hidden', t.dataset.chtab !== 'about');
-  };
-});
 
 // ---- Studio-style upload: file → details → elements → checks → visibility ----
 const uploadModal = document.getElementById('uploadModal');

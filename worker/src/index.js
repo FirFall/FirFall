@@ -314,6 +314,15 @@ export default {
           ).bind(up.id, user, up.title, up.description, status === 'clean' ? up.storage_key : '', fileId || null, thumbKey,
             thumbId || null, up.mime, up.size, up.duration, up.visibility, status, flagReason, up.scan, new Date().toISOString()).run();
           await env.DB.prepare('DELETE FROM uploads WHERE id=?').bind(up.id).run();
+          // Fan out upload notifications to bell-on subscribers (public + unlisted only).
+          if (status === 'clean' && (up.visibility === 'public' || up.visibility === 'unlisted')) {
+            try {
+              const subs = (await env.DB.prepare("SELECT subscriber FROM subscriptions WHERE channel=? AND notify='all'").bind(user).all()).results;
+              const now = new Date().toISOString();
+              for (const s of subs)
+                await env.DB.prepare('INSERT INTO notifications(username,video_id,created_at) VALUES(?,?,?)').bind(s.subscriber, up.id, now).run();
+            } catch {}
+          }
         };
         if (verdict === 'nsfw' || verdict === 'gore') {
           await finalize('flagged', 'auto-filter: ' + verdict, null, null, null);
@@ -432,6 +441,125 @@ export default {
         const dislikes = (await env.DB.prepare("SELECT COUNT(*) c FROM video_likes WHERE video_id=? AND kind='dislike'").bind(id).first()).c;
         const mine = await env.DB.prepare('SELECT kind FROM video_likes WHERE video_id=? AND username=?').bind(id, user).first();
         return json(200, { likes, dislikes, reaction: mine ? mine.kind : 'none' });
+      }
+
+      // ---------- Subscriptions (real, server-side) ----------
+      if ((req.method === 'GET' || req.method === 'POST') && url.pathname === '/api/subscribe') {
+        const user = await authedUser();
+        if (!user) return json(401, { error: 'Sign in to subscribe.' });
+        const q = req.method === 'GET' ? Object.fromEntries(url.searchParams) : await req.json().catch(() => ({}));
+        const channel = String(q.channel || '').trim().toLowerCase();
+        if (!/^[a-z0-9_]{3,20}$/.test(channel)) return json(400, { error: 'Bad channel.' });
+        if (channel === user) return json(400, { error: 'That is your own channel.' });
+        const exists = await env.DB.prepare('SELECT username FROM users WHERE username=?').bind(channel).first();
+        if (!exists) return json(404, { error: 'Channel not found.' });
+        const action = String(q.action || 'toggle');
+        const row = await env.DB.prepare('SELECT notify FROM subscriptions WHERE channel=? AND subscriber=?').bind(channel, user).first();
+        let subscribed = !!row;
+        if (action === 'sub') subscribed = true;
+        else if (action === 'unsub') subscribed = false;
+        else if (q.notify === 'all' || q.notify === 'none') {
+          if (!row) return json(400, { error: 'Not subscribed.' });
+          await env.DB.prepare('UPDATE subscriptions SET notify=? WHERE channel=? AND subscriber=?').bind(q.notify, channel, user).run();
+        } else subscribed = !subscribed;
+        if (subscribed && !row)
+          await env.DB.prepare("INSERT INTO subscriptions(channel,subscriber,notify,created_at) VALUES(?,?,'all',?)").bind(channel, user, new Date().toISOString()).run();
+        if (!subscribed && row)
+          await env.DB.prepare('DELETE FROM subscriptions WHERE channel=? AND subscriber=?').bind(channel, user).run();
+        const st = subscribed
+          ? await env.DB.prepare('SELECT notify FROM subscriptions WHERE channel=? AND subscriber=?').bind(channel, user).first()
+          : null;
+        const n = (await env.DB.prepare('SELECT COUNT(*) c FROM subscriptions WHERE channel=?').bind(channel).first()).c;
+        return json(200, { subscribed, notify: st ? st.notify : 'none', subscribers: n });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/substatus') {
+        const channel = String(url.searchParams.get('channel') || '').toLowerCase();
+        const user = await authedUser();
+        const n = (await env.DB.prepare('SELECT COUNT(*) c FROM subscriptions WHERE channel=?').bind(channel).first()).c;
+        if (!user) return json(200, { subscribed: false, notify: 'none', subscribers: n, own: false });
+        const row = await env.DB.prepare('SELECT notify FROM subscriptions WHERE channel=? AND subscriber=?').bind(channel, user).first();
+        return json(200, { subscribed: !!row, notify: row ? row.notify : 'none', subscribers: n, own: channel === user });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/subscriptions') {
+        const user = await authedUser();
+        if (!user) return json(401, { error: 'Sign in.' });
+        const rows = (await env.DB.prepare('SELECT channel,notify FROM subscriptions WHERE subscriber=? ORDER BY channel').bind(user).all()).results;
+        return json(200, { subscriptions: rows });
+      }
+      // ---------- Channel page data (real counts, about, art) ----------
+      if (req.method === 'GET' && url.pathname === '/api/channel') {
+        const name = String(url.searchParams.get('u') || '').toLowerCase();
+        const row = await env.DB.prepare('SELECT username,about,banner_key,avatar_key,created_at FROM users WHERE username=?').bind(name).first();
+        if (!row) return json(404, { error: 'Channel not found.' });
+        const nv = (await env.DB.prepare("SELECT COUNT(*) c FROM videos WHERE owner=? AND status='clean'").bind(name).first()).c;
+        const views = (await env.DB.prepare("SELECT COALESCE(SUM(views),0) s FROM videos WHERE owner=? AND status='clean'").bind(name).first()).s;
+        const subs = (await env.DB.prepare('SELECT COUNT(*) c FROM subscriptions WHERE channel=?').bind(name).first()).c;
+        return json(200, { channel: {
+          username: row.username, joined: row.created_at, videos: nv, views, subscribers: subs,
+          about: row.about || '',
+          banner: row.banner_key ? '/art/' + name + '/banner' : null,
+          avatar: row.avatar_key ? '/art/' + name + '/avatar' : null
+        } });
+      }
+      if (req.method === 'POST' && url.pathname === '/api/channel/edit') {
+        const user = await authedUser();
+        if (!user) return json(401, { error: 'Sign in.' });
+        const form = await req.formData().catch(() => null);
+        let about = null, banner = null, avatar = null;
+        if (form) {
+          const ab = form.get('about');
+          about = ab == null ? null : String(ab).slice(0, 1000);
+          const bf = form.get('banner'), af = form.get('avatar');
+          if (bf instanceof File && bf.size > 0) banner = bf;
+          if (af instanceof File && af.size > 0) avatar = af;
+        } else {
+          try { const j = await req.json(); about = j.about == null ? null : String(j.about).slice(0, 1000); } catch {}
+        }
+        if (!storageConfigured() && (banner || avatar)) return json(500, { error: 'Video storage not configured.' });
+        const sets = [], vals = [];
+        if (about !== null) { sets.push('about=?'); vals.push(about); }
+        for (const [file, kind] of [[banner, 'banner'], [avatar, 'avatar']]) {
+          if (!(file instanceof File)) continue;
+          if (file.size > 5_000_000 || !file.type.startsWith('image/')) return json(400, { error: kind + ' must be an image under 5MB.' });
+          const buf = await file.arrayBuffer();
+          await b2SmallPut('a/' + user + '/' + kind + '.jpg', buf, 'image/jpeg');
+          sets.push(kind + '_key=?'); vals.push('a/' + user + '/' + kind + '.jpg');
+        }
+        if (!sets.length) return json(400, { error: 'Nothing to update.' });
+        vals.push(user);
+        await env.DB.prepare('UPDATE users SET ' + sets.join(',') + ' WHERE username=?').bind(...vals).run();
+        return json(200, { ok: true });
+      }
+      if (req.method === 'GET' && url.pathname.startsWith('/art/')) {
+        const parts = url.pathname.slice(5).split('/');
+        const uname = (parts[0] || '').toLowerCase(), kind = parts[1];
+        if (!['banner', 'avatar'].includes(kind)) return new Response('Not found', { status: 404 });
+        const row = await env.DB.prepare('SELECT ' + (kind === 'banner' ? 'banner_key' : 'avatar_key') + ' AS k FROM users WHERE username=?').bind(uname).first();
+        if (!row || !row.k || !storageConfigured()) return new Response('Not found', { status: 404 });
+        try {
+          const play = await b2PlayUrl(row.k, 86400);
+          return Response.redirect(play, 302);
+        } catch { return new Response('Not found', { status: 404 }); }
+      }
+      // ---------- Notifications (upload fan-out to bell-on subscribers) ----------
+      if (req.method === 'GET' && url.pathname === '/api/notifications') {
+        const user = await authedUser();
+        if (!user) return json(401, { error: 'Sign in.' });
+        const rows = (await env.DB.prepare(
+          'SELECT n.id,n.video_id,n.created_at,n.read,v.title,v.owner FROM notifications n LEFT JOIN videos v ON v.id=n.video_id WHERE n.username=? ORDER BY n.id DESC LIMIT 30'
+        ).bind(user).all()).results;
+        const unread = (await env.DB.prepare('SELECT COUNT(*) c FROM notifications WHERE username=? AND read=0').bind(user).first()).c;
+        return json(200, { notifications: rows, unread });
+      }
+      if (req.method === 'POST' && url.pathname === '/api/notifications/read') {
+        const user = await authedUser();
+        if (!user) return json(401, { error: 'Sign in.' });
+        const { ids } = await req.json().catch(() => ({}));
+        if (Array.isArray(ids) && ids.length)
+          await env.DB.prepare('UPDATE notifications SET read=1 WHERE username=? AND id IN (' + ids.map(() => '?').join(',') + ')').bind(user, ...ids.map(Number).filter(n => n > 0)).run();
+        else
+          await env.DB.prepare('UPDATE notifications SET read=1 WHERE username=?').bind(user).run();
+        return json(200, { ok: true });
       }
 
       // ---------- Playback redirect (clean only; private needs owner token) ----------

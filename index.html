@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>FirFall</title>
-<link rel="stylesheet" href="styles.css?v=7" />
+<link rel="stylesheet" href="styles.css?v=10" />
 </head>
 <body>
 <header class="yt-header">
@@ -31,8 +31,10 @@
     </button>
   </div>
   <div class="h-right">
-    <button id="createBtn" class="yt-icon-btn" aria-label="Create">
-      <svg viewBox="0 0 24 24" width="22" height="22"><path d="M14 13h-3v3H9v-3H6v-2h3V8h2v3h3v2zm2-8H8a4 4 0 0 0-4 4v6a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4V9a4 4 0 0 0-4-4zm0 12H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2z" fill="currentColor"/></svg>
+    <button id="createBtn" class="create-pill" aria-label="Create"><span class="plus">+</span><span>Create</span></button>
+    <button id="notifBtn" class="yt-icon-btn hidden" aria-label="Notifications">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22zm7-5H5v-1l1.5-1.5v-5A5.5 5.5 0 0 1 11 4V2.5a1 1 0 0 1 2 0V4a5.5 5.5 0 0 1 4.5 5.5v5L19 16v1z" fill="currentColor"/></svg>
+      <span id="notifBadge" class="notif-badge hidden"></span>
     </button>
     <button id="signInBtn" class="yt-signin">
       <span id="signInAvatar" class="avatar sm hidden">?</span>
@@ -47,6 +49,10 @@
       <hr/>
       <button id="menuChannel">▣ Your channel</button>
       <button id="menuSignout">⇥ Sign out</button>
+    </div>
+    <div id="notifPanel" class="notif-panel hidden">
+      <div class="notif-head"><strong>Notifications</strong><button id="notifEnable" class="pill-btn">Enable browser alerts</button></div>
+      <div id="notifList"></div>
     </div>
   </div>
 </header>
@@ -104,6 +110,7 @@
            <span class="w-chmeta"><strong id="wChannel">@channel</strong><span id="wSubCount" class="modal-sub"></span></span>
          </a>
          <button id="wSubBtn" class="sub-btn">Subscribe</button>
+         <button id="wBellBtn" class="yt-icon-btn hidden" aria-label="Notifications">🔔</button>
          <span class="w-space"></span>
          <span class="seg">
            <button id="wLikeBtn">♡ <span id="wLikes">0</span></button><button id="wDislikeBtn" title="I dislike this">♡</button>
@@ -127,17 +134,39 @@
      </div>
    </div>
    <div id="channelView" class="hidden">
+     <div id="chBannerWrap" class="ch-banner"><img id="chBanner" class="hidden" alt="Channel banner" /></div>
      <div class="ch-head">
+       <img id="chAvatarImg" class="ch-avatar-img hidden" alt="Channel picture" />
        <div id="chAvatar" class="ch-avatar">?</div>
        <div class="ch-info"><h2 id="chName">channel</h2><p id="chMeta"></p></div>
-       <button id="chSubBtn" class="sub-btn">Subscribe</button>
+       <span class="ch-actions">
+         <button id="chBellBtn" class="yt-icon-btn hidden" aria-label="Notifications">🔔</button>
+         <button id="chSubBtn" class="sub-btn">Subscribe</button>
+       </span>
+     </div>
+     <div id="chOwnBar" class="ch-ownbar hidden">
+       <button id="chBannerEdit" class="pill-btn">Change banner</button>
+       <button id="chAvatarEdit" class="pill-btn">Change picture</button>
+       <button id="chAboutEdit" class="pill-btn">Edit description</button>
+       <input id="chBannerFile" type="file" accept="image/*" class="file-hidden" />
+       <input id="chAvatarFile" type="file" accept="image/*" class="file-hidden" />
      </div>
      <div class="ch-tabs">
        <button data-chtab="videos" class="active">Videos</button>
        <button data-chtab="about">About</button>
      </div>
+     <div id="chSort" class="ch-sort">
+       <button data-sort="latest" class="on">Latest</button><button data-sort="popular">Popular</button><button data-sort="oldest">Oldest</button>
+     </div>
      <div id="tabVideos" class="blank-state"><h2>No videos yet</h2><p>This channel hasn't uploaded anything.</p></div>
-     <div id="tabAbout" class="blank-state hidden"><p id="chAbout"></p></div>
+     <div id="tabAbout" class="blank-state hidden">
+       <p id="chAbout"></p>
+       <p id="chStats" class="modal-sub"></p>
+       <div id="chAboutForm" class="hidden">
+         <textarea id="chAboutText" rows="4" maxlength="1000" placeholder="Tell viewers about your channel"></textarea>
+         <p><button id="chAboutSave" class="auth-go">Save</button> <span id="chAboutErr" class="auth-err"></span></p>
+       </div>
+     </div>
    </div>
     <div id="listView" class="hidden">
       <h2 id="listTitle"></h2>
@@ -231,6 +260,6 @@
 </div>
 
 <script>window.FIRFALL_API = "https://firfall-auth.b8golddude.workers.dev";</script>
-<script src="app.js?v=9"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>
