@@ -310,7 +310,7 @@ export default {
         const finalize = async (status, flagReason, thumbKey, thumbId, fileId) => {
           if (status !== 'clean') { await cancel(); }
           await env.DB.prepare(
-            'INSERT INTO videos(id,owner,title,description,r2_key,file_id,thumb_key,thumb_id,mime,size,duration,visibility,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+            'INSERT INTO videos(id,owner,title,description,r2_key,file_id,thumb_key,thumb_id,mime,size,duration,visibility,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
           ).bind(up.id, user, up.title, up.description, status === 'clean' ? up.storage_key : '', fileId || null, thumbKey,
             thumbId || null, up.mime, up.size, up.duration, up.visibility, status, flagReason, up.scan, new Date().toISOString()).run();
           await env.DB.prepare('DELETE FROM uploads WHERE id=?').bind(up.id).run();
