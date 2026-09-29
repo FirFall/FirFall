@@ -209,7 +209,6 @@ export default {
       if (req.method === 'POST' && url.pathname === '/api/uploads/start') {
         const user = await authedUser();
         if (!user) return json(401, { error: 'Sign in to upload.' });
-        if (!storageConfigured()) return json(500, { error: 'Video storage not configured.' });
         const { filename, mime, size, title, description, duration, visibility, scan } = await req.json();
         const t = String(title || '').trim(), d = String(description || '').trim();
         if (!VIDEO_MIMES.includes(mime)) return json(400, { error: 'Only MP4/WebM/MOV/MKV.' });
@@ -219,9 +218,11 @@ export default {
         if (t.length < 1 || t.length > 100) return json(400, { error: 'Title 1-100 chars.' });
         if (d.length > 2000) return json(400, { error: 'Description max 2000 chars.' });
         if (scan === 'blocked') return json(400, { error: 'Blocked: on-device scan flagged this video as explicit.' });
+        // Text moderation runs BEFORE storage is touched — bad actors get no session.
         const verdict = scanText(t, d, filename);
         if (verdict === 'severe' || verdict === 'racism' || verdict === 'extremism')
           return json(400, { error: 'Blocked: prohibited content (' + verdict + '). Uploads like this get accounts banned.' });
+        if (!storageConfigured()) return json(500, { error: 'Video storage not configured.' });
         const used = (await env.DB.prepare('SELECT COALESCE(SUM(size),0) s FROM videos').first()).s;
         if (used + size > STORAGE_QUOTA_BYTES) return json(400, { error: 'Site storage full (free tier). Try a smaller file.' });
         const id = crypto.randomUUID().slice(0, 12);
