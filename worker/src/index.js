@@ -1,5 +1,6 @@
-// FirFall backend — Cloudflare Worker + D1 + R2.
-// Auth, video upload w/ moderation, streaming, comments w/ filter.
+// FirFall backend — Cloudflare Worker + D1 + Supabase Storage (free tier, no card).
+// Auth, video upload w/ moderation, playback via signed URLs, comments w/ filter.
+// Secrets: SUPABASE_URL, SUPABASE_SERVICE_KEY (wrangler secret put). Bucket 'videos' PRIVATE.
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
@@ -55,7 +56,39 @@ export default {
       return row ? row.username : null;
     }
 
+    // ---- Supabase Storage (private bucket 'videos') ----
+    const supaKey = () => env.SUPABASE_SERVICE_KEY || '';
+    const supaBase = () => (env.SUPABASE_URL || '').replace(/\/$/, '');
+    const storageConfigured = () => !!(env.SUPABASE_URL && env.SUPABASE_SERVICE_KEY);
+    async function supaPut(path, body, contentType) {
+      const r = await fetch(supaBase() + '/storage/v1/object/videos/' + path, {
+        method: 'PUT',
+        headers: { apikey: supaKey(), Authorization: 'Bearer ' + supaKey(), 'Content-Type': contentType, 'x-upsert': 'true' },
+        body
+      });
+      if (!r.ok) throw new Error('storage put failed: ' + r.status);
+    }
+    async function supaDelete(paths) {
+      await fetch(supaBase() + '/storage/v1/object/videos', {
+        method: 'DELETE',
+        headers: { apikey: supaKey(), Authorization: 'Bearer ' + supaKey(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(paths)
+      });
+    }
+    // Signed playback URL (clean videos only — flagged keys are never signed)
+    async function supaSign(path, expiresIn) {
+      const r = await fetch(supaBase() + '/storage/v1/object/sign/videos/' + path, {
+        method: 'POST',
+        headers: { apikey: supaKey(), Authorization: 'Bearer ' + supaKey(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expiresIn })
+      });
+      if (!r.ok) return null;
+      const j = await r.json();
+      return j.signedURL ? supaBase() + j.signedURL : null;
+    }
+
     const MAX_VIDEO_BYTES = 100_000_000; // Workers request limit
+    const STORAGE_QUOTA_BYTES = 900_000_000; // stay under Supabase free 1GB
     const VIDEO_MIMES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska'];
     const VIDEO_EXTS = ['mp4', 'webm', 'mov', 'mkv'];
 
@@ -98,7 +131,7 @@ export default {
       if (req.method === 'POST' && url.pathname === '/api/videos/upload') {
         const user = await authedUser();
         if (!user) return json(401, { error: 'Sign in to upload.' });
-        if (!env.VIDEOS) return json(500, { error: 'Video storage not configured.' });
+        if (!storageConfigured()) return json(500, { error: 'Video storage not configured.' });
         const form = await req.formData();
         const file = form.get('file');
         const title = String(form.get('title') || '').trim();
@@ -114,22 +147,29 @@ export default {
         if (clientScan === 'blocked') return json(400, { error: 'Blocked: on-device scan flagged this video as explicit.' });
         const verdict = scanText(title, desc, file.name);
         if (verdict === 'severe') return json(400, { error: 'Blocked: prohibited content. Uploads like this get accounts banned.' });
+        const used = (await env.DB.prepare('SELECT COALESCE(SUM(size),0) s FROM videos').first()).s;
+        if (used + file.size > STORAGE_QUOTA_BYTES) return json(400, { error: 'Site storage full (free tier). Try a smaller file.' });
         const id = crypto.randomUUID().slice(0, 12);
         const key = 'v/' + id + '.' + ext;
-        await env.VIDEOS.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
+        const status = verdict === 'clean' ? 'clean' : 'flagged';
+        // Held-for-review content never touches storage: reject the bytes now.
+        if (status !== 'clean') {
+          await env.DB.prepare(
+            'INSERT INTO videos(id,owner,title,description,r2_key,thumb_key,mime,size,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
+          ).bind(id, user, title, desc, '', null, file.type, file.size, status, 'auto-filter: ' + verdict, clientScan, new Date().toISOString()).run();
+          return json(202, { id, status, message: 'Held for review: auto-filter matched (' + verdict + '). File discarded.' });
+        }
+        await supaPut(key, file.stream(), file.type);
         let thumbKey = null;
         const thumb = form.get('thumb');
         if (thumb instanceof File && thumb.size > 0 && thumb.size < 5_000_000 && thumb.type.startsWith('image/')) {
           thumbKey = 't/' + id + '.jpg';
-          await env.VIDEOS.put(thumbKey, thumb.stream(), { httpMetadata: { contentType: 'image/jpeg' } });
+          try { await supaPut(thumbKey, thumb.stream(), 'image/jpeg'); } catch { thumbKey = null; }
         }
-        const status = verdict === 'clean' ? 'clean' : 'flagged';
         await env.DB.prepare(
           'INSERT INTO videos(id,owner,title,description,r2_key,thumb_key,mime,size,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
-        ).bind(id, user, title, desc, key, thumbKey, file.type, file.size, status,
-          status === 'clean' ? null : ('auto-filter: ' + verdict), clientScan, new Date().toISOString()).run();
-        if (status !== 'clean') return json(202, { id, status, message: 'Held for review: auto-filter matched (' + verdict + ').' });
-        return json(200, { id, status, message: 'Uploaded.' });
+        ).bind(id, user, title, desc, key, thumbKey, file.type, file.size, 'clean', null, clientScan, new Date().toISOString()).run();
+        return json(200, { id, status: 'clean', message: 'Uploaded.' });
       }
 
       // ---------- Video listing (clean only) ----------
@@ -146,38 +186,22 @@ export default {
         return json(200, { video: row });
       }
 
-      // ---------- Video streaming (clean only, Range support) ----------
+      // ---------- Playback redirect (clean only, signed, 1h) ----------
       if (req.method === 'GET' && url.pathname.startsWith('/v/')) {
         const id = url.pathname.slice(3);
-        const row = await env.DB.prepare("SELECT r2_key,mime,size FROM videos WHERE id=? AND status='clean'").bind(id).first();
-        if (!row || !env.VIDEOS) return new Response('Not found', { status: 404, headers: { 'Access-Control-Allow-Origin': '*' } });
-        const range = req.headers.get('Range');
-        if (range) {
-          const m = range.match(/bytes=(\d+)-(\d*)/);
-          if (m) {
-            const start = parseInt(m[1], 10);
-            const end = m[2] ? Math.min(parseInt(m[2], 10), row.size - 1) : row.size - 1;
-            const obj = await env.VIDEOS.get(row.r2_key, { range: { offset: start, length: end - start + 1 } });
-            if (obj) return new Response(obj.body, { status: 206, headers: {
-              'Content-Type': row.mime, 'Accept-Ranges': 'bytes',
-              'Content-Range': 'bytes ' + start + '-' + end + '/' + row.size,
-              'Content-Length': String(end - start + 1), 'Access-Control-Allow-Origin': '*' } });
-          }
-        }
-        const obj = await env.VIDEOS.get(row.r2_key);
-        if (!obj) return new Response('Not found', { status: 404 });
-        return new Response(obj.body, { headers: {
-          'Content-Type': row.mime, 'Accept-Ranges': 'bytes',
-          'Content-Length': String(row.size), 'Access-Control-Allow-Origin': '*' } });
+        const row = await env.DB.prepare("SELECT r2_key FROM videos WHERE id=? AND status='clean'").bind(id).first();
+        if (!row || !row.r2_key || !storageConfigured()) return new Response('Not found', { status: 404 });
+        const signed = await supaSign(row.r2_key, 3600);
+        if (!signed) return new Response('Not found', { status: 404 });
+        return Response.redirect(signed, 302);
       }
-      // Thumbnails (clean only)
       if (req.method === 'GET' && url.pathname.startsWith('/t/')) {
         const id = url.pathname.slice(3);
         const row = await env.DB.prepare("SELECT thumb_key FROM videos WHERE id=? AND status='clean'").bind(id).first();
-        if (!row || !row.thumb_key || !env.VIDEOS) return new Response('Not found', { status: 404 });
-        const obj = await env.VIDEOS.get(row.thumb_key);
-        if (!obj) return new Response('Not found', { status: 404 });
-        return new Response(obj.body, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400', 'Access-Control-Allow-Origin': '*' } });
+        if (!row || !row.thumb_key || !storageConfigured()) return new Response('Not found', { status: 404 });
+        const signed = await supaSign(row.thumb_key, 86400);
+        if (!signed) return new Response('Not found', { status: 404 });
+        return Response.redirect(signed, 302);
       }
 
       // ---------- Comments (filter enforced) ----------
@@ -202,6 +226,20 @@ export default {
           return json(429, { error: 'Slow down — 5s between comments.' });
         await env.DB.prepare("INSERT INTO comments(video_id,user,text,status,created_at) VALUES(?,?,?,'clean',?)")
           .bind(video_id, user, t, new Date().toISOString()).run();
+        return json(200, { ok: true });
+      }
+
+      // ---------- Owner delete (removes bytes too) ----------
+      if (req.method === 'POST' && url.pathname === '/api/video/delete') {
+        const user = await authedUser();
+        if (!user) return json(401, { error: 'Sign in.' });
+        const { id } = await req.json();
+        const row = await env.DB.prepare('SELECT r2_key,thumb_key,owner FROM videos WHERE id=?').bind(id).first();
+        if (!row || row.owner !== user) return json(404, { error: 'Video not found.' });
+        const paths = [row.r2_key, row.thumb_key].filter(Boolean);
+        if (paths.length && storageConfigured()) { try { await supaDelete(paths); } catch {} }
+        await env.DB.prepare('DELETE FROM comments WHERE video_id=?').bind(id).run();
+        await env.DB.prepare('DELETE FROM videos WHERE id=?').bind(id).run();
         return json(200, { ok: true });
       }
 
