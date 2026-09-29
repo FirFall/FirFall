@@ -19,10 +19,18 @@ export default {
     }
 
     try {
+      // Name filter: reserved names + profanity substrings (mirrored in backend/server.js + app.js)
+      const BLOCKED_EXACT = new Set(['admin','administrator','root','system','support','help','firfall','official','moderator','mod','owner','staff','abuse','security','null','undefined']);
+      const BLOCKED_PARTS = ['fuck','shit','bitch','dick','porn','nazi','kill','rape','hitler'];
+      function nameAllowed(name) {
+        if (BLOCKED_EXACT.has(name)) return false;
+        return !BLOCKED_PARTS.some(w => name.includes(w));
+      }
       if (req.method === 'POST' && url.pathname === '/api/register') {
         const { username, password } = await req.json();
         const u = String(username || '').trim().toLowerCase();
         if (!/^[a-z0-9_]{3,20}$/.test(u)) return json(400, { error: 'Username 3-20: a-z 0-9 _' });
+        if (!nameAllowed(u)) return json(400, { error: 'That username is not allowed.' });
         if (!password || password.length < 4) return json(400, { error: 'Password min 4 chars.' });
         const salt = crypto.randomUUID();
         const ph = await hashPw(password, salt);
