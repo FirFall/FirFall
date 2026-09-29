@@ -92,7 +92,8 @@ export default {
       return j.signedURL ? supaBase() + '/storage/v1' + j.signedURL : null;
     }
 
-    const MAX_VIDEO_BYTES = 100_000_000; // Workers request limit
+    const MAX_VIDEO_BYTES = 250_000_000; // 250MB via chunked TUS relay (6MB parts)
+    const CHUNK_BYTES = 6_000_000;
     const STORAGE_QUOTA_BYTES = 900_000_000; // stay under Supabase free 1GB
     const VIDEO_MIMES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska'];
     const VIDEO_EXTS = ['mp4', 'webm', 'mov', 'mkv'];
@@ -132,52 +133,105 @@ export default {
         return json(200, { users: row.c });
       }
 
-      // ---------- Video upload (multipart: file, thumb?, title, description, scan) ----------
-      if (req.method === 'POST' && url.pathname === '/api/videos/upload') {
+      // ---------- Chunked upload via TUS relay (250MB cap, 6MB parts) ----------
+      const tusHead = () => ({ apikey: supaKey(), Authorization: 'Bearer ' + supaKey() });
+      const b64 = (s) => btoa(unescape(encodeURIComponent(s)));
+      async function tusCreate(key, mime, size) {
+        const meta = 'bucketName ' + b64('videos') + ',objectName ' + b64(key) + ',contentType ' + b64(mime) + ',cacheControl ' + b64('3600');
+        const r = await fetch(supaBase().replace('.supabase.co', '.storage.supabase.co') + '/storage/v1/upload/resumable', {
+          method: 'POST',
+          headers: { ...tusHead(), 'Tus-Resumable': '1.0.0', 'Upload-Length': String(size), 'Upload-Metadata': meta, 'x-upsert': 'true' }
+        });
+        if (r.status !== 201) throw new Error('tus create ' + r.status);
+        const loc = r.headers.get('location');
+        return loc.startsWith('http') ? loc : supaBase().replace('.supabase.co', '.storage.supabase.co') + loc;
+      }
+      async function tusPatch(tusUrl, offset, chunk) {
+        const r = await fetch(tusUrl, {
+          method: 'PATCH',
+          headers: { ...tusHead(), 'Tus-Resumable': '1.0.0', 'Upload-Offset': String(offset), 'Content-Type': 'application/offset+octet-stream' },
+          body: chunk
+        });
+        if (!r.ok) throw new Error('tus patch ' + r.status);
+        return parseInt(r.headers.get('upload-offset') || '0', 10);
+      }
+      if (req.method === 'POST' && url.pathname === '/api/uploads/start') {
         const user = await authedUser();
         if (!user) return json(401, { error: 'Sign in to upload.' });
-        if (!storageConfigured()) { console.error('upload: storage secrets missing'); return json(500, { error: 'Video storage not configured.' }); }
-        const form = await req.formData();
-        const file = form.get('file');
-        const title = String(form.get('title') || '').trim();
-        const desc = String(form.get('description') || '').trim();
-        const clientScan = String(form.get('scan') || 'skipped');
-        if (!(file instanceof File) || file.size === 0) return json(400, { error: 'No video file.' });
-        if (!VIDEO_MIMES.includes(file.type)) return json(400, { error: 'Only MP4/WebM/MOV/MKV.' });
-        const ext = (file.name.split('.').pop() || '').toLowerCase();
+        if (!storageConfigured()) return json(500, { error: 'Video storage not configured.' });
+        const { filename, mime, size, title, description, duration, visibility, scan } = await req.json();
+        const t = String(title || '').trim(), d = String(description || '').trim();
+        if (!VIDEO_MIMES.includes(mime)) return json(400, { error: 'Only MP4/WebM/MOV/MKV.' });
+        const ext = (String(filename || '').split('.').pop() || '').toLowerCase();
         if (!VIDEO_EXTS.includes(ext)) return json(400, { error: 'Bad file extension.' });
-        if (file.size > MAX_VIDEO_BYTES) return json(400, { error: 'Max 100MB per upload (test version).' });
-        if (title.length < 1 || title.length > 100) return json(400, { error: 'Title 1-100 chars.' });
-        if (desc.length > 2000) return json(400, { error: 'Description max 2000 chars.' });
-        let duration = Math.max(0, Math.min(36000, parseFloat(form.get('duration')) || 0));
-        let visibility = String(form.get('visibility') || 'public');
-        if (!['public', 'unlisted', 'private'].includes(visibility)) visibility = 'public';
-        if (clientScan === 'blocked') return json(400, { error: 'Blocked: on-device scan flagged this video as explicit.' });
-        // Title policy: profanity tolerated; NSFW/gore held; racism/extremism/severe rejected.
-        const verdict = scanText(title, desc, file.name);
+        if (!size || size <= 0 || size > MAX_VIDEO_BYTES) return json(400, { error: 'Max 250MB per upload.' });
+        if (t.length < 1 || t.length > 100) return json(400, { error: 'Title 1-100 chars.' });
+        if (d.length > 2000) return json(400, { error: 'Description max 2000 chars.' });
+        if (scan === 'blocked') return json(400, { error: 'Blocked: on-device scan flagged this video as explicit.' });
+        const verdict = scanText(t, d, filename);
         if (verdict === 'severe' || verdict === 'racism' || verdict === 'extremism')
           return json(400, { error: 'Blocked: prohibited content (' + verdict + '). Uploads like this get accounts banned.' });
         const used = (await env.DB.prepare('SELECT COALESCE(SUM(size),0) s FROM videos').first()).s;
-        if (used + file.size > STORAGE_QUOTA_BYTES) return json(400, { error: 'Site storage full (free tier). Try a smaller file.' });
+        if (used + size > STORAGE_QUOTA_BYTES) return json(400, { error: 'Site storage full (free tier). Try a smaller file.' });
         const id = crypto.randomUUID().slice(0, 12);
         const key = 'v/' + id + '.' + ext;
-        let status = verdict === 'clean' || verdict === 'profanity' ? 'clean' : 'flagged';
-        let flagReason = status === 'clean' ? null : 'auto-filter: ' + verdict;
-        // Held-for-review content never touches storage: reject the bytes now.
-        if (status !== 'clean') {
+        const dur = Math.max(0, Math.min(36000, parseFloat(duration) || 0));
+        const vis = ['public', 'unlisted', 'private'].includes(visibility) ? visibility : 'public';
+        let tusUrl;
+        try { tusUrl = await tusCreate(key, mime, size); }
+        catch { return json(500, { error: 'Storage unavailable — try again.' }); }
+        await env.DB.prepare(
+          'INSERT INTO uploads(id,owner,title,description,storage_key,mime,size,duration,visibility,tus_url,uploaded,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)'
+        ).bind(id, user, t, d, key, mime, size, dur, vis, tusUrl, 0, String(scan || 'skipped'), new Date().toISOString()).run();
+        // NSFW/gore verdicts are enforced at complete-time (bytes discarded, row flagged).
+        return json(200, { sessionId: id, chunkSize: CHUNK_BYTES });
+      }
+      if (req.method === 'POST' && url.pathname === '/api/uploads/chunk') {
+        const user = await authedUser();
+        if (!user) return json(401, { error: 'Sign in to upload.' });
+        const form = await req.formData();
+        const sessionId = String(form.get('sessionId') || '');
+        const chunk = form.get('chunk');
+        const up = await env.DB.prepare('SELECT * FROM uploads WHERE id=?').bind(sessionId).first();
+        if (!up || up.owner !== user) return json(404, { error: 'Upload session not found.' });
+        if (!(chunk instanceof File) || chunk.size === 0 || chunk.size > CHUNK_BYTES + 1024)
+          return json(400, { error: 'Bad chunk.' });
+        if (up.uploaded + chunk.size > up.size) return json(400, { error: 'Chunk overflow.' });
+        let offset;
+        try { offset = await tusPatch(up.tus_url, up.uploaded, chunk.stream()); }
+        catch { return json(500, { error: 'Chunk failed — retrying resumes automatically.' }); }
+        await env.DB.prepare('UPDATE uploads SET uploaded=? WHERE id=?').bind(offset, sessionId).run();
+        return json(200, { uploaded: offset, size: up.size });
+      }
+      if (req.method === 'POST' && url.pathname === '/api/uploads/complete') {
+        const user = await authedUser();
+        if (!user) return json(401, { error: 'Sign in to upload.' });
+        const form = await req.formData().catch(() => null);
+        let body = {};
+        if (form) body = { sessionId: String(form.get('sessionId') || ''), thumb: form.get('thumb') };
+        else try { body = await req.json(); } catch {}
+        const up = await env.DB.prepare('SELECT * FROM uploads WHERE id=?').bind(body.sessionId).first();
+        if (!up || up.owner !== user) return json(404, { error: 'Upload session not found.' });
+        if (up.uploaded < up.size) return json(400, { error: 'Upload incomplete — missing bytes.' });
+        const verdict = scanText(up.title, up.description, up.storage_key);
+        const finalize = async (status, flagReason, thumbKey) => {
           await env.DB.prepare(
             'INSERT INTO videos(id,owner,title,description,r2_key,thumb_key,mime,size,duration,visibility,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-          ).bind(id, user, title, desc, '', null, file.type, file.size, duration, visibility, status, flagReason, clientScan, new Date().toISOString()).run();
-          return json(202, { id, status, message: 'Held for review: auto-filter matched (' + verdict + '). File discarded.' });
+          ).bind(up.id, user, up.title, up.description, status === 'clean' ? up.storage_key : '', thumbKey,
+            up.mime, up.size, up.duration, up.visibility, status, flagReason, up.scan, new Date().toISOString()).run();
+          await env.DB.prepare('DELETE FROM uploads WHERE id=?').bind(up.id).run();
+        };
+        if (verdict === 'nsfw' || verdict === 'gore') {
+          try { await supaDelete([up.storage_key]); } catch {}
+          await finalize('flagged', 'auto-filter: ' + verdict, null);
+          return json(202, { id: up.id, status: 'flagged', message: 'Held for review: auto-filter matched (' + verdict + '). File discarded.' });
         }
-        await supaPut(key, file.stream(), file.type);
         let thumbKey = null;
-        const thumb = form.get('thumb');
+        const thumb = body.thumb;
         if (thumb instanceof File && thumb.size > 0 && thumb.size < 5_000_000 && thumb.type.startsWith('image/')) {
-          thumbKey = 't/' + id + '.jpg';
+          thumbKey = 't/' + up.id + '.jpg';
           try { await supaPut(thumbKey, thumb.stream(), 'image/jpeg'); } catch { thumbKey = null; }
         }
-        // Server-side vision check on the thumbnail (can't be skipped like client JS).
         if (thumbKey && env.AI) {
           try {
             const buf = await thumb.arrayBuffer();
@@ -185,18 +239,25 @@ export default {
             const risky = ['bikini', 'maillot', 'brassiere', 'miniskirt', 'nudity'];
             const top = (Array.isArray(labels) ? labels : []).slice(0, 3);
             if (top.some(l => l.score > 0.5 && risky.some(r => String(l.label || '').toLowerCase().includes(r)))) {
-              try { await supaDelete([key, thumbKey]); } catch {}
-              await env.DB.prepare(
-                'INSERT INTO videos(id,owner,title,description,r2_key,thumb_key,mime,size,duration,visibility,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-              ).bind(id, user, title, desc, '', null, file.type, file.size, duration, visibility, 'flagged', 'auto-vision: explicit thumbnail', clientScan, new Date().toISOString()).run();
-              return json(202, { id, status: 'flagged', message: 'Held for review: thumbnail failed the explicit-content check. File discarded.' });
+              try { await supaDelete([up.storage_key, thumbKey]); } catch {}
+              await finalize('flagged', 'auto-vision: explicit thumbnail', null);
+              return json(202, { id: up.id, status: 'flagged', message: 'Held for review: thumbnail failed the explicit-content check. File discarded.' });
             }
           } catch { /* AI unavailable — text + client checks still apply */ }
         }
-        await env.DB.prepare(
-          'INSERT INTO videos(id,owner,title,description,r2_key,thumb_key,mime,size,duration,visibility,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-        ).bind(id, user, title, desc, key, thumbKey, file.type, file.size, duration, visibility, 'clean', null, clientScan, new Date().toISOString()).run();
-        return json(200, { id, status: 'clean', message: 'Uploaded.' });
+        await finalize('clean', null, thumbKey);
+        return json(200, { id: up.id, status: 'clean', message: 'Uploaded.' });
+      }
+      if (req.method === 'POST' && url.pathname === '/api/uploads/abort') {
+        const user = await authedUser();
+        if (!user) return json(401, { error: 'Sign in.' });
+        const { sessionId } = await req.json();
+        const up = await env.DB.prepare('SELECT * FROM uploads WHERE id=?').bind(sessionId).first();
+        if (up && up.owner === user) {
+          try { await supaDelete([up.storage_key]); } catch {}
+          await env.DB.prepare('DELETE FROM uploads WHERE id=?').bind(sessionId).run();
+        }
+        return json(200, { ok: true });
       }
 
       // ---------- Video listing (public; owners also see own unlisted/private) ----------

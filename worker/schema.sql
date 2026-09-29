@@ -45,3 +45,18 @@ CREATE TABLE IF NOT EXISTS video_likes(
   created_at TEXT NOT NULL,
   PRIMARY KEY (video_id, username)
 );
+CREATE TABLE IF NOT EXISTS uploads(
+  id TEXT PRIMARY KEY,
+  owner TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  storage_key TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  duration REAL NOT NULL DEFAULT 0,
+  visibility TEXT NOT NULL DEFAULT 'public',
+  tus_url TEXT NOT NULL,
+  uploaded INTEGER NOT NULL DEFAULT 0,
+  scan TEXT NOT NULL DEFAULT 'skipped',
+  created_at TEXT NOT NULL
+);

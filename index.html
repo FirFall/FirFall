@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>FirFall</title>
-<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="styles.css?v=3" />
 </head>
 <body>
 <header class="yt-header">
@@ -165,7 +165,7 @@
             <input id="upFile" type="file" accept="video/mp4,video/webm,video/quicktime,video/x-matroska" hidden />
             <div class="dz-icon">⇪</div>
             <p><strong>Select a file</strong> or drag and drop it here</p>
-            <p class="modal-sub">MP4 / WebM / MOV / MKV • max 100MB</p>
+            <p class="modal-sub">MP4 / WebM / MOV / MKV • max 250MB</p>
           </label>
           <p id="upErrFile" class="auth-err"></p>
         </div>
@@ -181,11 +181,16 @@
         </div>
         <div id="upStepElements" class="up-step hidden">
           <div class="st-title-row"><h2>Video elements</h2></div>
-          <p class="modal-sub">End screens and cards aren't in the test version yet — skip ahead.</p>
+          <p class="modal-sub">Use cards and an end screen to show viewers related videos and calls to action.</p>
+          <div class="el-row"><span class="el-ico">▤</span><span class="el-txt"><strong>Subtitles</strong><br />Reach a broader audience by adding subtitles to your video</span><button class="pill-btn el-add">Add</button></div>
+          <div class="el-row"><span class="el-ico">⛶</span><span class="el-txt"><strong>End screen</strong><br />Promote related content at the end of your video</span><button class="pill-btn el-add">Add</button></div>
+          <div class="el-row"><span class="el-ico">ⓘ</span><span class="el-txt"><strong>Cards</strong><br />Promote related content during your video</span><button class="pill-btn el-add">Add</button></div>
         </div>
         <div id="upStepChecks" class="up-step hidden">
           <div class="st-title-row"><h2>Initial check</h2></div>
-          <p id="upChecks" class="modal-sub">Checks not run yet.</p>
+          <p class="modal-sub">We'll check for issues that could restrict your video's visibility.</p>
+          <div class="check-row"><span><strong>Copyright</strong><br /><span class="modal-sub">Content ID isn't in the test version — manual review</span></span><span class="check-na">…</span></div>
+          <div class="check-row"><span><strong>Community Guidelines</strong><br /><span id="upCgResult" class="modal-sub">Not checked yet</span></span><span id="upCgMark" class="check-na">…</span></div>
         </div>
         <div id="upStepVis" class="up-step hidden">
           <div class="st-title-row"><h2>Visibility</h2></div>
@@ -226,6 +231,6 @@
 </div>
 
 <script>window.FIRFALL_API = "https://firfall-auth.b8golddude.workers.dev";</script>
-<script src="app.js"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>
