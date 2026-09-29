@@ -78,7 +78,7 @@ export default {
       if (!r.ok) throw new Error('b2 auth ' + r.status);
       const j = await r.json();
       let bucketId = (j.allowed && j.allowed.bucketId) || null;
-      if (!bucketId) {
+      if (!bucketId && env.B2_BUCKET) {
         const lb = await fetch(j.apiUrl + '/b2api/v2/b2_list_buckets', {
           method: 'POST', headers: { Authorization: j.authorizationToken, 'Content-Type': 'application/json' },
           body: JSON.stringify({ accountId: j.accountId })
@@ -89,7 +89,7 @@ export default {
         if (!b) throw new Error('b2 bucket not found');
         bucketId = b.bucketId;
       }
-      const auth = { token: j.authorizationToken, apiUrl: j.apiUrl, downloadUrl: j.downloadUrl, bucketId, exp: now + 20 * 3600 * 1000 };
+      const auth = { token: j.authorizationToken, apiUrl: j.apiUrl, downloadUrl: j.downloadUrl, accountId: j.accountId, bucketId, exp: now + 20 * 3600 * 1000 };
       globalThis.__b2 = auth;
       return auth;
     }
