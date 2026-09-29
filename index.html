@@ -75,7 +75,7 @@
   <div class="modal-box">
     <button id="authClose" class="modal-x">✕</button>
     <h2 id="authTitle">Sign in</h2>
-    <p class="modal-sub">FirFall account • stored in unlimited local SQLite DB</p>
+    <p class="modal-sub">FirFall account • secured with hashed passwords in D1</p>
     <input id="authUser" type="text" placeholder="Username" autocomplete="username" />
     <input id="authPass" type="password" placeholder="Password" autocomplete="current-password" />
     <p id="authErr" class="auth-err"></p>
@@ -84,6 +84,7 @@
   </div>
 </div>
 
+<script>window.FIRFALL_API = "https://firfall-auth.b8golddude.workers.dev";</script>
 <script src="app.js"></script>
 </body>
 </html>

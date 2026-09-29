@@ -5,4 +5,4 @@ compatibility_date = "2026-09-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "firfall_users"
-database_id = "REPLACE_WITH_D1_ID"
+database_id = "b90b3973-c415-43bd-9b1b-55b78b3a4690"
