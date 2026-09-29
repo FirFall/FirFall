@@ -607,15 +607,24 @@ async function publishStaged() {
   const status = (t) => { document.getElementById('upStatus').textContent = t; document.getElementById('upFootStatus').textContent = t; };
   status('Starting upload session…');
   let start;
-  try {
-    const r = await fetch(API + '/api/uploads/start', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
-      body: JSON.stringify({ filename: upStaged.file.name, mime: upStaged.file.type, size: upStaged.file.size,
-        title, description: desc, duration: upStaged.duration, visibility: upVisibility, scan: upStaged.scan })
-    });
-    start = await r.json();
-    if (!r.ok) { fail(start.error || 'Upload rejected.'); return; }
-  } catch { fail('Upload failed — service unreachable.'); return; }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch(API + '/api/uploads/start', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+        body: JSON.stringify({ filename: upStaged.file.name, mime: upStaged.file.type, size: upStaged.file.size,
+          title, description: desc, duration: upStaged.duration, visibility: upVisibility, scan: upStaged.scan })
+      });
+      start = await r.json().catch(() => ({}));
+      if (r.ok) break;
+      if (r.status < 500 || attempt === 1) { fail((start.error || 'Upload rejected.') + ' (code ' + r.status + ')'); return; }
+      status('Server hiccup — retrying…');
+      await new Promise(res => setTimeout(res, 2000));
+      start = null;
+    } catch {
+      if (attempt === 1) { fail('Upload failed — service unreachable.'); return; }
+      await new Promise(res => setTimeout(res, 2000));
+    }
+  }
   const sessionId = start.sessionId, chunkSize = start.chunkSize || 6000000;
   const file = upStaged.file;
   status('Uploading 0%…');
