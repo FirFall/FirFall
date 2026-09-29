@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FirFall — Ignite Your Watch</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="left">
+    <button id="menuBtn" class="icon-btn" aria-label="Menu">☰</button>
+    <a class="logo" href="#">
+      <span class="flame-logo">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none">
+          <path d="M12 2C10 6 6 8.5 6 14a6 6 0 0 0 12 0c0-2.5-1-4.5-2.5-6-.5 1.5-1.5 2.5-3 3 .5-2.5-.5-6-0.5-9Z" fill="url(#g)"/>
+          <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb800"/><stop offset=".5" stop-color="#ff6a00"/><stop offset="1" stop-color="#ff2d00"/></linearGradient></defs>
+        </svg>
+      </span>
+      <span class="logo-text">Fir<b>Fall</b></span>
+      <span class="tag">BETA</span>
+    </a>
+  </div>
+  <div class="center">
+    <div class="search-wrap">
+      <input id="searchInput" type="text" placeholder="Search FirFall" autocomplete="off" />
+      <button class="search-btn" aria-label="Search">⌕</button>
+    </div>
+    <button class="icon-btn mic" title="Voice">◉</button>
+  </div>
+  <div class="right">
+    <button class="upload-btn">+ Create</button>
+    <button class="icon-btn">♨<span class="dot"></span></button>
+    <div class="avatar">S</div>
+  </div>
+</header>
+
+<div class="chips" id="chips">
+  <button class="chip active" data-cat="all">All</button>
+  <button class="chip" data-cat="trending">Trending 🔥</button>
+  <button class="chip" data-cat="live">Live</button>
+  <button class="chip" data-cat="music">Music</button>
+  <button class="chip" data-cat="gaming">Gaming</button>
+  <button class="chip" data-cat="volcano">Volcano</button>
+  <button class="chip" data-cat="cooking">Fire Cooking</button>
+  <button class="chip" data-cat="tech">Tech</button>
+  <button class="chip" data-cat="camping">Camping</button>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <nav>
+      <a class="active" href="#">⌂ <span>Home</span></a>
+      <a href="#">♨ <span>Ember Shorts</span></a>
+      <a href="#">▣ <span>Subscriptions</span></a>
+      <hr/>
+      <a href="#">◷ <span>History</span></a>
+      <a href="#">♡ <span>Liked Infernos</span></a>
+      <a href="#">▼ <span>Watch Later</span></a>
+      <hr/>
+      <p class="side-title">SUBSCRIPTIONS</p>
+      <a href="#">● <span>LavaLab</span></a>
+      <a href="#">● <span>Campfire Cooks</span></a>
+      <a href="#">● <span>Blaze Gaming</span></a>
+      <a href="#">● <span>Magma Music</span></a>
+    </nav>
+    <div class="promo">
+      <strong>Go Inferno+</strong>
+      <p>No ads. Exclusive volcano streams.</p>
+      <button>Try free</button>
+    </div>
+  </aside>
+
+  <main>
+    <section class="hero">
+      <div class="hero-text">
+        <span class="pill">● LIVE • 128K watching</span>
+        <h1>VOLCANO ERUPTION: Live from the Crater Rim</h1>
+        <p>LavaLab • 2.1M views • The closest 4K drone flight ever.</p>
+        <div class="hero-actions">
+          <button class="btn-fire" id="heroWatch">▶ Watch Now</button>
+          <button class="btn-ghost">+ Save</button>
+        </div>
+      </div>
+      <div class="hero-thumb"></div>
+    </section>
+
+    <section id="grid" class="grid"></section>
+  </main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
