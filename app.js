@@ -1,6 +1,5 @@
-// FirFall — blank shell + sign-in. Cloudflare Worker hides your home IP.
-// Set window.FIRFALL_API to your Worker URL in production.
-const API = window.FIRFALL_API || 'http://localhost:3001';
+// FirFall — Cloudflare-only auth. No localhost.
+const API = window.FIRFALL_API || 'https://firfall-auth.b8golddude.workers.dev';
 document.getElementById('menuBtn').onclick = () => {
   document.getElementById('sidebar').classList.toggle('collapsed');
 };
@@ -39,17 +38,6 @@ signInBtn.onclick = () => {
   modal.classList.remove('hidden');
 };
 document.getElementById('authClose').onclick = () => modal.classList.add('hidden');
-async function api(path, opts) {
-  const urls = [window.FIRFALL_API, 'http://localhost:3001'].filter(Boolean);
-  let lastErr;
-  for (const base of urls) {
-    try {
-      const r = await fetch(base + path, opts);
-      return { r, base };
-    } catch (e) { lastErr = e; }
-  }
-  throw lastErr;
-}
 authSwitch.onclick = () => setMode(mode === 'login' ? 'register' : 'login');
 authSubmit.onclick = async () => {
   authErr.textContent = '';
@@ -65,17 +53,17 @@ authSubmit.onclick = async () => {
     }
   }
   try {
-    const { r, base } = await api(mode === 'login' ? '/api/login' : '/api/register', {
+    const r = await fetch(API + (mode === 'login' ? '/api/login' : '/api/register'), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
     });
     const j = await r.json();
-    if (!r.ok) { authErr.textContent = (j.error || 'Failed.') + ' [' + base + ']'; return; }
+    if (!r.ok) { authErr.textContent = j.error || 'Failed.'; return; }
     localStorage.setItem('firfall_user', j.username);
     localStorage.setItem('firfall_token', j.token);
     modal.classList.add('hidden');
     authUser.value = ''; authPass.value = '';
     refreshAuthUI();
-  } catch { authErr.textContent = 'Both backends offline — start local: node backend/server.js'; }
+  } catch { authErr.textContent = 'Auth service unreachable — check connection.'; }
 };
 refreshAuthUI();
