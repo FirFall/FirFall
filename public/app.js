@@ -289,7 +289,7 @@ function card(v) {
     (v.duration ? '<span class="duration">' + fmtDur(v.duration) + '</span>' : '') + '</div>' +
     '<div class="meta"><div class="chan">' + (v.owner[0] || '?').toUpperCase() + '</div><div><h3></h3><p></p></div></div>';
   d.querySelector('h3').textContent = v.title;
-  d.querySelector('p').textContent = v.owner + (v.visibility && v.visibility !== 'public' ? ' • ' + v.visibility : '') + ' • ' + fmt(v.views || 0) + ' views • ' + new Date(v.created_at).toLocaleDateString();
+  d.querySelector('p').textContent = v.owner + (v.visibility && v.visibility !== 'public' ? ' • ' + v.visibility : '') + ' • ' + fmt(v.views || 0) + ' views • ' + timeAgo(v.created_at);
   const vid = d.querySelector('video');
   vid.onmouseenter = () => { vid.play().catch(() => {}); };
   vid.onmouseleave = () => { vid.pause(); };
@@ -527,7 +527,7 @@ async function renderWatch(id) {
     player.playbackRate = 1;
     document.getElementById('speedBtn').textContent = '1x';
     document.getElementById('wTitle').textContent = v.title + (v.role === 'moderator' ? ' <span class=\"badge-mod\">🔨 Mod</span>' : '');
-    document.getElementById('wStats').textContent = fmt(v.views || 0) + ' views • ' + new Date(v.created_at).toLocaleDateString() + (v.duration ? ' • ' + fmtDur(v.duration) : '');
+    document.getElementById('wStats').textContent = fmt(v.views || 0) + ' views • ' + timeAgo(v.created_at) + (v.duration ? ' • ' + fmtDur(v.duration) : '');
     const ch = document.getElementById('wChannelLink');
     document.getElementById('wChannel').textContent = '@' + v.owner;
     document.getElementById('wAvatar').textContent = v.owner[0].toUpperCase();
@@ -640,7 +640,7 @@ async function loadComments(vid) {
       d.className = 'comment';
       d.innerHTML = '<strong></strong><span></span><p></p>';
       d.querySelector('strong').textContent = '@' + c.user;
-      d.querySelector('span').textContent = ' ' + new Date(c.created_at).toLocaleString();
+      d.querySelector('span').textContent = ' ' + timeAgo(c.created_at);
       d.querySelector('p').textContent = c.text;
       list.appendChild(d);
     });
