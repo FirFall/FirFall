@@ -147,32 +147,67 @@
 </div>
 
 <div id="uploadModal" class="modal hidden">
-  <div class="modal-box wide studio">
-    <div class="studio-head"><h2>Upload video</h2><button id="uploadClose" class="modal-x">✕</button></div>
-    <div id="upStepFile" class="up-step">
-      <label id="dropZone" class="dropzone">
-        <input id="upFile" type="file" accept="video/mp4,video/webm,video/quicktime,video/x-matroska" hidden />
-        <div class="dz-icon">⇪</div>
-        <p><strong>Select a file</strong> or drag and drop it here</p>
-        <p class="modal-sub">MP4 / WebM / MOV / MKV • max 100MB</p>
-      </label>
+  <div class="modal-box studio-dlg">
+    <div class="st-head">
+      <strong id="upDlgTitle">Upload video</strong>
+      <span class="st-head-right"><span id="upSavedPill" class="saved-pill">Saved as private</span><button id="uploadClose" class="modal-x static">✕</button></span>
     </div>
-    <div id="upStepDetails" class="up-step hidden">
-      <p class="step-title">Details</p>
-      <input id="upTitle" type="text" maxlength="100" placeholder="Title (required)" />
-      <textarea id="upDesc" maxlength="2000" placeholder="Description"></textarea>
-      <div class="thumb-row"><img id="upThumbPrev" alt="" /><div><p class="modal-sub">Auto thumbnail</p><p id="upChecks" class="modal-sub">Checks not run yet.</p></div></div>
-      <div class="studio-foot"><span></span><button id="upToVis" class="auth-go">Next</button></div>
+    <div class="st-steps" id="upSteps">
+      <span data-step="details" class="on">Details</span>
+      <span data-step="elements">Video elements</span>
+      <span data-step="checks">Initial check</span>
+      <span data-step="visibility">Visibility</span>
     </div>
-    <div id="upStepVis" class="up-step hidden">
-      <p class="step-title">Visibility</p>
-      <label class="vis"><input type="radio" name="vis" value="public" checked /><span><strong>Public</strong><br />Everyone can watch</span></label>
-      <label class="vis"><input type="radio" name="vis" value="unlisted" /><span><strong>Unlisted</strong><br />Anyone with the link can watch</span></label>
-      <label class="vis"><input type="radio" name="vis" value="private" /><span><strong>Private</strong><br />Only you can watch</span></label>
-      <div class="prog-outer hidden" id="upProgOuter"><div id="upProgFill" class="prog-fill up"></div></div>
-      <p id="upStatus" class="modal-sub"></p>
-      <p id="upErr" class="auth-err"></p>
-      <div class="studio-foot"><button id="upBack" class="pill-btn">Back</button><button id="upSubmit" class="auth-go">Publish</button></div>
+    <div class="st-body">
+      <div class="st-main">
+        <div id="upStepFile" class="up-step">
+          <label id="dropZone" class="dropzone">
+            <input id="upFile" type="file" accept="video/mp4,video/webm,video/quicktime,video/x-matroska" hidden />
+            <div class="dz-icon">⇪</div>
+            <p><strong>Select a file</strong> or drag and drop it here</p>
+            <p class="modal-sub">MP4 / WebM / MOV / MKV • max 100MB</p>
+          </label>
+          <p id="upErrFile" class="auth-err"></p>
+        </div>
+        <div id="upStepDetails" class="up-step hidden">
+          <div class="st-title-row"><h2>Details</h2><button class="pill-btn" id="upReuse" type="button">Reuse details</button></div>
+          <div class="field"><label>Title (required)</label><textarea id="upTitle" rows="2" maxlength="100"></textarea><span id="upTitleCount" class="count">0/100</span></div>
+          <div class="field"><label>Description</label><textarea id="upDesc" rows="4" maxlength="2000" placeholder="Tell viewers about your video"></textarea></div>
+          <div class="field"><label>Visibility</label>
+            <div class="vis-pills" id="upVisPills">
+              <button data-vis="private" class="on">Private</button><button data-vis="unlisted">Unlisted</button><button data-vis="public">Public</button>
+            </div>
+          </div>
+        </div>
+        <div id="upStepElements" class="up-step hidden">
+          <div class="st-title-row"><h2>Video elements</h2></div>
+          <p class="modal-sub">End screens and cards aren't in the test version yet — skip ahead.</p>
+        </div>
+        <div id="upStepChecks" class="up-step hidden">
+          <div class="st-title-row"><h2>Initial check</h2></div>
+          <p id="upChecks" class="modal-sub">Checks not run yet.</p>
+        </div>
+        <div id="upStepVis" class="up-step hidden">
+          <div class="st-title-row"><h2>Visibility</h2></div>
+          <p class="modal-sub">Choose who can watch. Safety checks run again on publish.</p>
+          <div class="prog-outer hidden" id="upProgOuter"><div id="upProgFill" class="prog-fill up"></div></div>
+          <p id="upStatus" class="modal-sub"></p>
+        </div>
+        <p id="upErr" class="auth-err"></p>
+      </div>
+      <div class="st-side">
+        <div class="st-preview"><img id="upThumbPrev" alt="" /><span id="upProcNote">Processing will begin shortly</span></div>
+        <div class="st-filebox">
+          <p class="modal-sub">Video link</p>
+          <p><a id="upLink" href="#" target="_blank">Available after publishing</a></p>
+          <p class="modal-sub">Filename</p>
+          <p id="upFilename">—</p>
+        </div>
+      </div>
+    </div>
+    <div class="st-foot">
+      <span id="upFootStatus" class="modal-sub">Select a file to begin</span>
+      <span><button id="upBack" class="pill-btn hidden">Back</button> <button id="upNext" class="black-btn">Next</button></span>
     </div>
   </div>
 </div>

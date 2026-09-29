@@ -477,23 +477,46 @@ document.querySelectorAll('[data-chtab]').forEach(t => {
   };
 });
 
-// ---- Studio-style upload: file → details+checks → visibility → publish ----
+// ---- Studio-style upload: file → details → elements → checks → visibility ----
 const uploadModal = document.getElementById('uploadModal');
-const upStepFile = document.getElementById('upStepFile');
-const upStepDetails = document.getElementById('upStepDetails');
-const upStepVis = document.getElementById('upStepVis');
-let upStaged = null; // {file, thumb, duration, scan, checksText}
-function upShow(step) {
-  [upStepFile, upStepDetails, upStepVis].forEach(s => s.classList.add('hidden'));
-  step.classList.remove('hidden');
+const UP_STEPS = ['details', 'elements', 'checks', 'visibility'];
+let upStage = -1; // -1 = file picker
+let upVisibility = 'private';
+let upStaged = null; // {file, thumb, duration, scan}
+function upShow(i) {
+  upStage = i;
+  ['upStepFile', 'upStepDetails', 'upStepElements', 'upStepChecks', 'upStepVis'].forEach((id, k) =>
+    document.getElementById(id).classList.toggle('hidden', k - 1 !== i));
+  document.querySelectorAll('#upSteps span').forEach(s => {
+    const k = UP_STEPS.indexOf(s.dataset.step);
+    s.classList.toggle('on', k === i);
+    s.classList.toggle('done', k < i);
+  });
+  document.getElementById('upBack').classList.toggle('hidden', i <= 0);
+  document.getElementById('upNext').textContent = 'Next';
+}
+function upSetVis(v) {
+  upVisibility = v;
+  document.getElementById('upSavedPill').textContent = 'Saved as ' + v;
+  document.querySelectorAll('#upVisPills button').forEach(b => b.classList.toggle('on', b.dataset.vis === v));
 }
 document.getElementById('createBtn').onclick = () => {
   if (!me()) { setMode('login'); modal.classList.remove('hidden'); return; }
   document.getElementById('upErr').textContent = '';
+  document.getElementById('upErrFile').textContent = '';
   document.getElementById('upStatus').textContent = '';
+  document.getElementById('upFootStatus').textContent = 'Select a file to begin';
   document.getElementById('upProgOuter').classList.add('hidden');
+  document.getElementById('upDlgTitle').textContent = 'Upload video';
+  document.getElementById('upFilename').textContent = '—';
+  document.getElementById('upLink').textContent = 'Available after publishing';
+  document.getElementById('upLink').removeAttribute('href');
   upStaged = null;
-  upShow(upStepFile);
+  upSetVis('private');
+  const nb = document.getElementById('upNext');
+  nb.textContent = 'Next';
+  if (window._upNextDefault) nb.onclick = window._upNextDefault;
+  upShow(-1);
   uploadModal.classList.remove('hidden');
 };
 document.getElementById('uploadClose').onclick = () => uploadModal.classList.add('hidden');
@@ -505,11 +528,15 @@ dropZone.addEventListener('drop', (e) => {
 });
 document.getElementById('upFile').addEventListener('change', (e) => { if (e.target.files[0]) stageFile(e.target.files[0]); });
 async function stageFile(file) {
-  const err = document.getElementById('upErr');
+  const err = document.getElementById('upErrFile');
   err.textContent = '';
-  if (file.size > 100_000_000) { err.textContent = 'File too big — max 100MB in test version.'; upShow(upStepFile); return; }
-  upShow(upStepDetails);
+  if (file.size > 100_000_000) { err.textContent = 'File too big — max 100MB in test version.'; return; }
+  document.getElementById('upDlgTitle').textContent = file.name;
+  document.getElementById('upFilename').textContent = file.name.length > 40 ? file.name.slice(0, 40) + '…' : file.name;
   document.getElementById('upTitle').value = file.name.replace(/\.[^.]+$/, '').replace(/[._-]+/g, ' ').slice(0, 100);
+  document.getElementById('upTitleCount').textContent = document.getElementById('upTitle').value.length + '/100';
+  upShow(0);
+  document.getElementById('upFootStatus').textContent = 'Upload complete … processing will begin shortly';
   const checks = document.getElementById('upChecks');
   checks.textContent = 'Running safety checks…';
   const [scan, thumb, duration] = await Promise.all([
@@ -517,30 +544,43 @@ async function stageFile(file) {
     captureThumb(file),
     getDuration(file)
   ]);
-  if (scan === 'blocked') { err.textContent = 'Blocked: on-device scan flagged explicit content.'; upShow(upStepFile); return; }
+  if (scan === 'blocked') { err.textContent = 'Blocked: on-device scan flagged explicit content.'; upShow(-1); return; }
   const prev = document.getElementById('upThumbPrev');
   if (thumb) prev.src = URL.createObjectURL(thumb); else prev.removeAttribute('src');
+  document.getElementById('upProcNote').textContent = fmtDur(duration) + ' • safety scan ' + scan;
   checks.textContent = 'Checks: file OK • ' + fmtDur(duration) + ' • explicit scan ' + scan + ' • server re-checks on publish';
   upStaged = { file, thumb, duration, scan };
 }
-document.getElementById('upToVis').onclick = () => {
-  if (!document.getElementById('upTitle').value.trim()) { document.getElementById('upErr').textContent = 'Title is required.'; return; }
-  upShow(upStepVis);
+document.getElementById('upTitle').addEventListener('input', (e) => {
+  document.getElementById('upTitleCount').textContent = e.target.value.length + '/100';
+});
+document.getElementById('upReuse').onclick = () => {
+  document.getElementById('upDesc').value = document.getElementById('upDesc').value || 'New upload via FirFall.';
 };
-document.getElementById('upBack').onclick = () => upShow(upStepDetails);
-document.getElementById('upSubmit').onclick = () => {
+document.querySelectorAll('#upVisPills button').forEach(b => { b.onclick = () => upSetVis(b.dataset.vis); });
+document.getElementById('upNext').onclick = () => {
+  if (upStage === -1) return;
+  if (upStage === 0 && !document.getElementById('upTitle').value.trim()) {
+    document.getElementById('upErr').textContent = 'Title is required.'; return;
+  }
+  document.getElementById('upErr').textContent = '';
+  if (upStage < 3) { upShow(upStage + 1); return; }
+  publishStaged();
+};
+document.getElementById('upBack').onclick = () => { if (upStage > 0) upShow(upStage - 1); };
+window._upNextDefault = document.getElementById('upNext').onclick;
+function publishStaged() {
   const err = document.getElementById('upErr');
   err.textContent = '';
   if (!upStaged) { err.textContent = 'Choose a file first.'; return; }
   const title = document.getElementById('upTitle').value.trim();
   const desc = document.getElementById('upDesc').value.trim();
   if (!title) { err.textContent = 'Title is required.'; return; }
-  const visibility = (document.querySelector('input[name=vis]:checked') || {}).value || 'public';
-  const btn = document.getElementById('upSubmit');
+  const btn = document.getElementById('upNext');
   btn.disabled = true;
   document.getElementById('upProgOuter').classList.remove('hidden');
   const fill = document.getElementById('upProgFill');
-  const status = (t) => { document.getElementById('upStatus').textContent = t; };
+  const status = (t) => { document.getElementById('upStatus').textContent = t; document.getElementById('upFootStatus').textContent = t; };
   status('Uploading…');
   const form = new FormData();
   form.append('file', upStaged.file);
@@ -548,7 +588,7 @@ document.getElementById('upSubmit').onclick = () => {
   form.append('title', title);
   form.append('description', desc);
   form.append('duration', String(upStaged.duration));
-  form.append('visibility', visibility);
+  form.append('visibility', upVisibility);
   form.append('scan', upStaged.scan);
   const xhr = new XMLHttpRequest();
   xhr.open('POST', API + '/api/videos/upload');
@@ -559,10 +599,19 @@ document.getElementById('upSubmit').onclick = () => {
     let j = {};
     try { j = JSON.parse(xhr.responseText); } catch {}
     if (xhr.status < 200 || xhr.status >= 300) { err.textContent = j.error || 'Upload failed.'; return; }
-    uploadModal.classList.add('hidden');
+    fill.style.width = '100%';
+    status('Upload complete … processing will begin shortly');
+    const link = location.origin + location.pathname + '#/watch/' + j.id;
+    const a = document.getElementById('upLink');
+    a.textContent = link; a.href = link;
     upStaged = null;
-    if (j.status === 'flagged') { alert('Held for review: ' + (j.message || 'auto-filter matched.')); loadHome(); }
-    else location.hash = '#/watch/' + j.id;
+    btn.textContent = 'Done';
+    btn.onclick = () => {
+      uploadModal.classList.add('hidden');
+      btn.textContent = 'Next';
+      if (j.status === 'flagged') { alert('Held for review: ' + (j.message || 'auto-filter matched.')); loadHome(); }
+      else location.hash = '#/watch/' + j.id;
+    };
   };
   xhr.onerror = () => { btn.disabled = false; err.textContent = 'Upload failed — service unreachable.'; };
   xhr.send(form);
