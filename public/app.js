@@ -165,20 +165,22 @@ authSubmit.onclick = async () => {
   } catch { authErr.textContent = 'Auth service unreachable — check connection.'; }
 };
 
-    // ---- Update Log (shown once per version) ----
-    const currentVer = '1.1';
-    const lastVer = store.get('firfall_ver', '0');
-    if (lastVer !== currentVer) {
-      const log = document.createElement('div');
-      log.className = 'update-log';
-      log.innerHTML = '<h3>Update ' + currentVer + '</h3><p>New Features: Real Subscriptions, Channel Art, Notifications, Admin Panel, & Moderation.</p><button id="upLogOk">Got it!</button>';
-      document.body.appendChild(log);
-      document.getElementById('upLogOk').onclick = () => { store.set('firfall_ver', currentVer); log.remove(); };
-    }
+// ---- Local stores ----
 const store = {
   get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch { return d; } },
   set(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
 };
+
+// ---- Update Log (shown once per version) ----
+const currentVer = '1.1';
+const lastVer = store.get('firfall_ver', '0');
+if (lastVer !== currentVer) {
+  const log = document.createElement('div');
+  log.className = 'update-log';
+  log.innerHTML = '<h3>Update ' + currentVer + '</h3><p>New Features: Real Subscriptions, Channel Art, Notifications, Admin Panel, & Moderation.</p><button id="upLogOk">Got it!</button>';
+  document.body.appendChild(log);
+  document.getElementById('upLogOk').onclick = () => { store.set('firfall_ver', currentVer); log.remove(); };
+}
 function fmt(n) { return n >= 1000 ? (n / 1000).toFixed(1).replace('.0', '') + 'K' : String(n); }
 function timeAgo(iso) {
   const s = Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
