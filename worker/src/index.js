@@ -135,7 +135,7 @@ export default {
       if (req.method === 'POST' && url.pathname === '/api/videos/upload') {
         const user = await authedUser();
         if (!user) return json(401, { error: 'Sign in to upload.' });
-        if (!storageConfigured()) return json(500, { error: 'Video storage not configured.' });
+        if (!storageConfigured()) { console.error('upload: storage secrets missing'); return json(500, { error: 'Video storage not configured.' }); }
         const form = await req.formData();
         const file = form.get('file');
         const title = String(form.get('title') || '').trim();
@@ -297,6 +297,6 @@ export default {
       }
 
       return json(404, { error: 'not found' });
-    } catch (e) { return json(500, { error: 'server error' }); }
+    } catch (e) { console.error('worker error:', req.method, url.pathname, String(e && e.stack || e)); return json(500, { error: 'server error' }); }
   }
 };

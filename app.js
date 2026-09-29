@@ -355,7 +355,7 @@ function sampleFrames(file, n) {
     const shots = [];
     v.onloadedmetadata = async () => {
       canvas.width = 224; canvas.height = 224;
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
       for (let i = 0; i < n; i++) {
         const t = v.duration * (i + 1) / (n + 1);
         try {
