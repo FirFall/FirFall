@@ -6,6 +6,9 @@ CREATE TABLE IF NOT EXISTS users(
   about TEXT NOT NULL DEFAULT '',
   role TEXT NOT NULL DEFAULT 'user',
   banned INTEGER NOT NULL DEFAULT 0,
+  ban_reason TEXT,
+  banned_at TEXT,
+  banned_by TEXT,
   last_ip TEXT,
   banner_key TEXT,
   avatar_key TEXT,
@@ -93,5 +96,26 @@ CREATE TABLE IF NOT EXISTS uploads(
 -- so banning stays a simple equality lookup without the plaintext ever existing.
 CREATE TABLE IF NOT EXISTS poison_bans(
   ip TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL
+);
+-- Appeals submitted from the ban screen. FirFall has no Discord yet, so this is
+-- where appeals actually land; a moderator reads and answers them in the panel.
+-- One open appeal per account keeps the inbox usable.
+CREATE TABLE IF NOT EXISTS appeals(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL,
+  message TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'open',
+  reply TEXT,
+  created_at TEXT NOT NULL,
+  resolved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_appeals_status ON appeals(status, created_at DESC);
+-- A banned account is refused a session token, so it cannot sign in to appeal.
+-- Login mints one of these instead: it authorises posting an appeal and nothing
+-- else, is scoped to a single account, and is discarded once the appeal is filed.
+CREATE TABLE IF NOT EXISTS ban_tokens(
+  token TEXT PRIMARY KEY,
+  username TEXT NOT NULL,
   created_at TEXT NOT NULL
 );

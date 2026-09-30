@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>FirFall</title>
-<link rel="stylesheet" href="styles.css?v=16" />
+<link rel="stylesheet" href="styles.css?v=17" />
 </head>
 <body>
 <div id="downOverlay" role="alertdialog" aria-modal="true" aria-labelledby="downTitle">
@@ -22,6 +22,44 @@
     </span>
     <h1 id="downTitle">FIRFALL IS DOWN</h1>
     <p>FirFall is currently migrating to a better backend storage. We'll return shortly.</p>
+  </div>
+</div>
+<div id="banOverlay" role="alertdialog" aria-modal="true" aria-labelledby="banTitle">
+  <div class="ban-frame">
+    <div class="ban-bar">
+      <span class="ban-wordmark"><span class="ban-mark">F</span> FIRFALL</span>
+      <span class="ban-ref" id="banRef">ACCOUNT ACTION</span>
+    </div>
+    <div class="ban-body">
+      <div class="ban-emblem" aria-hidden="true">
+        <svg viewBox="0 0 96 96" width="88" height="88">
+          <circle cx="48" cy="48" r="44" fill="#fff" stroke="#C4302B" stroke-width="6"/>
+          <path d="M48 20 84 74H12Z" fill="#fff" stroke="#C4302B" stroke-width="6" stroke-linejoin="round"/>
+          <rect x="44.5" y="42" width="7" height="20" rx="3" fill="#C4302B"/>
+          <circle cx="48" cy="69" r="4" fill="#C4302B"/>
+        </svg>
+      </div>
+      <h1 id="banTitle">BANNED</h1>
+      <p class="ban-lede">This account has been reviewed and banned by FirFall moderators.</p>
+      <dl class="ban-facts">
+        <div><dt>Account</dt><dd id="banUser">—</dd></div>
+        <div><dt>Reason</dt><dd id="banReason">—</dd></div>
+        <div><dt>Reviewed by</dt><dd id="banBy">—</dd></div>
+        <div><dt>Date</dt><dd id="banDate">—</dd></div>
+      </dl>
+      <section class="ban-appeal" id="banAppealBox">
+        <h2>If you think this was a mistake</h2>
+        <p id="banAppealLead">Appeals are reviewed by a FirFall moderator. FirFall does not have a Discord yet, so appeals are submitted here and answered in your account&rsquo;s appeal history.</p>
+        <div id="banAppealForm">
+          <textarea id="banAppealText" rows="4" maxlength="2000" placeholder="Explain why the ban was a mistake. Moderators read every appeal."></textarea>
+          <div class="ban-appeal-row">
+            <button id="banAppealSend" class="ban-btn">Submit appeal</button>
+            <span id="banAppealMsg" class="ban-msg"></span>
+          </div>
+        </div>
+        <div id="banAppealState" class="hidden"></div>
+      </section>
+    </div>
   </div>
 </div>
 <header class="yt-header">
@@ -292,6 +330,6 @@
 </div>
 
 <script>window.FIRFALL_API = "https://firfall-auth.b8golddude.workers.dev";</script>
-<script src="app.js?v=16"></script>
+<script src="app.js?v=17"></script>
 </body>
 </html>

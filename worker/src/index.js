@@ -24,6 +24,21 @@ function ipFingerprint(stored) {
 }
 __name(ipFingerprint, "ipFingerprint");
 
+// Everything the ban screen needs about a ban, in one shape. The reason falls back
+// to a generic line rather than null so the screen never renders a blank field,
+// which would read as "banned for no stated reason" and invite a pointless appeal.
+function banInfo(row) {
+  const reason = row && row.ban_reason ? String(row.ban_reason).trim() : "";
+  return {
+    username: (row && row.username) || null,
+    reason: reason || "Breaking the FirFall community rules.",
+    bannedAt: (row && row.banned_at) || null,
+    bannedBy: (row && row.banned_by) || "FirFall moderators",
+    generic: !reason,
+  };
+}
+__name(banInfo, "banInfo");
+
 // A network ban must never be able to lock out the person who can undo it. The
 // poison check runs before all routing, so without this an admin who poisons a
 // shared address (their own included) can never reach /api/admin/update again
@@ -309,15 +324,64 @@ var index_default = {
         const row = await env.DB.prepare("SELECT * FROM users WHERE username=?").bind(u).first();
         if (!row || await hashPw(password, row.salt) !== row.pass_hash)
           return json(401, { error: "Wrong username/password." });
+        if (row.banned) {
+          // Password was correct, so this is that person, not a guesser: safe to
+          // reveal the ban. No session token is issued, which is what keeps a
+          // banned account from acting on the site. They do get a single-purpose
+          // appeal token, because refusing them a token would otherwise leave no
+          // way to appeal at all.
+          const appealToken = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, "");
+          await env.DB.prepare("INSERT INTO ban_tokens(token,username,created_at) VALUES(?,?,?)").bind(appealToken, row.username, (/* @__PURE__ */ new Date()).toISOString()).run();
+          await env.DB.prepare("UPDATE users SET last_ip=? WHERE username=?").bind(ipHash, u).run();
+          return json(403, { error: "Banned.", banned: true, ban: banInfo(row), appealToken });
+        }
         const token = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, "");
         await env.DB.prepare("INSERT INTO sessions(token,user_id,created_at) VALUES(?,?,?)").bind(token, row.id, (/* @__PURE__ */ new Date()).toISOString()).run();
         await env.DB.prepare("UPDATE users SET last_ip=? WHERE username=?").bind(ipHash, u).run();
         return json(200, { username: row.username, token, role: row.role || "user" });
       }
       if (req.method === "GET" && url.pathname === "/api/me") {
-        const user = await authedUser();
-        if (!user) return json(401, { error: "Not signed in." });
-        return json(200, { username: user.username, role: user.role || "user" });
+        // Deliberately does not reuse authedUser(): that one returns null for a
+        // banned account, which would make /api/me answer 401 and the client
+        // conclude it was merely signed out. A ban has to be reported as a ban,
+        // including to someone who was already signed in when it happened.
+        const h2 = req.headers.get("Authorization") || "";
+        const m2 = h2.match(/^Bearer (.+)$/);
+        const tok2 = m2 ? m2[1] : url.searchParams.get("token");
+        if (tok2) {
+          const row2 = await env.DB.prepare("SELECT u.username,u.role,u.banned,u.ban_reason,u.banned_at,u.banned_by FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=?").bind(tok2).first();
+          if (row2) {
+            if (row2.banned) return json(200, { username: row2.username, banned: true, ban: banInfo(row2) });
+            return json(200, { username: row2.username, role: row2.role || "user" });
+          }
+        }
+        return json(401, { error: "Not signed in." });
+      }
+      if (req.method === "POST" && url.pathname === "/api/appeal") {
+        const { appealToken, message } = await req.json().catch(() => ({}));
+        if (!appealToken) return json(400, { error: "Missing appeal token. Sign in again from the ban screen." });
+        const holder = await env.DB.prepare("SELECT username FROM ban_tokens WHERE token=?").bind(String(appealToken)).first();
+        if (!holder) return json(403, { error: "That appeal link is no longer valid. Sign in again to appeal." });
+        const target = await env.DB.prepare("SELECT banned FROM users WHERE username=?").bind(holder.username).first();
+        if (!target || !target.banned) return json(403, { error: "This account is not banned." });
+        const existing = await env.DB.prepare("SELECT id FROM appeals WHERE username=? AND status='open'").bind(holder.username).first();
+        if (existing) return json(409, { error: "You already have an appeal under review." });
+        const text = String(message || "").trim().slice(0, 2000);
+        if (text.length < 10) return json(400, { error: "Tell the moderators a bit more, at least 10 characters." });
+        await env.DB.prepare("INSERT INTO appeals(username,message,status,created_at) VALUES(?,?,'open',?)").bind(holder.username, text, (/* @__PURE__ */ new Date()).toISOString()).run();
+        // Single use: a resolved appeal should require a fresh sign-in to file again.
+        await env.DB.prepare("DELETE FROM ban_tokens WHERE token=?").bind(String(appealToken)).run();
+        return json(200, { ok: true });
+      }
+      if (req.method === "GET" && url.pathname === "/api/appeal/status") {
+        const { appealToken } = Object.fromEntries(url.searchParams);
+        if (!appealToken) return json(400, { error: "Missing token." });
+        const holder = await env.DB.prepare("SELECT username FROM ban_tokens WHERE token=?").bind(appealToken).first();
+        const name = holder ? holder.username : null;
+        if (!name) return json(200, { status: "none" });
+        const row = await env.DB.prepare("SELECT status,reply FROM appeals WHERE username=? ORDER BY id DESC LIMIT 1").bind(name).first();
+        if (!row) return json(200, { status: "none" });
+        return json(200, { status: row.status, reply: row.reply || null });
       }
       if (req.method === "GET" && url.pathname === "/api/count") {
         const row = await env.DB.prepare("SELECT COUNT(*) c FROM users").first();
@@ -823,7 +887,7 @@ var index_default = {
         const user = await authedUser();
         if (!user || (await env.DB.prepare("SELECT role FROM users WHERE username=?").bind(user.username).first()).role !== "admin")
           return json(403, { error: "Admin only." });
-        const { target, role, banned, poison: poison2 } = await req.json();
+        const { target, role, banned, reason, poison: poison2 } = await req.json();
         if (!target) return json(400, { error: "Target required." });
         const sets = [];
         const vals = [];
@@ -834,6 +898,20 @@ var index_default = {
         if (banned !== void 0) {
           sets.push("banned=?");
           vals.push(banned ? 1 : 0);
+        }
+        // Stamp who banned and when, and carry the stated reason through to the
+        // ban screen. Clearing the reason on unban stops a stale reason from being
+        // shown to someone who has since been reinstated.
+        if (banned === 1) {
+          sets.push("banned_at=?", "banned_by=?");
+          vals.push((/* @__PURE__ */ new Date()).toISOString(), user.username);
+          if (typeof reason === "string" && reason.trim()) {
+            sets.push("ban_reason=?");
+            vals.push(reason.trim().slice(0, 300));
+          }
+        }
+        if (banned === 0) {
+          sets.push("ban_reason=NULL", "banned_at=NULL", "banned_by=NULL");
         }
         if (poison2 === true) {
           const userRow = await env.DB.prepare("SELECT id FROM users WHERE username=?").bind(target).first();
@@ -1016,6 +1094,32 @@ var index_default = {
           bansConverted++;
         }
         return json(200, { ok: true, converted, alreadyHashed: already, poisonBansConverted: bansConverted });
+      }
+      if (req.method === "GET" && url.pathname === "/api/admin/appeals") {
+        const user = await authedUser();
+        if (!user || user.role !== "admin") return json(403, { error: "Admin only." });
+        const list = (await env.DB.prepare("SELECT id,username,message,status,reply,created_at,resolved_at FROM appeals ORDER BY (status='open') DESC, id DESC LIMIT 100").all()).results || [];
+        const open = list.filter((a) => a.status === "open").length;
+        return json(200, { appeals: list, open });
+      }
+      if (req.method === "POST" && url.pathname === "/api/admin/appeal") {
+        const user = await authedUser();
+        if (!user || user.role !== "admin") return json(403, { error: "Admin only." });
+        const { id, action, reply } = await req.json();
+        const row = await env.DB.prepare("SELECT * FROM appeals WHERE id=?").bind(id).first();
+        if (!row) return json(404, { error: "Appeal not found." });
+        if (action === "uphold") {
+          await env.DB.prepare("UPDATE appeals SET status='upheld',reply=?,resolved_at=? WHERE id=?").bind(String(reply || "").slice(0, 2000) || null, (/* @__PURE__ */ new Date()).toISOString(), id).run();
+          return json(200, { ok: true });
+        }
+        if (action === "approve") {
+          await env.DB.prepare("UPDATE appeals SET status='approved',reply=?,resolved_at=? WHERE id=?").bind(String(reply || "").slice(0, 2000) || null, (/* @__PURE__ */ new Date()).toISOString(), id).run();
+          await env.DB.prepare("UPDATE users SET banned=0,ban_reason=NULL,banned_at=NULL,banned_by=NULL WHERE username=?").bind(row.username).run();
+          const lastIp = await env.DB.prepare("SELECT last_ip FROM users WHERE username=?").bind(row.username).first();
+          if (lastIp && lastIp.last_ip) await env.DB.prepare("DELETE FROM poison_bans WHERE ip=?").bind(lastIp.last_ip).run();
+          return json(200, { ok: true, unbanned: row.username });
+        }
+        return json(400, { error: "Unknown action." });
       }
       return json(404, { error: "not found" });
     } catch (e) {

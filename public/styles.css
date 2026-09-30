@@ -236,3 +236,60 @@ body:not(.site-down) #downOverlay{display:none}
 
 .ip-fp{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:#9aa0a6;background:#1f1f1f;border:1px solid #303030;border-radius:4px;padding:1px 6px;letter-spacing:.3px;cursor:help}
 
+
+/* ---- Ban screen ----
+   Deliberately not styled like the rest of the site. The rest of FirFall is a
+   dark YouTube pastiche; a ban notice borrowing that styling reads as a toast
+   that can be dismissed. This instead borrows the flat, boxed, all-caps look of
+   old web error pages: it is unambiguous, it cannot be scrolled past, and it
+   does not look like chrome the user might find a way around. */
+#banOverlay{position:fixed;inset:0;z-index:100000;display:flex;align-items:flex-start;justify-content:center;padding:0;background:#c9ccd1;overflow:auto}
+body:not(.banned) #banOverlay{display:none}
+body.banned{overflow:hidden}
+.ban-frame{width:100%;min-height:100%;background:#fff}
+.ban-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 16px;height:44px;background:#393939;border-bottom:3px solid #C4302B}
+.ban-wordmark{display:flex;align-items:center;gap:8px;color:#fff;font-weight:700;font-size:14px;letter-spacing:1.5px}
+.ban-mark{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;background:#C4302B;color:#fff;font-weight:800;font-size:14px;border-radius:3px}
+.ban-ref{color:#b9bcc0;font-size:11px;font-weight:600;letter-spacing:1.2px}
+.ban-body{max-width:620px;margin:0 auto;padding:40px 24px 64px;text-align:center}
+.ban-emblem{margin:0 auto 4px}
+.ban-body h1{margin:6px 0 10px;font-size:clamp(38px,9vw,64px);font-weight:800;letter-spacing:6px;color:#C4302B;line-height:1}
+.ban-lede{margin:0 auto 26px;max-width:44ch;font-size:15px;line-height:1.65;color:#4a4a4a}
+.ban-facts{margin:0 0 28px;border:1px solid #d6d8db;border-radius:3px;background:#fafbfc;text-align:left}
+.ban-facts>div{display:flex;gap:12px;padding:10px 14px;border-bottom:1px solid #e6e8ea}
+.ban-facts>div:last-child{border-bottom:0}
+.ban-facts dt{flex:0 0 104px;font-size:11px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:#7c8288;padding-top:2px}
+.ban-facts dd{margin:0;font-size:14px;color:#22262a;word-break:break-word}
+.ban-appeal{border:1px solid #d6d8db;border-radius:3px;background:#fff;padding:20px 18px;text-align:left}
+.ban-appeal h2{margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#393939}
+.ban-appeal p{margin:0 0 14px;font-size:13px;line-height:1.6;color:#5c6268}
+#banAppealText{width:100%;box-sizing:border-box;resize:vertical;border:1px solid #c4c8cc;border-radius:3px;padding:10px 12px;font:inherit;font-size:14px;color:#22262a;background:#fff;outline:none}
+#banAppealText:focus{border-color:#C4302B;box-shadow:0 0 0 2px rgba(196,48,43,.15)}
+.ban-appeal-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px}
+.ban-btn{background:#C4302B;border:0;border-radius:3px;color:#fff;font:inherit;font-size:13px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;padding:11px 18px;cursor:pointer}
+.ban-btn:hover{background:#a52a25}
+.ban-btn:disabled{opacity:.6;cursor:default}
+.ban-msg{font-size:13px;color:#5c6268}
+.ban-msg.err{color:#C4302B}
+.ban-msg.ok{color:#1c7a3e}
+.ban-state{padding:12px 14px;border-left:3px solid #C4302B;background:#fafbfc;font-size:13px;line-height:1.6;color:#4a4a4a}
+.ban-state b{color:#22262a}
+.ban-state .ban-state-tag{display:inline-block;margin-bottom:5px;padding:2px 8px;border-radius:2px;background:#C4302B;color:#fff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
+.ban-state.approved{border-left-color:#1c7a3e}
+.ban-state.approved .ban-state-tag{background:#1c7a3e}
+.hidden{display:none !important}
+.admin-appeals{margin-top:26px;padding-top:18px;border-top:1px solid #303030}
+.admin-appeals-h{margin:0 0 12px;font-size:13px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;color:#aaa}
+.appeal-card{margin-bottom:10px;padding:12px 14px;border:1px solid #303030;border-left:3px solid #3d3d3d;border-radius:6px;background:#1c1c1c}
+.appeal-card.open{border-left-color:#ff9d9d;background:#211c1c}
+.appeal-who{display:flex;align-items:center;gap:10px;font-size:13px;color:#f1f1f1}
+.appeal-when{color:#777;font-size:12px}
+.appeal-status{font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;padding:2px 7px;border-radius:9px;background:#303030;color:#bbb}
+.appeal-status.open{background:#7a1f1f;color:#ff9d9d}
+.appeal-status.approved{background:#1c5a2e;color:#9dffbc}
+.appeal-status.upheld{background:#3a3a3a;color:#aaa}
+.appeal-msg{margin:8px 0 0;font-size:13px;line-height:1.55;color:#ddd;white-space:pre-wrap;word-break:break-word}
+.appeal-reply{margin:8px 0 0;font-size:12px;color:#9ad4ff}
+.appeal-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+.appeal-actions input{flex:1 1 220px;min-width:160px;background:#121212;border:1px solid #303030;border-radius:6px;color:#fff;padding:7px 10px;font-size:13px;outline:none}
+.appeal-actions input:focus{border-color:#3ea6ff}

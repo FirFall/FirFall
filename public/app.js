@@ -48,6 +48,90 @@ function refreshAuthUI() {
     notifBadge.classList.add('hidden');
   }
 }
+// ---- Ban screen ------------------------------------------------------------
+// FirFall has no Discord yet, so the appeal link the old notice pointed at does
+// not exist. Rather than ship a dead discord.gg placeholder, appeals go to a real
+// inbox the moderators answer from the admin panel. To point elsewhere later,
+// set APPEAL_LINK and the form is replaced by that link.
+const APPEAL_LINK = '';
+let banShown = false;
+function showBanScreen(ban, appealToken, username) {
+  ban = ban || {};
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  document.body.classList.add('banned');
+  banShown = true;
+  // The cached session is worthless now: the server rejects every call for a
+  // banned account, so leaving it in place only misleads the rest of the UI.
+  localStorage.removeItem('firfall_token');
+  localStorage.removeItem('firfall_user');
+  localStorage.removeItem('firfall_role');
+  const modalEl = document.getElementById('authModal');
+  if (modalEl) modalEl.classList.add('hidden');
+  set('banUser', username || localStorage.getItem('firfall_ban_user') || '—');
+  set('banReason', ban.reason || 'Breaking the FirFall community rules.');
+  set('banBy', ban.bannedBy || 'FirFall moderators');
+  set('banDate', ban.bannedAt ? new Date(ban.bannedAt).toLocaleString() : '—');
+  set('banRef', 'REF ' + String(username || 'ACCOUNT').toUpperCase().slice(0, 18));
+  if (APPEAL_LINK) {
+    document.getElementById('banAppealForm').classList.add('hidden');
+    document.getElementById('banAppealLead').innerHTML = 'Appeals are handled in Discord. Reach us at <a href="' + esc(APPEAL_LINK) + '" target="_blank" rel="noopener noreferrer">' + esc(APPEAL_LINK) + '</a>.';
+    return;
+  }
+  wireBanAppeal(appealToken, username);
+}
+function wireBanAppeal(appealToken, username) {
+  if (!appealToken) {
+    // No token means we arrived here from /api/me rather than a fresh sign-in, so
+    // say how to get one instead of showing a form that cannot succeed.
+    const f = document.getElementById('banAppealForm');
+    const s = document.getElementById('banAppealState');
+    if (f) f.classList.add('hidden');
+    if (s) {
+      s.classList.remove('hidden', 'approved');
+      s.innerHTML = '<span class="ban-state-tag">Sign in to appeal</span><br>Close this page, then sign in with your username and password on the FirFall sign-in screen. The appeal form unlocks once the server confirms the ban.';
+    }
+    return;
+  }
+  const box = document.getElementById('banAppealForm');
+  const state = document.getElementById('banAppealState');
+  const msg = document.getElementById('banAppealMsg');
+  const btn = document.getElementById('banAppealSend');
+  const ta = document.getElementById('banAppealText');
+  const show = (html, ok) => {
+    box.classList.add('hidden');
+    state.classList.remove('hidden');
+    state.classList.toggle('approved', !!ok);
+    state.innerHTML = html;
+  };
+  // Check for an appeal already on file so a repeat visit does not offer to
+  // resubmit something a moderator is already reading.
+  fetch(API + '/api/appeal/status?appealToken=' + encodeURIComponent(appealToken))
+    .then(r => r.ok ? r.json() : { status: 'none' })
+    .then(j => {
+      if (!j || j.status === 'none') return;
+      const tag = j.status === 'open' ? 'Appeal received' : (j.status === 'approved' ? 'Appeal approved' : 'Appeal upheld');
+      show('<span class="ban-state-tag">' + tag + '</span><br>' +
+        (j.reply ? '<b>Moderator reply:</b> ' + esc(j.reply) : 'Your appeal is in the moderator queue. Check back here for a reply.'), j.status === 'approved');
+    })
+    .catch(() => { });
+  btn.onclick = async () => {
+    const text = ta.value.trim();
+    if (text.length < 10) { msg.className = 'ban-msg err'; msg.textContent = 'Write at least 10 characters.'; return; }
+    btn.disabled = true; msg.className = 'ban-msg'; msg.textContent = 'Sending…';
+    try {
+      const r = await fetch(API + '/api/appeal', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appealToken, message: text })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 409) { show('<span class="ban-state-tag">Appeal received</span><br>You already have an appeal under review.', false); return; }
+      if (!r.ok) { btn.disabled = false; msg.className = 'ban-msg err'; msg.textContent = j.error || 'Could not send that appeal.'; return; }
+      show('<span class="ban-state-tag">Appeal received</span><br>A moderator will read this. Reload this page later to check for a reply.', false);
+    } catch {
+      btn.disabled = false; msg.className = 'ban-msg err'; msg.textContent = 'Could not reach the server.';
+    }
+  };
+}
 // The cached role in localStorage goes stale when an admin is promoted or demoted
 // while they are already signed in, which silently hides the admin panel. Ask the
 // server for the authoritative role on every load and update the UI if it changed.
@@ -58,6 +142,10 @@ async function syncRole() {
     const r = await fetch(API + '/api/me', { headers: { Authorization: 'Bearer ' + t } });
     if (!r.ok) return;
     const j = await r.json();
+    // A ban outranks role sync. Someone banned while signed in still holds a
+    // valid token, so without this they would carry on browsing a site that is
+    // silently rejecting every write they make.
+    if (j && j.banned) { showBanScreen(j.ban, localStorage.getItem('firfall_ban_token'), j.username); return; }
     if (!j || !j.role) return;
     if (localStorage.getItem('firfall_role') !== j.role) {
       localStorage.setItem('firfall_role', j.role);
@@ -186,6 +274,15 @@ authSubmit.onclick = async () => {
       body: JSON.stringify({ username, password })
     });
     const j = await r.json();
+    // A correct password on a banned account is the one case where the server
+    // hands back a 403 plus the full ban record, so take over the whole screen
+    // rather than showing a line of red text in the modal.
+    if (j && j.banned) {
+      localStorage.setItem('firfall_ban_token', j.appealToken || '');
+      localStorage.setItem('firfall_ban_user', j.ban && j.ban.username || username);
+      showBanScreen(j.ban, j.appealToken, j.ban && j.ban.username || username);
+      return;
+    }
     if (!r.ok) { authErr.textContent = j.error || 'Failed.'; return; }
     localStorage.setItem('firfall_user', j.username);
     localStorage.setItem('firfall_token', j.token);
@@ -761,7 +858,15 @@ async function renderAdmin() {
 
     mk(u.role === 'admin' ? 'Demote' : 'Make admin', 'btn-mini', () => adminUpdate(u.username, { role: u.role === 'admin' ? 'user' : 'admin' }, tr));
     mk(u.role === 'mod' ? 'Remove mod' : 'Make mod', 'btn-mini', () => adminUpdate(u.username, { role: u.role === 'mod' ? 'user' : 'mod' }, tr));
-    mk(u.banned ? 'Unban' : 'Ban', 'btn-mini ' + (u.banned ? '' : 'danger'), () => adminUpdate(u.username, { banned: !u.banned }, tr));
+    // Ask for the reason on the way in. A ban screen that says "banned, reason
+    // unknown" is indistinguishable from a broken one, and it makes the appeal
+    // button feel pointless because there is nothing to contest.
+    mk(u.banned ? 'Unban' : 'Ban', 'btn-mini ' + (u.banned ? '' : 'danger'), () => {
+      if (u.banned) { adminUpdate(u.username, { banned: 0 }, tr); return; }
+      const reason = prompt('Reason shown to ' + u.username + ' on the ban screen.\nThis is the only thing they see as justification.', '');
+      if (reason === null) return;
+      adminUpdate(u.username, { banned: 1, reason: reason }, tr);
+    });
     const netBtn = document.createElement('button');
     netBtn.className = 'btn-mini danger';
     netBtn.textContent = u.banned ? 'Lift net ban' : 'Ban network';
@@ -782,6 +887,84 @@ async function renderAdmin() {
   wrap.appendChild(head);
   wrap.appendChild(table);
   box.appendChild(wrap);
+  box.appendChild(await adminAppealsInbox());
+}
+
+// Appeals land here because there is no Discord to send them to. Approving one
+// lifts the ban server-side, so the decision is not just a label on the row.
+async function adminAppealsInbox() {
+  const sec = document.createElement('div');
+  sec.className = 'admin-appeals';
+  let list = [];
+  try {
+    const r = await fetch(API + '/api/admin/appeals', { headers: { 'Authorization': 'Bearer ' + token() } });
+    const j = await r.json();
+    if (r.ok) list = j.appeals || [];
+  } catch { }
+  const open = list.filter(a => a.status === 'open').length;
+  const h = document.createElement('h3');
+  h.className = 'admin-appeals-h';
+  h.textContent = 'Appeals' + (open ? ' (' + open + ' waiting)' : '');
+  sec.appendChild(h);
+  if (!list.length) {
+    const p = document.createElement('p');
+    p.className = 'modal-sub';
+    p.textContent = 'No appeals yet. Banned users submit these from the ban screen.';
+    sec.appendChild(p);
+    return sec;
+  }
+  const reload = () => renderAdmin();
+  list.forEach(a => {
+    const card = document.createElement('div');
+    card.className = 'appeal-card' + (a.status === 'open' ? ' open' : '');
+    const who = document.createElement('div');
+    who.className = 'appeal-who';
+    who.innerHTML = '<b>@' + esc(a.username) + '</b> <span class="appeal-when">' + esc(timeAgo(a.created_at)) + '</span> <span class="appeal-status ' + esc(a.status) + '">' + esc(a.status) + '</span>';
+    card.appendChild(who);
+    const msg = document.createElement('p');
+    msg.className = 'appeal-msg';
+    msg.textContent = a.message;
+    card.appendChild(msg);
+    if (a.reply) {
+      const rep = document.createElement('p');
+      rep.className = 'appeal-reply';
+      rep.textContent = 'Reply: ' + a.reply;
+      card.appendChild(rep);
+    }
+    if (a.status === 'open') {
+      const row = document.createElement('div');
+      row.className = 'appeal-actions';
+      const input = document.createElement('input');
+      input.placeholder = 'Reply shown to the user';
+      input.maxLength = 2000;
+      row.appendChild(input);
+      const act = async (action) => {
+        const body = { id: a.id, action, reply: input.value.trim() };
+        if (action === 'approve' && !confirm('Approve this appeal and unban @' + a.username + '?')) return;
+        try {
+          const r = await fetch(API + '/api/admin/appeal', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+            body: JSON.stringify(body)
+          });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) { alert(j.error || 'Failed.'); return; }
+          reload();
+        } catch { alert('Admin service unreachable.'); }
+      };
+      const ok = document.createElement('button');
+      ok.className = 'btn-mini';
+      ok.textContent = 'Approve + unban';
+      ok.onclick = () => act('approve');
+      const no = document.createElement('button');
+      no.className = 'btn-mini danger';
+      no.textContent = 'Uphold';
+      no.onclick = () => act('uphold');
+      row.appendChild(ok); row.appendChild(no);
+      card.appendChild(row);
+    }
+    sec.appendChild(card);
+  });
+  return sec;
 }
 
 async function adminUpdate(target, patch, tr) {
