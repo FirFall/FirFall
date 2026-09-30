@@ -4,6 +4,9 @@ CREATE TABLE IF NOT EXISTS users(
   pass_hash TEXT NOT NULL,
   salt TEXT NOT NULL,
   about TEXT NOT NULL DEFAULT '',
+  role TEXT NOT NULL DEFAULT 'user',
+  banned INTEGER NOT NULL DEFAULT 0,
+  last_ip TEXT,
   banner_key TEXT,
   avatar_key TEXT,
   created_at TEXT NOT NULL

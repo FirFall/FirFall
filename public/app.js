@@ -22,6 +22,8 @@ let mode = 'login'; // or 'register'
 
 const me = () => localStorage.getItem('firfall_user');
 const token = () => localStorage.getItem('firfall_token');
+const myRole = () => localStorage.getItem('firfall_role') || 'user';
+const isAdmin = () => myRole() === 'admin';
 
 function refreshAuthUI() {
   const u = me();
@@ -30,6 +32,10 @@ function refreshAuthUI() {
   signInAvatar.classList.toggle('hidden', !u);
   signInIcon.classList.toggle('hidden', !!u);
   notifBtn.classList.toggle('hidden', !u);
+  const adminNav = document.getElementById('adminNav');
+  if (adminNav) adminNav.classList.toggle('hidden', !isAdmin());
+  const shield = document.getElementById('adminShieldBtn');
+  if (shield) shield.classList.toggle('hidden', !isAdmin());
   if (u) {
     signInAvatar.textContent = u[0].toUpperCase(); menuUser.textContent = '@' + u; menuAvatar.textContent = u[0].toUpperCase();
     notifKnown = parseInt(localStorage.getItem('firfall_notif_known') || '0', 10) || 0;
@@ -64,9 +70,10 @@ document.getElementById('menuChannel').onclick = () => {
 document.getElementById('menuSignout').onclick = () => {
   localStorage.removeItem('firfall_user');
   localStorage.removeItem('firfall_token');
+  localStorage.removeItem('firfall_role');
   accountMenu.classList.add('hidden');
   refreshAuthUI();
-  if (location.hash.startsWith('#/channel/')) location.hash = '#/';
+  if (location.hash.startsWith('#/channel/') || location.hash.startsWith('#/admin')) location.hash = '#/';
 };
 // ---- Notifications: bell feed + browser alerts while the site is open ----
 const notifBtn = document.getElementById('notifBtn');
@@ -159,6 +166,7 @@ authSubmit.onclick = async () => {
     if (!r.ok) { authErr.textContent = j.error || 'Failed.'; return; }
     localStorage.setItem('firfall_user', j.username);
     localStorage.setItem('firfall_token', j.token);
+    localStorage.setItem('firfall_role', j.role || 'user');
     modal.classList.add('hidden');
     authUser.value = ''; authPass.value = '';
     refreshAuthUI();
@@ -669,6 +677,7 @@ function renderList(title, items, empty) {
   show(listView); markNav(title === 'Subscriptions' ? 'subs' : title === 'History' ? 'history' : 'later');
   document.getElementById('listTitle').textContent = title;
   const g = document.getElementById('listGrid');
+  g.className = 'yt-grid';
   g.innerHTML = items.length ? '' : '<p class="modal-sub">' + empty + '</p>';
   items.forEach(v => g.appendChild(card(v)));
 }
@@ -689,7 +698,76 @@ function renderLater() {
   renderList('Watch later', store.get('firfall_later', []), 'Save videos with + Watch later to find them here.');
 }
 
+// ---- Admin panel: user list + role/ban controls. Server re-checks role on every call. ----
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+async function renderAdmin() {
+  if (!isAdmin()) { renderList('Admin Panel', [], 'You do not have admin access.'); return; }
+  show(listView); markNav('admin');
+  const sh = document.getElementById('adminShieldBtn');
+  if (sh) sh.classList.add('on');
+  const box = document.getElementById('listGrid');
+  const title = document.getElementById('listTitle');
+  title.textContent = 'Admin Panel';
+  box.className = 'admin-host';
+  box.innerHTML = '<p class="modal-sub">Loading users…</p>';
+  let users = [];
+  try {
+    const r = await fetch(API + '/api/admin/users', { headers: { 'Authorization': 'Bearer ' + token() } });
+    const j = await r.json();
+    if (!r.ok) { box.innerHTML = ''; box.appendChild(Object.assign(document.createElement('p'), { className: 'modal-sub', textContent: j.error || 'Could not load users.' })); return; }
+    users = j.users || [];
+  } catch { box.innerHTML = '<p class="modal-sub">Admin service unreachable.</p>'; return; }
+
+  box.innerHTML = '';
+  const table = document.createElement('table');
+  table.className = 'admin-table';
+  table.innerHTML = '<thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Last IP</th><th>Joined</th><th>Actions</th></tr></thead>';
+  const tb = document.createElement('tbody');
+  users.forEach(u => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><a href="#/channel/' + encodeURIComponent(u.username) + '">@' + esc(u.username) + '</a></td>' +
+      '<td><span class="role-pill role-' + esc(u.role || 'user') + '">' + esc(u.role || 'user') + '</span></td>' +
+      '<td>' + (u.banned ? '<span class="banned-tag">Banned</span>' : 'Active') + '</td>' +
+      '<td class="mono">' + esc(u.last_ip || '—') + '</td>' +
+      '<td>' + esc(timeAgo(u.created_at)) + '</td>' +
+      '<td class="admin-actions"></td>';
+    const cell = tr.querySelector('.admin-actions');
+    const mk = (label, cls, fn) => { const b = document.createElement('button'); b.textContent = label; b.className = cls; b.onclick = fn; cell.appendChild(b); };
+
+    mk(u.role === 'admin' ? 'Demote' : 'Make admin', 'btn-mini', () => adminUpdate(u.username, { role: u.role === 'admin' ? 'user' : 'admin' }, tr));
+    mk(u.role === 'mod' ? 'Remove mod' : 'Make mod', 'btn-mini', () => adminUpdate(u.username, { role: u.role === 'mod' ? 'user' : 'mod' }, tr));
+    mk(u.banned ? 'Unban' : 'Ban', 'btn-mini ' + (u.banned ? '' : 'danger'), () => adminUpdate(u.username, { banned: !u.banned }, tr));
+    tb.appendChild(tr);
+  });
+  table.appendChild(tb);
+  const wrap = document.createElement('div');
+  wrap.className = 'admin-wrap';
+  const head = document.createElement('p');
+  head.className = 'modal-sub';
+  head.textContent = users.length + ' account' + (users.length === 1 ? '' : 's') + ' — passwords are hashed and cannot be displayed.';
+  wrap.appendChild(head);
+  wrap.appendChild(table);
+  box.appendChild(wrap);
+}
+
+async function adminUpdate(target, patch, tr) {
+  try {
+    const r = await fetch(API + '/api/admin/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+      body: JSON.stringify(Object.assign({ target }, patch))
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { alert(j.error || 'Update failed.'); return; }
+    renderAdmin();
+  } catch { alert('Admin service unreachable.'); }
+}
+
 function router() {
+  const sh = document.getElementById('adminShieldBtn');
+  if (sh) sh.classList.remove('on');
   let m = location.hash.match(/^#\/watch\/([A-Za-z0-9-]+)\/?$/);
   if (m) { renderWatch(m[1]); return; }
   m = location.hash.match(/^#\/channel\/([A-Za-z0-9_]+)\/?$/);
@@ -697,6 +775,7 @@ function router() {
   if (location.hash === '#/subs') { renderSubs(); return; }
   if (location.hash === '#/history') { renderHistory(); return; }
   if (location.hash === '#/later') { renderLater(); return; }
+  if (location.hash === '#/admin') { renderAdmin(); return; }
   loadHome();
 }
 
@@ -724,6 +803,11 @@ function upSetVis(v) {
   document.getElementById('upSavedPill').textContent = 'Saved as ' + v;
   document.querySelectorAll('#upVisPills button').forEach(b => b.classList.toggle('on', b.dataset.vis === v));
 }
+document.getElementById('adminShieldBtn').onclick = () => {
+  accountMenu.classList.add('hidden');
+  if (!isAdmin()) { alert('Admin access only.'); return; }
+  location.hash = '#/admin';
+};
 document.getElementById('createBtn').onclick = () => {
   if (!me()) { setMode('login'); modal.classList.remove('hidden'); return; }
   document.getElementById('upErr').textContent = '';

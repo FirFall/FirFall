@@ -26,6 +26,23 @@
 .yt-signin:hover{background:#3ea6ff22}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:50}
 .modal.hidden{display:none}
+.admin-host{display:block;overflow-x:auto}
+.admin-wrap{min-width:640px}
+.admin-table{width:100%;border-collapse:collapse;font-size:14px}
+.admin-table th{text-align:left;color:#aaa;font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.4px;padding:10px 12px;border-bottom:1px solid #303030}
+.admin-table td{padding:10px 12px;border-bottom:1px solid #212121;color:#f1f1f1}
+.admin-table tr:hover td{background:#1a1a1a}
+.admin-table td a{color:#3ea6ff;text-decoration:none}
+.admin-table .mono{font-family:Consolas,Monaco,monospace;font-size:12px;color:#999}
+.admin-actions{display:flex;gap:6px;flex-wrap:wrap}
+.role-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;text-transform:uppercase;background:#303030;color:#f1f1f1}
+.role-pill.role-admin{background:#7a1f1f;color:#ff9d9d}
+.role-pill.role-mod{background:#1f4a7a;color:#9dccff}
+.banned-tag{color:#ff6b6b;font-weight:600}
+.btn-mini{background:#272727;border:1px solid #3d3d3d;color:#f1f1f1;font-size:12px;padding:5px 10px;border-radius:14px;cursor:pointer;white-space:nowrap}
+.btn-mini:hover{background:#3f3f3f}
+.btn-mini.danger{border-color:#7a1f1f;color:#ff9d9d}
+.btn-mini.danger:hover{background:#7a1f1f;color:#fff}
 .modal-box{position:relative;background:#212121;border:1px solid #3d3d3d;border-radius:16px;padding:28px;width:340px;display:flex;flex-direction:column;gap:12px}
 .modal-box h2{margin:0}.modal-sub{margin:0;color:#aaa;font-size:13px}
 .modal-box input{background:#121212;border:1px solid #303030;border-radius:8px;color:#fff;padding:11px 12px;font-size:14px;outline:none}
@@ -162,6 +179,9 @@
 .create-pill{background:#272727;color:#f1f1f1;border:0;border-radius:18px;height:36px;padding:0 16px 0 12px;font-size:14px;font-weight:500;display:flex;align-items:center;gap:6px;cursor:pointer}
 .create-pill:hover{background:#3d3d3d}
 .create-pill .plus{font-size:24px;font-weight:300;line-height:1}
+.admin-shield{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;border:1px solid #7a1f1f;background:#2a1414;color:#ff9d9d;cursor:pointer;flex-shrink:0}
+.admin-shield:hover{background:#7a1f1f;color:#fff}
+.admin-shield.on{background:#7a1f1f;color:#fff;border-color:#ff6b6b}
 .notif-badge{position:absolute;top:2px;right:2px;background:#c00;color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 5px;line-height:1.4}
 #notifBtn{position:relative}
 .notif-panel{position:absolute;top:46px;right:0;width:360px;max-height:480px;overflow-y:auto;background:#282828;border:1px solid #3d3d3d;border-radius:12px;z-index:60;box-shadow:0 8px 30px rgba(0,0,0,.6)}
