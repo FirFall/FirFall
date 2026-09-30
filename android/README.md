@@ -170,6 +170,50 @@ corrected on the way out instead of in the file:
 
 If a genuine re-encode is ever wanted, it belongs in the worker, not here.
 
+## The player
+
+The watch page uses custom controls rather than the browser's. On a phone the
+native ones are close to unusable: a 3px scrubber under a fingertip, buttons
+laid out for a mouse, and on Android a palette of its own floating over the
+page.
+
+- Thumb-sized play/pause, mute and speed, plus a time readout.
+- A scrubber with a **24px hit area** around a 3px line, dragged with pointer
+  events rather than a touch handler plus a mouse handler — a touch device
+  fires both, so every drag would otherwise seek twice.
+- Controls auto-hide after 3.2s; any tap brings them back.
+- A single tap only shows or hides the controls. It no longer pauses, because
+  a stray tap should not stop a clip mid-sentence. Play/pause is the button,
+  or double-tap to seek ±10s as before.
+- Buffered bar, and "Buffering" in the time readout while stalled.
+
+`android/smoke.mjs` fails if the native `controls` attribute comes back or any
+of the custom controls goes missing.
+
+## Watch statistics
+
+Retention in Studio is only as good as the progress reports, and the player is
+the only place that knows how far someone got. Both clients report from their
+player:
+
+- The **peak** position is sent, never the current one, so dragging to the end
+  does not report the whole clip as watched.
+- Reports are throttled to one every 15 seconds, and `/api/video/progress`
+  deliberately does **not** touch `videos.views` — a view is counted once when
+  the page opens, a progress report every fifteen seconds, and conflating them
+  would inflate the number a hundredfold.
+- The `viewer` is a random id generated in localStorage. Not an account, not an
+  IP hash: most viewers are signed out, and the difference between "how long
+  did people watch" and "here is who watched" is the whole point.
+- The server clamps reported watch time to the clip's own duration, so a
+  client claiming 4000s on a 30s video cannot push retention over 100% and
+  poison every average on the page.
+
+The `video_stats` table is created on first use by the worker rather than by a
+migration step — `CREATE TABLE IF NOT EXISTS` is idempotent, so a deploy is
+never blocked on somebody remembering to run a migration against production.
+`schema.sql` still declares it so a fresh database has it from the start.
+
 ## Shorts
 
 Tapping an ember opens the full-screen vertical player rather than the

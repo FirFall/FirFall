@@ -368,9 +368,14 @@ body:not(.site-down) #downOverlay{display:none}
 .fs-stat{background:#141414;border:1px solid #272727;border-radius:14px;padding:18px 20px}
 .fs-stat b{display:block;font-size:26px;font-weight:800;letter-spacing:-.5px}
 .fs-stat span{color:#aaa;font-size:12.5px;text-transform:uppercase;letter-spacing:.6px}
-/* Channel customisation */
-.fs-art{display:grid;grid-template-columns:320px 1fr;gap:28px;align-items:start;margin-bottom:34px}
-.fs-art-row{display:flex;gap:22px;padding:22px 0;border-bottom:1px solid #272727;align-items:flex-start}
+/* Channel customisation.
+   This was a two-column grid whose first column was 320px, with the banner
+   preview AND its description text inside it - so the text ran out of its own
+   column and sat on top of the description form beside it. The art rows are
+   now plain full-width flex rows, and the description is a separate block
+   underneath rather than a grid sibling. */
+.fs-art{max-width:980px}
+.fs-art-row{display:flex;gap:24px;padding:24px 0;border-bottom:1px solid #272727;align-items:flex-start}
 .fs-art-row:last-child{border-bottom:0}
 .fs-banner-prev{width:320px;height:180px;border-radius:14px;background:#1f1f1f;
   border:1px solid #272727;overflow:hidden;flex:0 0 auto}
@@ -391,6 +396,7 @@ body:not(.site-down) #downOverlay{display:none}
 .fs-btn:disabled{opacity:.5;cursor:default}
 /* Channel description */
 .fs-field{margin-bottom:20px}
+.fs-desc-block{max-width:820px;margin-top:34px;padding-top:26px;border-top:1px solid #272727}
 .fs-field label{display:block;font-size:12px;font-weight:700;color:#aaa;
   text-transform:uppercase;letter-spacing:.6px;margin-bottom:7px}
 .fs-field textarea{width:100%;background:#141414;border:1px solid #3f3f3f;border-radius:12px;
@@ -431,11 +437,32 @@ body:not(.site-down) #downOverlay{display:none}
 .fs-acts button.del:hover{color:#ff6b6b}
 .fs-empty{padding:70px 20px;text-align:center;color:#888}
 @media(max-width:900px){
-  .fs-art{grid-template-columns:1fr}
+  .fs-art-row{flex-direction:column}
   .fs-row{grid-template-columns:96px 1fr;gap:12px}
   .fs-row .fs-vis,.fs-row .fs-num,.fs-row .fs-date,.fs-row .fs-acts{grid-column:2}
   .fs-row.head{display:none}
 }
+/* Analytics. A bar chart in plain CSS - a charting library would be the only
+   dependency in a project that deliberately has none. */
+.fs-chart{display:flex;align-items:flex-end;gap:2px;height:170px;padding:14px 0 0;
+  border-bottom:1px solid #272727}
+.fs-bar{flex:1 1 0;min-width:2px;background:linear-gradient(180deg,#ff8a3d,#ff6a00);
+  border-radius:2px 2px 0 0;position:relative;transition:background .12s}
+.fs-bar:hover{background:#ffb066}
+.fs-bar:hover::after{content:attr(data-tip);position:absolute;bottom:100%;left:50%;
+  transform:translateX(-50%);margin-bottom:6px;background:#0f0f0f;color:#f1f1f1;
+  border:1px solid #3f3f3f;border-radius:6px;padding:5px 9px;font-size:11.5px;
+  white-space:nowrap;z-index:5}
+.fs-axis{display:flex;justify-content:space-between;color:#777;font-size:11.5px;
+  padding-top:7px}
+.fs-ret{margin-top:26px}
+.fs-ret-row{display:grid;grid-template-columns:1fr 210px 64px;gap:14px;align-items:center;
+  padding:11px 0;border-bottom:1px solid #1f1f1f}
+.fs-ret-row:last-child{border-bottom:0}
+.fs-ret-name{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fs-ret-track{height:8px;border-radius:4px;background:#272727;overflow:hidden}
+.fs-ret-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,#ff6a00,#ffb066)}
+.fs-ret-pct{font-size:13px;color:#ddd;text-align:right;font-weight:600}
 /* The edit dialog */
 .fs-dlg{width:min(620px,94vw)}
 .fs-dlg h2{margin:0 0 4px;font-size:19px}

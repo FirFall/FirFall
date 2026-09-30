@@ -234,6 +234,10 @@ setTimeout(function(){
                 studioVideos();
                 rec("kindTabs", document.querySelectorAll("#fsBody [data-kind]").length);
                 rec("visibilityFilter", document.getElementById("fsFilter") ? "yes" : "no");
+                studioAnalytics();
+                rec("anRange", document.getElementById("fsDays") ? "yes" : "no");
+                rec("anChart", document.getElementById("anChart") ? "yes" : "no");
+                rec("anRetention", document.getElementById("anRet") ? "yes" : "no");
               }catch(e){ rec("studioLateError", e.message); }
             }, 800);
           }catch(e){ rec("studioError", e.message); }
@@ -384,9 +388,30 @@ function checkKindFilters() {
   return true;
 }
 
+/* The mobile player is custom now. The native control bar is the thing that
+   was unusable - a 3px scrubber under a fingertip - so its return has to be a
+   failure, not a silent regression. The watch page needs live data to render,
+   which this harness does not have, so this checks the markup it builds. */
+function checkCustomPlayer() {
+  const html = readFileSync(join(ROOT, "public", "mobile", "index.html"), "utf8");
+  const need = [["custom control bar", 'id="pCtl"'], ["scrubber", 'id="pBar"'],
+    ["buffer bar", 'id="pBuf"'], ["time readout", 'id="pTime"'], ["mute button", 'id="pMute"']];
+  let ok = true;
+  for (const [what, needle] of need) {
+    if (!html.includes(needle)) { ok = false; console.log(`  FAIL  player  mobile page has no ${what} (${needle})`); }
+  }
+  if (/\scontrols\s+playsinline/.test(html)) {
+    ok = false;
+    console.log("  FAIL  player  the native controls attribute is back on the mobile <video>");
+  }
+  if (ok) console.log("  ok    player  custom controls present, native controls attribute gone");
+  return ok;
+}
+
 let failed = false;
 server.listen(PORT, async () => {
   if (!checkKindFilters()) failed = true;
+  if (!checkCustomPlayer()) failed = true;
   prepare();
   for (const path of ["/", "/mobile/"]) {
     const r = await load(path);
@@ -456,9 +481,10 @@ server.listen(PORT, async () => {
         stageRatio: "9/16", objectFit: "contain", muteLabel: "yes", shortsClosed: "yes", leftBehind: "0",
         sideBySide: "no", stageNarrower: "yes",
         studioView: "yes", studioBrand: "FirFall Studio", studioFlame: "yes",
-        entryCards: "2", cardCustomise: "yes", cardVideos: "yes", navStudio: "yes",
+        entryCards: "3", cardCustomise: "yes", cardVideos: "yes", navStudio: "yes",
         btnBannerChange: "yes", btnPictureChange: "yes", aboutField: "yes",
         btnAboutSave: "yes", kindTabs: "2", visibilityFilter: "yes",
+        anRange: "yes", anChart: "yes", anRetention: "yes",
         simultaneous: "1", commentPanel: "yes", commentUI: "yes", signinUI: "yes",
         navEmbers: "yes", embersRoute: "#/embers" };
       for (const [k, v] of Object.entries(want)) {

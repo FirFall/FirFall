@@ -158,6 +158,37 @@ input,textarea{font:inherit}
    untouched, so a landscape ember still cuts to a vertical card in the feed. */
 #playerBox.vert{width:auto;height:74vh;aspect-ratio:9/16;margin:0 auto}
 #playerBox.vert video{object-fit:contain}
+/* ---------- custom player ----------
+   The native controls are unusable on a phone: a 3px scrubber you have to hit
+   with a fingertip, buttons laid out for a mouse, and on Android a palette of
+   its own floating over the page. These are sized for thumbs and auto-hide. */
+#playerBox{touch-action:pan-y}
+#pCtl{position:absolute;left:0;right:0;bottom:0;z-index:3;padding:0 8px 6px;
+  background:linear-gradient(transparent,rgba(0,0,0,.75));opacity:0;transition:opacity .18s;
+  pointer-events:none}
+#playerBox.ui #pCtl{opacity:1;pointer-events:auto}
+.pbar{position:relative;height:24px;display:flex;align-items:center;touch-action:none;cursor:pointer}
+.pbar::before{content:"";position:absolute;left:0;right:0;height:3px;border-radius:2px;background:rgba(255,255,255,.32)}
+.pbuf{position:absolute;left:0;height:3px;border-radius:2px;background:rgba(255,255,255,.45);width:0}
+.pfill{position:absolute;left:0;height:3px;border-radius:2px;background:var(--red);width:0}
+.pdot{position:absolute;left:0;margin-left:-7px;width:14px;height:14px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.6);opacity:0;transition:opacity .15s}
+#playerBox.ui .pdot{opacity:1}
+.prow{display:flex;align-items:center;gap:2px;height:42px}
+.pbtn{background:none;color:#fff;width:42px;height:42px;display:flex;align-items:center;
+  justify-content:center;flex:0 0 auto}
+.pbtn svg{width:25px;height:25px;fill:#fff;filter:drop-shadow(0 1px 2px rgba(0,0,0,.65))}
+.pbtn.ptext{width:auto;padding:0 10px;font-size:13px;font-weight:700;
+  text-shadow:0 1px 2px rgba(0,0,0,.7)}
+.ptime{color:#fff;font-size:12.5px;font-variant-numeric:tabular-nums;
+  text-shadow:0 1px 2px rgba(0,0,0,.7)}
+.pspace{flex:1}
+.pbig{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;
+  width:76px;height:76px;border-radius:50%;background:rgba(0,0,0,.42);
+  display:flex;align-items:center;justify-content:center;pointer-events:none;
+  opacity:0;transition:opacity .15s}
+.pbig.on{opacity:1}
+.pbig svg{width:42px;height:42px;fill:#fff}
 #pfab{position:absolute;right:8px;top:8px;background:rgba(0,0,0,.6);border-radius:6px;
   padding:4px 8px;font-size:11px;font-weight:700;color:#fff}
 /* Double tap to seek, the gesture people expect on a phone. The +10 / -10
@@ -649,6 +680,7 @@ var ICON = {
   speed:'<svg viewBox="0 0 24 24"><path d="M20.38 8.57l-1.23 1.85a8 8 0 0 1-.22 7.58H5.07A8 8 0 0 1 15.58 6.85l1.85-1.23A10 10 0 0 0 3.35 19a2 2 0 0 0 1.72 1h13.85a2 2 0 0 0 1.74-1 10 10 0 0 0-.27-10.44zm-9.79 6.84a2 2 0 0 0 2.83 0l5.66-8.49-8.49 5.66a2 2 0 0 0 0 2.83z"/></svg>',
   more:'<svg viewBox="0 0 24 24"><path d="M6 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm12 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>',
   play:'<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
+  pause:'<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>',
   fwd:'<svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 13c0-4.42-3.58-8-8-8z"/><path d="m12 14-5 5 5 5z" opacity=".55"/></svg>',
   back:'<svg viewBox="0 0 24 24" style="transform:scaleX(-1)"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 13c0-4.42-3.58-8-8-8z"/><path d="m12 14-5 5 5 5z" opacity=".55"/></svg>',
   flag:'<svg viewBox="0 0 24 24"><path d="M14.4 6 14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>',
@@ -1346,7 +1378,7 @@ async function loadWatch(id){
   // full page on purpose; the flag is consumed either way.
   if (v.kind === "ember" && !watchPlain) { watchPlain = false; openShorts(null, v.id); return; }
   watchPlain = false;
-  api("/api/video/view", { method:"POST", body:{ id: v.id } }).catch(function(){});
+  api("/api/video/view", { method:"POST", body:{ id: v.id, viewer: viewerId() } }).catch(function(){});
   var w = window._watch;
   var mine = me && v.owner === me;
   var sub = subState[v.owner];
@@ -1355,9 +1387,20 @@ async function loadWatch(id){
   // still plays whole inside it - see #playerBox.vert.
   var vert = v.kind === "ember";
   $("watch").innerHTML =
-    '<div id="playerBox' + (vert ? ' vert' : '') + '"><video id="vp" controls playsinline preload="metadata" ' +
+    '<div id="playerBox' + (vert ? ' vert' : '') + '"><video id="vp" playsinline preload="metadata" ' +
         'poster="' + esc(mediaUrl("t", v.id)) + '"></video>' +
-      '<div id="pfab" class="hidden">HD</div></div>' +
+      '<div id="pfab" class="hidden">HD</div>' +
+      '<div class="pbig" id="pBig">' + ICON.play + '</div>' +
+      '<div id="pCtl">' +
+        '<div class="pbar" id="pBar"><div class="pbuf" id="pBuf"></div>' +
+          '<div class="pfill" id="pFill"></div><div class="pdot" id="pDot"></div></div>' +
+        '<div class="prow">' +
+          '<button class="pbtn" id="pPlay" aria-label="Play or pause">' + ICON.play + '</button>' +
+          '<span class="ptime" id="pTime">0:00</span>' +
+          '<span class="pspace"></span>' +
+          '<button class="pbtn" id="pMute" aria-label="Sound"></button>' +
+          '<button class="pbtn ptext" id="pSpeed">1x</button>' +
+        '</div></div></div>' +
     '<div class="watch-body">' +
       '<div class="wtitle">' + esc(v.title) +
         (v.owner_role === "mod" || v.owner_role === "admin" ? '<span class="badge-mod" style="background:var(--red);color:#fff;font-size:11px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:8px">MOD</span>' : "") +
@@ -1414,21 +1457,24 @@ async function loadWatch(id){
     loadComments(v.id);
   });
   pushHistory({ id: v.id, title: v.title, owner: v.owner, duration: v.duration });
+  wirePlayer(v);
 
-  /* Double tap to seek. A single tap is left to the native controls so pause
-     and the scrubber still work; only two taps inside the player seek, and the
-     left third goes back while the right two thirds go forward, which is where
-     people reach for it. */
-  var lastTap = 0, tapTimer = null;
+  /* Double tap to seek, left third back and the rest forward, which is where
+     people reach for it. A single tap no longer touches playback: it only
+     shows or hides the controls, which is what YouTube does, and it stops a
+     stray tap from pausing the clip mid-sentence. */
+  var lastTap = 0;
   $("playerBox").addEventListener("click", function(e){
+    if (e.target.closest("#pCtl")) return;
     var now = Date.now();
-    if (now - lastTap > 320) { lastTap = now; return; }   // first tap: let the controls have it
+    if (now - lastTap > 320) { lastTap = now; playerUI.toggle(); return; }
     lastTap = 0;
     var box = this.getBoundingClientRect();
     var fwd = (e.clientX - box.left) / box.width > 0.33;
     if (player.duration) {
       player.currentTime = Math.max(0, Math.min(player.duration, player.currentTime + (fwd ? 10 : -10)));
     }
+    playerUI.show();
     seekBubble(fwd);
   });
   function seekBubble(fwd){
@@ -2320,6 +2366,134 @@ function emberThumb(file){
 }
 
 /* =====================================================================
+   THE PLAYER
+   =====================================================================
+   Custom controls sized for thumbs, with the scrubber as the one thing that
+   had to be much better than the native one: a 24px tall hit area around a
+   3px line, draggable with a finger instead of needing a precise tap.
+   Controls auto-hide after a few seconds and any tap brings them back. */
+var playerUI = { timer: null, visible: false };
+function wirePlayer(v){
+  var p = $("vp"), box = $("playerBox");
+  var bar = $("pBar"), fill = $("pFill"), buf = $("pBuf"), dot = $("pDot");
+  var time = $("pTime"), big = $("pBig"), playBtn = $("pPlay"), muteBtn = $("pMute"), speedBtn = $("pSpeed");
+  if (!p || !bar) return;
+
+  playerUI = {
+    visible: box.classList.contains("ui"),
+    show: function(sticky){
+      box.classList.add("ui");
+      playerUI.visible = true;
+      clearTimeout(playerUI.timer);
+      if (!sticky && !p.paused) playerUI.timer = setTimeout(function(){
+        box.classList.remove("ui"); playerUI.visible = false;
+      }, 3200);
+    },
+    toggle: function(){
+      if (playerUI.visible) { box.classList.remove("ui"); playerUI.visible = false; clearTimeout(playerUI.timer); }
+      else playerUI.show();
+    }
+  };
+  playerUI.show(true);
+
+  function paint(){
+    var d = (p.duration && isFinite(p.duration)) ? p.duration : 0;
+    var f = d ? (p.currentTime / d) * 100 : 0;
+    fill.style.width = f + "%";
+    dot.style.left = f + "%";
+    time.textContent = dur(p.currentTime) + (d ? " / " + dur(d) : "");
+    playBtn.innerHTML = p.paused ? ICON.play : ICON.pause;
+    big.classList.toggle("on", !!p.paused);
+    // Buffered, best effort: a throw here must not stop the paint.
+    try { buf.style.width = d && p.buffered.length ? (p.buffered.end(p.buffered.length - 1) / d) * 100 + "%" : "0%"; } catch(e){}
+  }
+  p.addEventListener("timeupdate", function(){ paint(); reportProgress(p, v.id); });
+  p.addEventListener("progress", paint);
+  p.addEventListener("play", function(){ paint(); playerUI.show(); });
+  p.addEventListener("pause", function(){ paint(); playerUI.show(true); });
+  p.addEventListener("loadedmetadata", paint);
+  p.addEventListener("ended", paint);
+  p.addEventListener("waiting", function(){ time.textContent = "Buffering"; });
+  p.addEventListener("canplay", paint);
+  paint();
+
+  function togglePlay(){ if (p.paused) p.play().catch(function(){}); else p.pause(); }
+  playBtn.onclick = function(e){ e.stopPropagation(); togglePlay(); };
+  big.onclick = function(){ togglePlay(); };
+  muteBtn.onclick = function(e){
+    e.stopPropagation();
+    p.muted = !p.muted;
+    muteBtn.innerHTML = p.muted ? ICON.mute : ICON.vol;
+    playerUI.show(true);
+  };
+  muteBtn.innerHTML = p.muted ? ICON.mute : ICON.vol;
+  speedBtn.onclick = function(e){ e.stopPropagation(); speedSheet(v); };
+
+  // Scrubbing. Pointer events rather than a touch handler plus a mouse
+  // handler, because a touch device fires both and every drag would seek twice.
+  var dragging = false;
+  function seekAt(cx){
+    var r = bar.getBoundingClientRect();
+    if (!r.width) return;
+    var f = Math.max(0, Math.min(1, (cx - r.left) / r.width));
+    if (p.duration && isFinite(p.duration)) p.currentTime = f * p.duration;
+    paint();
+  }
+  bar.addEventListener("pointerdown", function(e){
+    e.stopPropagation(); e.preventDefault();
+    dragging = true;
+    try { bar.setPointerCapture(e.pointerId); } catch(err){}
+    seekAt(e.clientX);
+    playerUI.show(true);
+  });
+  bar.addEventListener("pointermove", function(e){ if (dragging) { e.preventDefault(); seekAt(e.clientX); } });
+  function endDrag(e){
+    if (!dragging) return;
+    dragging = false;
+    try { bar.releasePointerCapture(e.pointerId); } catch(err){}
+    playerUI.show();
+  }
+  bar.addEventListener("pointerup", endDrag);
+  bar.addEventListener("pointercancel", endDrag);
+}
+
+/* ---------- watch statistics ----------
+   Retention is only as good as the progress reports, and the player is the
+   only place that knows how far someone got. A random per-device id is sent
+   instead of an account: most viewers are signed out, and "how long did people
+   watch" must not turn into "here is who watched". Reports are throttled to
+   one every 15 seconds and carry the PEAK, so dragging to the end does not
+   report the whole clip as watched. */
+var watchId = null, progAt = 0, progPeak = 0, progId = null;
+function viewerId(){
+  if (watchId) return watchId;
+  try {
+    watchId = localStorage.getItem("ff_vid");
+    if (!watchId) {
+      var r = "";
+      if (window.crypto && crypto.randomUUID) r = crypto.randomUUID();
+      else r = String(Date.now()) + "-" + Math.random().toString(36).slice(2, 10);
+      watchId = String(r).replace(/[^A-Za-z0-9-]/g, "").slice(0, 64) || "anon";
+      localStorage.setItem("ff_vid", watchId);
+    }
+  } catch(e){ watchId = "anon"; }
+  return watchId;
+}
+function reportProgress(p, id){
+  // Keyed off the video that is loaded, not curVideo: opening from History or
+  // Search never sets curVideo, and retention would silently never report.
+  if (!id) return;
+  if (progId !== id) { progId = id; progAt = 0; progPeak = 0; }
+  if (!p.duration || !isFinite(p.duration) || p.paused) return;
+  progPeak = Math.max(progPeak, p.currentTime);
+  var now = Date.now();
+  if (now - progAt < 15000) return;
+  progAt = now;
+  api("/api/video/progress", { method:"POST", body:{ id: progId, viewer: viewerId(),
+        watched: Math.round(progPeak), duration: p.duration } }).catch(function(){});
+}
+
+/* =====================================================================
    SHORTS
    =====================================================================
    One ember per screen, swipe up for the next - the Shorts gesture. The track
@@ -2433,7 +2607,7 @@ function shortActivate(sl){
   try { video.currentTime = 0; } catch(e){}
   sl.querySelector(".short-stage").classList.remove("paused");
   video.play().catch(function(){});
-  api("/api/video/view", { method:"POST", body:{ id: v.id } }).catch(function(){});
+  api("/api/video/view", { method:"POST", body:{ id: v.id, viewer: viewerId() } }).catch(function(){});
   shortReact0(sl, v.id);
 }
 /* The rail's like count and state have to come from somewhere, and /api/video

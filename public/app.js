@@ -610,7 +610,7 @@ function shortActivate(sl) {
   video.play().catch(() => {});
   fetch(API + '/api/video/view', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: v.id })
+    body: JSON.stringify({ id: v.id, viewer: viewerId() })
   }).catch(() => {});
   shortPaint(sl, v.id);
 }
@@ -904,6 +904,39 @@ let upFilter = '';
 // ---- Custom player: YouTube layout, orange fire progress ----
 const player = document.getElementById('player');
 const playerWrap = document.getElementById('playerWrap');
+/* ---------- watch statistics ----------
+   Retention needs to know how far people got, and the only place that is true
+   is the player. A random per-browser id is sent instead of an account or an
+   IP: most viewers are signed out, and the difference between "how long did
+   people watch" and "here is who watched" is the whole point.
+   Reports are throttled to one every 15s and the peak is sent, so scrubbing
+   forward to the end does not report the whole clip as watched. */
+let watchId = null, progAt = 0, progPeak = 0;
+function viewerId() {
+  if (watchId) return watchId;
+  try {
+    watchId = localStorage.getItem('firfall_vid');
+    if (!watchId) {
+      watchId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()).replace(/[^a-z0-9-]/gi, '');
+      localStorage.setItem('firfall_vid', watchId);
+    }
+  } catch { watchId = 'anon'; }
+  return watchId;
+}
+let progressId = null;
+function reportProgress(p) {
+  if (!currentVideo || !currentVideo.id) return;
+  if (progressId !== currentVideo.id) { progressId = currentVideo.id; progAt = 0; progPeak = 0; }
+  if (!p.duration || !isFinite(p.duration) || p.paused) return;
+  progPeak = Math.max(progPeak, p.currentTime);
+  const now = Date.now();
+  if (now - progAt < 15000) return;
+  progAt = now;
+  fetch(API + '/api/video/progress', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: progressId, viewer: viewerId(), watched: Math.round(progPeak), duration: p.duration })
+  }).catch(() => {});
+}
 const ppBtn = document.getElementById('ppBtn');
 const bigPlay = document.getElementById('bigPlay');
 function fmtT(s) {
@@ -934,6 +967,7 @@ function seekTo(clientX) {
     document.getElementById('progFill').style.width = f + '%';
     document.getElementById('progDot').style.left = f + '%';
     document.getElementById('timeLabel').textContent = fmtT(player.currentTime) + ' / ' + fmtT(player.duration);
+    reportProgress(player);
   });
   player.addEventListener('progress', () => {
     try {
@@ -1041,7 +1075,7 @@ async function renderWatch(id) {
     cAv.textContent = me() ? me()[0].toUpperCase() : '?';
     document.getElementById('wDesc').textContent = v.description || 'No description.';
     pushHistory(v);
-    fetch(API + '/api/video/view', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }).catch(() => {});
+    fetch(API + '/api/video/view', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, viewer: viewerId() }) }).catch(() => {});
     loadComments(v.id);
     loadUpNext(v);
   } catch { document.getElementById('wTitle').textContent = 'Could not load video.'; }
@@ -1291,7 +1325,7 @@ const FS_VIS = [
   ['unlisted', 'Unlisted', 'Only people with the link'],
   ['private', 'Private', 'Only you']
 ];
-let fsTab = 'home', fsKind = 'video', fsFilter = 'all', fsVideos = [], fsChannel = null, fsStats = {};
+let fsTab = 'home', fsKind = 'video', fsFilter = 'all', fsVideos = [], fsChannel = null, fsStats = {}, fsDays = 28;
 
 async function renderStudio() {
   show(studioView); markNav('studio');
@@ -1315,6 +1349,7 @@ async function renderStudio() {
   } catch { fsVideos = []; }
   if (fsTab === 'customise') studioCustomise();
   else if (fsTab === 'videos') studioVideos();
+  else if (fsTab === 'analytics') studioAnalytics();
   else studioHome();
 }
 
@@ -1335,6 +1370,10 @@ function studioHome() {
         '<svg viewBox="0 0 24 24"><path d="M4 5h16v2H4V5zm0 6h16v2H4v-2zm0 6h10v2H4v-2z"/></svg>' +
         '<strong>Manage videos</strong>' +
         '<span>Edit titles, descriptions and visibility, or delete something.</span></button>' +
+      '<button class="fs-card" id="fsGoAnalytics">' +
+        '<svg viewBox="0 0 24 24"><path d="M4 19h3v-7H4v7zm6.5 0h3V5h-3v14zm6.5 0h3v-9h-3v9z"/></svg>' +
+        '<strong>Analytics</strong>' +
+        '<span>Views over time and how much of each clip people watch through.</span></button>' +
     '</div>' +
     '<div class="fs-stats">' +
       '<div class="fs-stat"><b>' + fmt(videos) + '</b><span>Videos</span></div>' +
@@ -1348,6 +1387,7 @@ function studioHome() {
         esc((fsChannel && fsChannel.about) || 'No channel description yet.') + '</div></div></div>';
   document.getElementById('fsGoCustomise').onclick = () => { fsTab = 'customise'; renderStudio(); };
   document.getElementById('fsGoVideos').onclick = () => { fsTab = 'videos'; renderStudio(); };
+  const ga = document.getElementById('fsGoAnalytics'); if (ga) ga.onclick = () => { fsTab = 'analytics'; renderStudio(); };
 }
 
 /* ---- Channel customisation ----
@@ -1359,21 +1399,19 @@ function studioCustomise() {
   const b = fsChannel && fsChannel.banner, a = fsChannel && fsChannel.avatar;
   document.getElementById('fsBody').innerHTML =
     '<div class="fs-art">' +
-      '<div>' +
-        '<div class="fs-art-row"><div class="fs-banner-prev">' +
-          (b ? '<img src="' + esc(API + b + '?t=' + Date.now()) + '" alt="">' : '') + '</div>' +
-          '<div class="fs-art-info"><h3>Banner image</h3>' +
-          '<p>This image appears across the top of your channel. Best results at 2048&times;1152 or wider, 6&nbsp;MB or less.</p>' +
-          '<div class="fs-btns"><button class="fs-btn" id="fsBannerChange">Change</button>' +
-          (b ? '<button class="fs-btn ghost" id="fsBannerRemove">Remove</button>' : '') + '</div></div></div>' +
-        '<div class="fs-art-row"><div class="fs-pic-prev">' +
-          (a ? '<img src="' + esc(API + a + '?t=' + Date.now()) + '" alt="">' : '') + '</div>' +
-          '<div class="fs-art-info"><h3>Picture</h3>' +
-          '<p>Your profile picture appears wherever your channel is shown - next to your videos, in comments and in Embers.</p>' +
-          '<div class="fs-btns"><button class="fs-btn" id="fsPicChange">Change</button>' +
-          (a ? '<button class="fs-btn ghost" id="fsPicRemove">Remove</button>' : '') + '</div></div></div>' +
-      '</div>' +
-      '<div><div class="fs-field"><label>Channel description</label>' +
+      '<div class="fs-art-row"><div class="fs-banner-prev">' +
+        (b ? '<img src="' + esc(API + b + '?t=' + Date.now()) + '" alt="">' : '') + '</div>' +
+        '<div class="fs-art-info"><h3>Banner image</h3>' +
+        '<p>This image appears across the top of your channel. Best results at 2048&times;1152 or wider, 6&nbsp;MB or less.</p>' +
+        '<div class="fs-btns"><button class="fs-btn" id="fsBannerChange">Change</button>' +
+        (b ? '<button class="fs-btn ghost" id="fsBannerRemove">Remove</button>' : '') + '</div></div></div>' +
+      '<div class="fs-art-row"><div class="fs-pic-prev">' +
+        (a ? '<img src="' + esc(API + a + '?t=' + Date.now()) + '" alt="">' : '') + '</div>' +
+        '<div class="fs-art-info"><h3>Picture</h3>' +
+        '<p>Your profile picture appears wherever your channel is shown - next to your videos, in comments and in Embers.</p>' +
+        '<div class="fs-btns"><button class="fs-btn" id="fsPicChange">Change</button>' +
+        (a ? '<button class="fs-btn ghost" id="fsPicRemove">Remove</button>' : '') + '</div></div></div>' +
+      '<div class="fs-desc-block"><div class="fs-field"><label>Channel description</label>' +
         '<textarea id="fsAbout" maxlength="1000" placeholder="Tell people what your channel is about."></textarea></div>' +
         '<div class="fs-btns"><button class="fs-btn" id="fsAboutSave">Save</button>' +
         '<button class="fs-btn ghost" id="fsAboutRevert">Discard</button></div>' +
@@ -1491,6 +1529,57 @@ function studioVideos() {
     row.querySelector('[data-act="del"]').onclick = () => studioDelete(v);
     row.querySelector('[data-act="vis"]').onclick = () => studioVisDialog(v);
   });
+}
+
+/* ---- Analytics ----
+   Views over time and retention. Retention is "how much of the clip people
+   actually watched", averaged across the videos that were watched - the
+   number creators actually look at. It is only as good as the progress
+   reports, so both clients send them; until a video has any, the row says so
+   rather than showing a confident 0%. */
+function studioAnalytics() {
+  const days = fsDays;
+  document.getElementById('fsBody').innerHTML =
+    '<div class="fs-table-tools">' +
+      '<select class="fs-filter" id="fsDays">' +
+        [7, 28, 90].map(d => '<option value="' + d + '"' + (days === d ? ' selected' : '') + '>' +
+          'Last ' + d + ' days</option>').join('') +
+      '</select></div>' +
+    '<div class="fs-stat" style="max-width:240px"><b id="anPct">-</b><span>Average retention</span></div>' +
+    '<div class="fs-chart" id="anChart"></div>' +
+    '<div class="fs-axis" id="anAxis"></div>' +
+    '<div class="fs-ret"><h3 style="margin:0 0 4px;font-size:16px">Retention by video</h3>' +
+    '<p style="color:#aaa;font-size:13px;margin:0 0 12px">Share of each clip that viewers watched through.</p>' +
+    '<div id="anRet"></div></div>';
+  const sel = document.getElementById('fsDays');
+  if (sel) sel.onchange = e => { fsDays = Number(e.target.value); studioAnalytics(); };
+  loadAnalytics(days);
+}
+async function loadAnalytics(days) {
+  let j = null;
+  try {
+    const r = await fetch(API + '/api/studio/analytics?days=' + days, { headers: { 'Authorization': 'Bearer ' + token() } });
+    if (r.ok) j = await r.json();
+  } catch {}
+  if (!j || !j.series) {
+    document.getElementById('anChart').innerHTML = '<div class="fs-empty" style="padding:40px">Could not load analytics.</div>';
+    return;
+  }
+  const peak = Math.max(1, ...j.series.map(d => d.views));
+  document.getElementById('anPct').textContent = j.totals.avgPct + '%';
+  document.getElementById('anChart').innerHTML = j.series.map(d =>
+    '<div class="fs-bar" style="height:' + Math.max(d.views ? 3 : 1, (d.views / peak) * 100) + '%" ' +
+    'data-tip="' + d.views + ' views - ' + esc(d.day) + '"></div>').join('');
+  const axis = document.getElementById('anAxis');
+  axis.innerHTML = '<span>' + esc(j.series[0] ? j.series[0].day : '') + '</span>' +
+    '<span>' + esc(j.series[j.series.length - 1] ? j.series[j.series.length - 1].day : '') + '</span>';
+  const top = (j.top || []).filter(v => v.statViews > 0);
+  document.getElementById('anRet').innerHTML = top.length ? top.map(v =>
+    '<div class="fs-ret-row"><div class="fs-ret-name">' + esc(v.title || '(untitled)') + '</div>' +
+    '<div class="fs-ret-track"><div class="fs-ret-fill" style="width:' +
+      Math.max(0, Math.min(100, Math.round(v.pct))) + '%"></div></div>' +
+    '<div class="fs-ret-pct">' + Math.max(0, Math.round(v.pct)) + '%</div></div>').join('')
+    : '<div class="fs-empty" style="padding:30px">No watch data yet. Retention appears once people have watched something.</div>';
 }
 
 function fsDialog(innerHTML, width) {

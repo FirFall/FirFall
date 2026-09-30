@@ -146,3 +146,18 @@ CREATE TABLE IF NOT EXISTS reports(
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_once ON reports(target_kind, target_id, reporter);
 CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at DESC);
+-- Per-viewer, per-day watch stats, which is what FirFall Studio's analytics
+-- and retention read. One row per (video, day, viewer) so re-watching the same
+-- clip on the same day updates a row instead of inflating the count, and so
+-- "how far people got" can be averaged without storing every play event.
+-- viewer is a client-generated random id, NOT an account: retention has to
+-- work for signed-out visitors and must not turn into a tracking record.
+CREATE TABLE IF NOT EXISTS video_stats(
+  video_id TEXT NOT NULL,
+  day TEXT NOT NULL,
+  viewer TEXT NOT NULL,
+  views INTEGER NOT NULL DEFAULT 0,
+  watched_ms INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (video_id, day, viewer)
+);
+CREATE INDEX IF NOT EXISTS idx_stats_day ON video_stats(day);
