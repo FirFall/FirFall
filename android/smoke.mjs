@@ -59,6 +59,106 @@ const TRAP = `<script>
 })();
 </script>`;
 
+/* An error trap proves nothing about behaviour. Two bugs that shipped here were
+   invisible to it: the Embers button did nothing because go() bailed on a tab
+   name missing from TABS, and the logo never loaded because its src was an
+   absolute /mobile/... path that cannot resolve under file:// in the APK. Both
+   are correct JavaScript that does the wrong thing, so this drives the real DOM
+   after boot - presses the button, reads the router's own state back out, and
+   checks the image actually decoded - and reports the result in the DOM. */
+const DRIVE = `<script>
+(function(){
+  function out(){
+    var d = document.createElement("div");
+    d.id = "driveOut";
+    return d;
+  }
+  var box = out();
+  box.style.display = "none";
+  document.body.appendChild(box);
+  function rec(k, v){ box.textContent += k + "=" + v + ";"; }
+  setTimeout(function(){
+    try{
+      var mark = document.getElementById("brandMark");
+      var img = mark && mark.querySelector("img");
+      rec("logoSrc", img ? img.getAttribute("src") : "NONE");
+      rec("logoAbsolute", img && /^\\//.test(img.getAttribute("src") || "") ? "yes" : "no");
+      rec("logoDecoded", img && img.naturalWidth > 0 ? "yes" : "no");
+      rec("logoFallback", mark && mark.querySelector("svg") ? "yes" : "no");
+      var n = document.querySelector('[data-tab="embers"]');
+      rec("navFound", n ? "yes" : "no");
+      if (n) n.click();
+      setTimeout(function(){
+        try{
+          // The Shorts panel: it is the whole point of the Embers tab, so it
+          // is opened and checked here rather than left to a manual tap.
+          openShorts([{ id: "a1", title: "One", owner: "ada", kind: "ember" },
+                      { id: "a2", title: "Two", owner: "bob", kind: "ember" }], "a1");
+          setTimeout(function(){
+            try{
+              var sh = document.getElementById("shorts");
+              var tr = document.getElementById("shortsTrack");
+              rec("shortsOpen", sh.classList.contains("on") ? "yes" : "no");
+              rec("slides", tr.querySelectorAll(".short").length);
+              rec("railButtons", tr.querySelector(".short-rail").querySelectorAll("button").length);
+              rec("snapY", getComputedStyle(tr).scrollSnapType.indexOf("y") >= 0 ? "yes" : "no");
+              rec("stageRatio", getComputedStyle(tr.querySelector(".short-stage")).getPropertyValue("aspect-ratio"));
+              rec("objectFit", getComputedStyle(tr.querySelector(".short-stage video")).objectFit);
+              closeShorts();
+              rec("shortsClosed", sh.classList.contains("on") ? "no" : "yes");
+              rec("leftBehind", tr.children.length);
+            }catch(e){ rec("shortsLateError", e.message); }
+          }, 500);
+        }catch(e){ rec("shortsError", e.message); }
+      }, 700);
+      setTimeout(function(){
+        try{
+          rec("curTab", window.curTab || "UNDEFINED");
+          var f = document.getElementById("feed");
+          rec("feedVisible", f && !f.classList.contains("hidden") ? "yes" : "no");
+          rec("feedVertical", f && f.classList.contains("vgrid") ? "yes" : "no");
+          rec("feedText", ((f && f.textContent) || "").replace(/\\s+/g, " ").trim().slice(0, 60));
+          rec("chipsHidden", document.getElementById("chips").classList.contains("hidden") ? "yes" : "no");
+        }catch(e){ rec("lateError", e.message); }
+      }, 1000);
+    }catch(e){ rec("earlyError", e.message); }
+  }, 1800);
+})();
+</script>`;
+
+/* The desktop site has its own copy of the Shorts panel, in app.js, so it gets
+   its own driver. The check that matters is the same one: does openShorts()
+   build a real panel, and does closeShorts() leave nothing behind. */
+const DRIVE_DESKTOP = `<script>
+setTimeout(function(){
+  var box = document.createElement("div");
+  box.id = "driveOut"; box.style.display = "none";
+  document.body.appendChild(box);
+  function rec(k, v){ box.textContent += k + "=" + v + ";"; }
+  try{
+    openShorts([{ id: "d1", title: "One", owner: "ada", kind: "ember" },
+                { id: "d2", title: "Two", owner: "bob", kind: "ember" }], "d1");
+    setTimeout(function(){
+      try{
+        var sh = document.getElementById("shorts");
+        var tr = document.getElementById("shortsTrack");
+        var st = tr.querySelector(".short-stage");
+        rec("shortsOpen", sh.classList.contains("on") ? "yes" : "no");
+        rec("slides", tr.querySelectorAll(".short").length);
+        rec("railButtons", tr.querySelector(".short-rail").querySelectorAll("button").length);
+        rec("snapX", getComputedStyle(tr).scrollSnapType.indexOf("x") >= 0 ? "yes" : "no");
+        rec("stageRatio", getComputedStyle(st).getPropertyValue("aspect-ratio"));
+        rec("objectFit", getComputedStyle(st.querySelector("video")).objectFit);
+        rec("muteLabel", document.getElementById("shortMute").children.length > 0 ? "yes" : "no");
+        closeShorts();
+        rec("shortsClosed", sh.classList.contains("on") ? "no" : "yes");
+        rec("leftBehind", tr.children.length);
+      }catch(e){ rec("lateError", e.message); }
+    }, 500);
+  }catch(e){ rec("earlyError", e.message); }
+}, 1800);
+</script>`;
+
 function prepare() {
   rmSync(OUT, { recursive: true, force: true });
   mkdirSync(OUT, { recursive: true });
@@ -75,6 +175,10 @@ function prepare() {
       : html.replace(/<head>/i, "<head>" + TRAP);
     const dest = join(OUT, page);
     mkdirSync(dirname(dest), { recursive: true });
+    // The same page again, with a driver appended. Both live under /mobile/ so
+    // the relative logo src resolves exactly as it does in the browser.
+    if (page === "mobile/index.html") writeFileSync(join(OUT, "mobile", "drive.html"), html.replace("</body>", DRIVE + "</body>"));
+    if (page === "index.html") writeFileSync(join(OUT, "drive-desktop.html"), html.replace("</body>", DRIVE_DESKTOP + "</body>"));
     writeFileSync(dest, html);
   }
   // The pages pull /styles.css, /app.js and the logo; serve the real ones.
@@ -82,6 +186,18 @@ function prepare() {
     const p = join(ROOT, "public", f);
     if (statSync(p).isFile() && f !== "index.html") {
       writeFileSync(join(OUT, f), readFileSync(p));
+    }
+  }
+  // ...and the mobile page pulls logo.png from its OWN directory, which is the
+  // whole point of the relative src: /mobile/logo.png on the site and
+  // assets/logo.png beside index.html in the APK. Not copying these made the
+  // logo 404 here, so the check for it would have been theatre.
+  const mob = join(ROOT, "public", "mobile");
+  mkdirSync(join(OUT, "mobile"), { recursive: true });
+  for (const f of readdirSync(mob)) {
+    const p = join(mob, f);
+    if (statSync(p).isFile() && f !== "index.html") {
+      writeFileSync(join(OUT, "mobile", f), readFileSync(p));
     }
   }
 }
@@ -127,7 +243,7 @@ function load(path) {
       "--disable-background-networking", "--disable-sync", "--mute-audio",
       "--user-data-dir=" + profile,
       "--host-resolver-rules=MAP " + API_HOST + " 127.0.0.1:9",
-      "--virtual-time-budget=6000",
+      "--virtual-time-budget=9000",
       "--dump-dom", "http://localhost:" + PORT + path
     ];
     const child = spawn(CHROME, args, { stdio: ["ignore", "pipe", "ignore"] });
@@ -182,6 +298,54 @@ server.listen(PORT, async () => {
       for (const tab of ["home", "embers", "create", "subs", "you"]) {
         if (!new RegExp('data-tab="' + tab + '"').test(r.dom)) { failed = true; console.log("        nav item missing: " + tab); }
       }
+    }
+  }
+  // Now drive the mobile page: press Embers, then read the router's own state
+  // back out of the DOM. This is the only check that would have caught both
+  // the dead nav button and the logo that never decoded.
+  const d = await load("/mobile/drive.html");
+  if (!d.dom) { failed = true; console.log("  FAIL  drive  " + d.title); }
+  else {
+    const m = /<div id="driveOut"[^>]*>([\s\S]*?)<\/div>/i.exec(d.dom);
+    if (!m) { failed = true; console.log("  FAIL  drive  the driver never reported"); }
+    else {
+      const r = {};
+      for (const kv of m[1].split(";")) { const i = kv.indexOf("="); if (i > 0) r[kv.slice(0, i)] = kv.slice(i + 1); }
+      const want = {
+        logoAbsolute: "no", logoDecoded: "yes", logoFallback: "no", navFound: "yes",
+        curTab: "embers", feedVisible: "yes", feedVertical: "yes", chipsHidden: "yes",
+        shortsOpen: "yes", slides: "2", railButtons: "4", snapY: "yes",
+        stageRatio: "9/16", objectFit: "contain", shortsClosed: "yes", leftBehind: "0"
+      };
+      // getComputedStyle reports aspect-ratio as "9 / 16", spaces and all.
+      if (r.stageRatio) r.stageRatio = r.stageRatio.replace(/\s+/g, "");
+      for (const [k, v] of Object.entries(want)) {
+        if (r[k] !== v) { failed = true; console.log(`  FAIL  drive  ${k} was "${r[k]}", expected "${v}"`); }
+      }
+      for (const k of ["earlyError", "lateError", "shortsError", "shortsLateError"]) {
+        if (r[k]) { failed = true; console.log(`  FAIL  drive  threw: ${r[k]}`); }
+      }
+      console.log(`  ${failed ? "FAIL" : "ok  "}  drive  embers button routes (tab=${r.curTab}, vertical=${r.feedVertical}), logo loaded (${r.logoSrc})`);
+    }
+  }
+
+  // ...and the same again for the desktop copy of the panel.
+  const dd = await load("/drive-desktop.html");
+  if (!dd.dom) { failed = true; console.log("  FAIL  drive-desktop  " + dd.title); }
+  else {
+    const dm = /<div id="driveOut"[^>]*>([\s\S]*?)<\/div>/i.exec(dd.dom);
+    if (!dm) { failed = true; console.log("  FAIL  drive-desktop  the driver never reported"); }
+    else {
+      const r = {};
+      for (const kv of dm[1].split(";")) { const i = kv.indexOf("="); if (i > 0) r[kv.slice(0, i)] = kv.slice(i + 1); }
+      if (r.stageRatio) r.stageRatio = r.stageRatio.replace(/\s+/g, "");
+      const want = { shortsOpen: "yes", slides: "2", railButtons: "4", snapX: "yes",
+        stageRatio: "9/16", objectFit: "contain", muteLabel: "yes", shortsClosed: "yes", leftBehind: "0" };
+      for (const [k, v] of Object.entries(want)) {
+        if (r[k] !== v) { failed = true; console.log(`  FAIL  drive-desktop  ${k} was "${r[k]}", expected "${v}"`); }
+      }
+      for (const k of ["earlyError", "lateError"]) if (r[k]) { failed = true; console.log(`  FAIL  drive-desktop  threw: ${r[k]}`); }
+      console.log(`  ${failed ? "FAIL" : "ok  "}  drive-desktop  shorts panel builds (${r.slides} slides, ${r.railButtons} rail buttons, snap-x)`);
     }
   }
   server.close();

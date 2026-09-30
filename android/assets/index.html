@@ -149,6 +149,15 @@ input,textarea{font:inherit}
 /* ---------- watch ---------- */
 #playerBox{position:relative;width:100%;background:#000;aspect-ratio:16/9}
 #playerBox video{width:100%;height:100%;display:block;background:#000}
+/* An ember plays in a vertical frame. A browser cannot re-encode a 16:9 file
+   into 9:16 without a codec library this site does not carry, so the shape is
+   corrected at playback instead: the box is given a 9:16 ratio and sized from
+   its height, and object-fit:contain keeps a landscape clip whole inside that
+   frame - letterboxed on black - rather than cropping it or stretching it
+   into something nobody asked for. The stored file and the 9:16 thumbnail are
+   untouched, so a landscape ember still cuts to a vertical card in the feed. */
+#playerBox.vert{width:auto;height:74vh;aspect-ratio:9/16;margin:0 auto}
+#playerBox.vert video{object-fit:contain}
 #pfab{position:absolute;right:8px;top:8px;background:rgba(0,0,0,.6);border-radius:6px;
   padding:4px 8px;font-size:11px;font-weight:700;color:#fff}
 /* Double tap to seek, the gesture people expect on a phone. The +10 / -10
@@ -216,6 +225,22 @@ input,textarea{font:inherit}
 
 /* ---------- feed tail ---------- */
 .vcard-wrap{position:relative}
+/* The Embers feed is a three-across grid of vertical cards, not the full-width
+   16:9 rows the normal feed uses. :not(.hidden) is required - an id selector
+   beats the .hidden utility class, so without it the grid would override the
+   rule that keeps the feed off screen and the tab could never be hidden. */
+#feed.vgrid:not(.hidden){display:grid;grid-template-columns:repeat(3,1fr);
+  gap:10px;padding:10px 8px}
+#feed.vgrid .vcard{padding:0}
+#feed.vgrid .thumb{aspect-ratio:9/16;border-radius:10px}
+#feed.vgrid .vtitle{-webkit-line-clamp:1}
+#feed.vgrid .vsub{display:none}
+#feed.vgrid .kebab{width:30px;height:30px;right:4px;top:4px}
+#feed.vgrid .kebab svg{width:16px;height:16px}
+/* One card per column, so the meta goes under a smaller thumbnail rather than
+   beside a full-width one. */
+#feed.vgrid .vmeta{gap:8px;padding:8px 4px 0}
+#feed.vgrid .vav{display:none}
 /* The feed tail: a spinner while the next page loads, then a quiet end mark. */
 .spin-foot{margin:20px 0 30px}
 .feed-end{text-align:center;color:var(--dim2);font-size:13px;padding:22px 0 30px}
@@ -319,9 +344,10 @@ input,textarea{font:inherit}
 .field{margin-bottom:12px}
 .field label{display:block;font-size:12px;font-weight:700;color:var(--dim);
   text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
-.field input{width:100%;background:var(--bg3);border:1px solid var(--line);border-radius:10px;
-  color:var(--txt);padding:13px;font-size:16px;outline:0}
-.field input:focus{border-color:var(--blue)}
+.field input,.field textarea{width:100%;background:var(--bg3);border:1px solid var(--line);
+  border-radius:10px;color:var(--txt);padding:13px;font-size:16px;outline:0;
+  font-family:inherit;resize:vertical}
+.field input:focus,.field textarea:focus{border-color:var(--blue)}
 .sheet-alt{text-align:center;font-size:14px;margin-top:14px;color:var(--dim)}
 /* ---------- embers: record + upload ---------- */
 /* Full-screen camera overlay. Sits above everything including the top bar so
@@ -351,8 +377,12 @@ input,textarea{font:inherit}
 #camRec.rec{background:#ff4b4b;border-color:rgba(255,255,255,.9);
   animation:recpulse 1.1s ease-in-out infinite}
 @keyframes recpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
-#camSwitch{width:44px;height:44px;border-radius:50%;background:rgba(0,0,0,.5);color:#fff;
-  font-size:19px;display:flex;align-items:center;justify-content:center}
+#camSwitch{width:48px;height:48px;border-radius:50%;background:rgba(0,0,0,.5);color:#fff;
+  font-size:19px;display:flex;align-items:center;justify-content:center;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+/* Same for the two controls either side of it: a tap on a round button should
+   fire, not sit waiting for the double-tap delay. */
+#camRec,#camPick{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 #camPick{color:#fff;font-size:13px;font-weight:600;padding:8px}
 /* Frozen last frame + play/pause review controls after recording stops. */
 #camReview{position:absolute;inset:0;display:none;background:#000;z-index:3}
@@ -395,6 +425,65 @@ input,textarea{font:inherit}
 #ban .bg2{background:#2a2a2a;color:#fff;font-weight:700;font-size:15px;
   padding:13px;border-radius:4px;width:100%}
 #ban .bgl{margin-top:12px;color:#888;font-size:12px;text-decoration:underline}
+
+/* =====================================================================
+   SHORTS: the full-screen vertical player
+   =====================================================================
+   An ember is a short vertical clip, so it gets the Shorts treatment rather
+   than a landscape watch page: one clip filling the screen, swipe up for the
+   next. The track is a plain scroll-snap container, which is what gives the
+   gesture, the snap and the momentum for free - hand-rolled touch maths would
+   have to reimplement all of it badly. */
+#shorts{position:fixed;inset:0;z-index:90;background:#000;display:none}
+#shorts.on{display:block}
+.shorts-track{height:100%;overflow-y:auto;scroll-snap-type:y mandatory;
+  overscroll-behavior:contain}
+.shorts-track::-webkit-scrollbar{display:none}
+.short{height:100%;scroll-snap-align:start;scroll-snap-stop:always;
+  display:flex;align-items:center;justify-content:center;position:relative}
+/* The 9:16 stage. A landscape ember still plays whole inside it, letterboxed,
+   rather than being cropped to fill - see #playerBox.vert. */
+.short-stage{position:relative;height:100%;aspect-ratio:9/16;max-width:100%;
+  background:#000;overflow:hidden}
+.short-stage video{width:100%;height:100%;object-fit:contain;background:#000;display:block}
+.short-tap{position:absolute;inset:0;z-index:1}
+.short-big{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  z-index:2;opacity:0;transition:opacity .12s;pointer-events:none}
+.short-big svg{width:64px;height:64px;fill:rgba(255,255,255,.85)}
+.short-stage.paused .short-big{opacity:1}
+/* Who posted it and what it is called, bottom left. */
+.short-info{position:absolute;left:0;right:78px;bottom:16px;z-index:3;
+  padding:0 14px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.75);pointer-events:none}
+.short-info .sh-at{font-size:14px;font-weight:700;margin-bottom:5px}
+.short-info .sh-ti{font-size:13px;line-height:1.35;display:-webkit-box;
+  -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* The action rail down the right, where YouTube puts it. */
+.short-rail{position:absolute;right:4px;bottom:16px;z-index:3;
+  display:flex;flex-direction:column;align-items:center;gap:15px}
+.short-rail button{background:none;color:#fff;display:flex;flex-direction:column;
+  align-items:center;gap:3px;font-size:11px;font-weight:600;
+  text-shadow:0 1px 3px rgba(0,0,0,.75);padding:0}
+.short-rail svg{width:26px;height:26px;fill:#fff;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+.short-rail button.on svg{fill:var(--red)}
+.short-rail .sh-av{width:44px;height:44px;border-radius:50%;background:#3f3f3f;
+  border:2px solid #fff;display:flex;align-items:center;justify-content:center;
+  color:#fff;font-weight:700;font-size:16px}
+.short-rail .sh-av.mine{border-color:var(--red)}
+/* Progress: a hairline that fills, the way a Short does. */
+.short-prog{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.22);z-index:4}
+.short-prog i{display:block;height:100%;width:0;background:var(--red)}
+.short-top{position:absolute;left:0;right:0;top:0;z-index:5;display:flex;
+  align-items:center;gap:8px;padding:calc(10px + var(--safeTop)) 12px 10px;
+  background:linear-gradient(rgba(0,0,0,.5),transparent)}
+.short-top button{color:#fff;background:rgba(0,0,0,.35);border-radius:50%;
+  width:38px;height:38px;display:flex;align-items:center;justify-content:center}
+.short-top svg{width:22px;height:22px;fill:#fff}
+.short-top .sh-lbl{flex:1;text-align:center;font-size:14px;font-weight:700;
+  text-shadow:0 1px 3px rgba(0,0,0,.7)}
+#shortsMsg{position:absolute;inset:0;z-index:6;display:flex;align-items:center;
+  justify-content:center;color:#fff;text-align:center;padding:80px 30px;
+  font-size:14px;text-shadow:0 1px 3px rgba(0,0,0,.8)}
+#shortsMsg.hidden{display:none}
 </style>
 </head>
 <body>
@@ -499,6 +588,19 @@ input,textarea{font:inherit}
 </div>
 <input type="file" id="emberFile" accept="video/*" class="hidden">
 
+<!-- SHORTS: the full-screen vertical player. Empty until an ember is opened;
+     the slides are built by openShorts() so the track is never in the DOM
+     with a hundred empty video elements in it. -->
+<div id="shorts">
+  <div class="shorts-track" id="shortsTrack"></div>
+  <div class="short-top">
+    <button id="shortsClose" aria-label="Close"></button>
+    <div class="sh-lbl">Embers</div>
+    <button id="shortMute" aria-label="Sound"></button>
+  </div>
+  <div id="shortsMsg" class="hidden"></div>
+</div>
+
 <script>
 "use strict";
 /* =====================================================================
@@ -547,7 +649,11 @@ var ICON = {
   play:'<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
   fwd:'<svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 13c0-4.42-3.58-8-8-8z"/><path d="m12 14-5 5 5 5z" opacity=".55"/></svg>',
   back:'<svg viewBox="0 0 24 24" style="transform:scaleX(-1)"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 13c0-4.42-3.58-8-8-8z"/><path d="m12 14-5 5 5 5z" opacity=".55"/></svg>',
-  flag:'<svg viewBox="0 0 24 24"><path d="M14.4 6 14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>'
+  flag:'<svg viewBox="0 0 24 24"><path d="M14.4 6 14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>',
+  cmt:'<svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>',
+  x:'<svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>',
+  vol:'<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>',
+  mute:'<svg viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"/></svg>'
 };
 
 /* ---- local device state ----
@@ -1010,7 +1116,11 @@ function overflowMenu(kind, id, anchor, label){
 /* =====================================================================
    TAB ROUTER
    ===================================================================== */
-var TABS = { home:1, subs:1, you:1, channel:1, watch:1, search:1, library:1, notifs:1, create:1 };
+// Every tab the router will accept. "embers" was missing from this list, and
+// go() starts with "if (!TABS[tab]) return;" - so pressing the Embers button
+// returned immediately and buildEmbers() was never reached. The button looked
+// fine and did nothing at all, in the browser and in the app alike.
+var TABS = { home:1, embers:1, subs:1, you:1, channel:1, watch:1, search:1, library:1, notifs:1, create:1 };
 /* Which bottom-nav item stays lit while you are inside a pushed screen. YouTube
    keeps the origin tab highlighted when you open a video or a channel from it. */
 var NAV_OWNER = { watch:null, channel:null, search:null, notifs:null, create:null, library:null };
@@ -1043,20 +1153,6 @@ function go(tab, force){
   if (tab === "watch")     return loadWatch(curVideo);
   if (tab === "notifs")    return loadNotifs();
   if (tab === "create")    return createNote();
-  if (tab === "you")       return loadYou();
-  if (tab === "library")   return loadLibrary();
-  if (tab === "search")    return doSearch(searchQ);
-  if (tab === "channel")   return loadChannel(curChannel);
-  if (tab === "watch")     return loadWatch(curVideo);
-  if (tab === "notifs")    return loadNotifs();
-  if (tab === "create")    return createNote();
-  if (tab === "you")       return loadYou();
-  if (tab === "library")   return loadLibrary();
-  if (tab === "search")    return doSearch(searchQ);
-  if (tab === "channel")   return loadChannel(curChannel);
-  if (tab === "watch")     return loadWatch(curVideo);
-  if (tab === "notifs")    return loadNotifs();
-  if (tab === "create")    return createNote();
 }
 
 document.querySelectorAll(".nitem").forEach(function(n){
@@ -1079,6 +1175,9 @@ function paintChips(){
     row.innerHTML = '<span class="chip-sub">' + esc(me ? "@" + me.username : "") + '</span>';
     return;
   }
+  // The chips row is hidden outside Home and Subscriptions, so there is
+  // nothing to paint here. Embers has its own order in buildEmbers().
+  if (curTab !== "home") return;
   // Sort chips actually reorder the server query. The old "Latest" chip only
   // re-sorted an already-fetched list, so it could never do anything the
   // default was not already doing.
@@ -1095,6 +1194,8 @@ function paintChips(){
    ===================================================================== */
 async function buildEmbers(){
   show("feed"); 
+  // Vertical cards for this tab only; every other feed removes the class.
+  $("feed").classList.add("vgrid");
   $("feed").innerHTML = '<div class="spin" style="padding:80px 0"></div>';
   try{
     var j = await api("/api/videos?kind=ember&limit=50");
@@ -1153,6 +1254,10 @@ async function subChannels(){
 function show(id){
   ["feed","watch","channel","library","search","you","notifs"].forEach(function(x){ $(x).classList.add("hidden"); });
   $(id).classList.remove("hidden");
+  // The vertical card grid belongs to the Embers tab and nowhere else, and
+  // every feed shares this one container - so it is cleared here rather than
+  // in each loader, and a later tab cannot inherit a grid it did not ask for.
+  if (!(id === "feed" && curTab === "embers")) $("feed").classList.remove("vgrid");
 }
 function fail(e){
   $("feed").innerHTML = '<div class="empty"><div class="big">!</div>' +
@@ -1182,6 +1287,9 @@ function vcard(v){
 }
 function renderFeed(vs, emptyMsg, append){
   var feed = $("feed");
+  // Kept so a tap on a card can ask "is this an ember?" - the Shorts viewer
+  // needs the whole list, not just the card, so you can swipe past it.
+  if (!append) curFeedList = vs; else curFeedList = curFeedList.concat(vs);
   if (!vs.length && !append) {
     feed.innerHTML = '<div class="empty"><div class="big"></div></div>';
     feed.querySelector(".big").textContent = emptyMsg || "Nothing here";
@@ -1189,7 +1297,13 @@ function renderFeed(vs, emptyMsg, append){
   }
   feed.insertAdjacentHTML("beforeend", vs.map(vcard).join(""));
   Array.prototype.forEach.call(feed.querySelectorAll(".vcard"), function(b){
-    b.onclick = function(){ curVideo = b.dataset.v; go("watch", true); };
+    b.onclick = function(){
+      var v = feedVideoById(b.dataset.v);
+      // An ember opens in the full-screen vertical player. Everything else
+      // opens on the watch page.
+      if (v && v.kind === "ember") { openShorts(curFeedList, v.id); return; }
+      curVideo = b.dataset.v; go("watch", true);
+    };
   });
   Array.prototype.forEach.call(feed.querySelectorAll(".kebab"), function(b){
     b.onclick = function(ev){ ev.stopPropagation(); overflowMenu("video", b.dataset.k, b.closest(".vcard-wrap")); };
@@ -1218,13 +1332,22 @@ async function loadWatch(id){
       '<button class="act" style="margin-top:14px" onclick="go(\'home\',true)">Back home</button></div>';
     return;
   }
+  // Any route to an ember - a link, the history list, a search result - lands
+  // in the full-screen vertical player instead of the landscape watch page.
+  // watchPlain is the comment button inside the player, which asked for the
+  // full page on purpose; the flag is consumed either way.
+  if (v.kind === "ember" && !watchPlain) { watchPlain = false; openShorts(null, v.id); return; }
+  watchPlain = false;
   api("/api/video/view", { method:"POST", body:{ id: v.id } }).catch(function(){});
   var w = window._watch;
   var mine = me && v.owner === me;
   var sub = subState[v.owner];
 
+  // Embers are vertical, so they get the 9:16 player box. A landscape ember
+  // still plays whole inside it - see #playerBox.vert.
+  var vert = v.kind === "ember";
   $("watch").innerHTML =
-    '<div id="playerBox"><video id="vp" controls playsinline preload="metadata" ' +
+    '<div id="playerBox' + (vert ? ' vert' : '') + '"><video id="vp" controls playsinline preload="metadata" ' +
         'poster="' + esc(mediaUrl("t", v.id)) + '"></video>' +
       '<div id="pfab" class="hidden">HD</div></div>' +
     '<div class="watch-body">' +
@@ -1777,22 +1900,83 @@ var CAM_TRIES = [
   function(f){ return { video: true, audio: true }; },
   function(){ return { video: true }; }
 ];
-function startCam(facing){
+/* Flipping is a different problem and needs a different ladder. "ideal" is a
+   HINT, not a request: the browser is free to hand back any camera it likes,
+   and Android's WebView routinely answers an {ideal:"environment"} request with
+   the front one. That is why the flip button did nothing on a real phone - it
+   re-opened the camera you were already looking at, over the top of a toast
+   that said "Back camera". "exact" asks for the camera it names or fails, so a
+   device that genuinely has no back camera says so instead of lying quietly.
+   The looser rungs only run when exact is rejected outright, and camMatches()
+   still throws away any stream that turns out to be the wrong camera. */
+var CAM_FLIP_TRIES = [
+  function(f){ return { video: { facingMode: { exact: f } }, audio: { echoCancellation: true, noiseSuppression: true } }; },
+  function(f){ return { video: { facingMode: { exact: f } }, audio: true }; },
+  function(f){ return { video: { facingMode: { ideal: f } }, audio: true }; },
+  function(){ return { video: true, audio: true }; }
+];
+/* The device the camera is currently on, so a flip can be checked by identity
+   as well as by facingMode - some devices report one but not the other. */
+var camDeviceId = null;
+/* Did we actually get the camera we asked for? Reports facingMode when the
+   device tells us, falls back to "is this a different device", and returns true
+   when the device says nothing at all - there is no way to tell, and refusing
+   to switch on a device that merely omits the field would be worse. */
+function camMatches(s, facing){
+  var tr = s && s.getVideoTracks && s.getVideoTracks()[0];
+  if (!tr) return false;
+  var st = (tr.getSettings && tr.getSettings()) || {};
+  if (st.facingMode) return st.facingMode === facing;
+  if (st.deviceId && camDeviceId) return st.deviceId !== camDeviceId;
+  return true;
+}
+function camFacingOf(s){
+  var tr = s && s.getVideoTracks && s.getVideoTracks()[0];
+  var st = (tr && tr.getSettings && tr.getSettings()) || {};
+  return st.facingMode || "";
+}
+/* flipping = we are changing camera, which must either change or be reported
+   as impossible. announce = say which camera we ended up on, and only once we
+   know it, so the toast can never contradict the picture. */
+function startCam(facing, flipping, announce){
+  var prev = camFacing, wasOpen = !!camStream;
   stopCamStream();
+  var tries = flipping ? CAM_FLIP_TRIES : CAM_TRIES;
   var i = 0;
   function attempt(){
-    if (i >= CAM_TRIES.length) { camFail("nocam"); return; }
-    var cons = CAM_TRIES[i++](facing);
+    if (i >= tries.length) {
+      // Nothing on the ladder produced the camera we asked for.
+      if (flipping) {
+        camFacing = prev;                       // put the selection back
+        if (wasOpen) startCam(prev, false);     // and restore what was working
+        else camFail("nocam");
+        toast(wasOpen ? "This phone would not switch cameras" : "No camera available");
+      } else camFail("nocam");
+      return;
+    }
+    var cons = tries[i++](facing);
     navigator.mediaDevices.getUserMedia(cons).then(function(s){
+      if (!camMatches(s, facing)) {
+        // Handed the wrong camera. Drop it on the floor and try the next rung
+        // rather than showing it and calling it a successful flip.
+        try { s.getTracks().forEach(function(t){ t.stop(); }); } catch(e){}
+        attempt();
+        return;
+      }
       camStream = s;
+      var tr = s.getVideoTracks()[0];
+      var st = (tr && tr.getSettings && tr.getSettings()) || {};
+      camDeviceId = st.deviceId || null;
       var v = $("camVideo");
       v.srcObject = s;
-      v.classList.toggle("mirror", facing === "user");
+      // Mirror on the real facing when we have one, else on what we asked for.
+      v.classList.toggle("mirror", (camFacingOf(s) || facing) === "user");
       v.play().catch(function(){});
+      if (announce) toast((camFacingOf(s) || facing) === "user" ? "Front camera" : "Back camera");
     }).catch(function(e){
       var name = (e && e.name) || "";
       // A device that cannot satisfy the request at all: try the next one.
-      if (i < CAM_TRIES.length && name !== "NotAllowedError" && name !== "SecurityError") { attempt(); return; }
+      if (i < tries.length && name !== "NotAllowedError" && name !== "SecurityError") { attempt(); return; }
       if (name === "NotAllowedError" || name === "SecurityError") camFail("denied");
       else if (name === "NotReadableError" || name === "TrackStartError") camFail("busy");
       else camFail("nocam");
@@ -1850,9 +2034,11 @@ function stopCamRecording(){
 }
 $("camClose").onclick = closeCamera;
 $("camSwitch").onclick = function(){
-  camFacing = camFacing === "user" ? "environment" : "user";
-  startCam(camFacing);
-  toast(camFacing === "user" ? "Front camera" : "Back camera");
+  var want = camFacing === "user" ? "environment" : "user";
+  camFacing = want;
+  // startCam announces only once it knows which camera it really got, so this
+  // cannot say "Back camera" over a picture of the front one again.
+  startCam(want, true, true);
 };
 /* Recording: start on the shutter, auto-stop at 60s or when the duration is
    reached again by hand, then hand the blob to the review screen. */
@@ -1919,7 +2105,7 @@ $("emberFile").onchange = function(){
     if (!isFinite(d) || d <= 0) { toast("Could not read that clip's length"); return; }
     if (d > EMBER_MAX_S + 1.5) { toast("That clip is " + Math.round(d) + "s — embers are 60s or less"); return; }
     emberBlob = f;
-    emberUpload(f.name || "ember", "", d);
+    emberNameSheet(d);
   });
 };
 /* Most phone clips (MediaRecorder webm, 3GP, some MP4s) report a duration of
@@ -1966,18 +2152,60 @@ function videoTypeOf(file, fallback){
 $("camPost").onclick = function(){
   if (!emberBlob) return;
   var secs = Math.min(EMBER_MAX_S, Math.max(1, Math.round((Date.now() - camStart) / 1000)));
-  emberUpload("Ember", "", secs);
+  emberNameSheet(secs);
 };
+
+/* ---------- naming ---------- */
+/* An ember called "Ember" is invisible in a feed full of them, and a phone is
+   the worst place to be asked for a title *after* a thirty second recording has
+   been made - by then people tap straight through. So the name is asked once,
+   right after the clip exists and before a single byte is uploaded, and an
+   untouched field posts the default rather than rejecting an empty title.
+   The clip stays in emberBlob while this sheet is open, so Cancel throws the
+   recording away instead of stranding it. */
+function defaultEmberName(){ return (me || "My") + "'s Ember"; }
+function emberNameSheet(durSecs){
+  var suggested = defaultEmberName();
+  openSheet(
+    '<div id="sheetTitle">Name your ember</div>' +
+    '<div id="sheetSub">' + (durSecs ? Math.round(durSecs) + " second clip. " : "") +
+      'Give it a title so people can find it. Leave the title empty and it is called "' + esc(suggested) + '".</div>' +
+    '<div class="field"><label>Title</label><input id="emTitle" maxlength="100" ' +
+      'placeholder="' + esc(suggested) + '" enterkeyhint="next"></div>' +
+    '<div class="field"><label>Description</label><textarea id="emDesc" rows="2" ' +
+      'maxlength="2000" placeholder="Optional"></textarea></div>' +
+    '<div class="sheet-msg" id="emMsg"></div>' +
+    '<button class="sheet-go" id="emGo">Post ember</button>' +
+    '<button class="sheet-alt" id="emCancel">Discard this ember</button>'
+  );
+  var ti = $("emTitle"), de = $("emDesc"), msg = $("emMsg"), go = $("emGo");
+  function post(){
+    // The API accepts 1-100 characters of title and 2000 of description, so the
+    // same clamp happens here to save a round trip and a raw 400.
+    var title = (ti.value || "").replace(/\s+/g, " ").trim().slice(0, 100) || suggested;
+    var desc = (de.value || "").trim().slice(0, 2000);
+    closeSheet();
+    emberUpload(title, desc, durSecs);
+  }
+  go.onclick = post;
+  ti.addEventListener("keydown", function(e){ if (e.key === "Enter") { e.preventDefault(); post(); } });
+  $("emCancel").onclick = function(){ closeSheet(); closeCamera(); };
+  try{ ti.focus(); }catch(e){}
+}
 
 /* ---------- the upload itself ----------
    Same protocol as the website client: /api/uploads/start with kind=ember,
    then 6MB chunks to /api/uploads/chunk with resume offsets, then
-   /api/uploads/complete with a JPEG thumbnail. Titles default to "Ember";
-   editing comes later, posting fast matters more on a phone. */
+   /api/uploads/complete with a JPEG thumbnail. The title comes from the naming
+   sheet and falls back to "<your channel>'s Ember" if somehow it is blank. */
 function emberUpload(name, desc, durSecs){
   if (!me) { authSheet("login"); return; }
   if (uploading) return;
   if (!emberBlob) { toast("Record or choose a clip first"); return; }
+  // The naming sheet supplies both, but emberUpload is reachable from more than
+  // one path, so neither is trusted to be present.
+  name = String(name || "").trim().slice(0, 100) || defaultEmberName();
+  desc = String(desc || "").trim().slice(0, 2000);
   uploading = true;
   var w = $("camWrap");
   if (w.classList.contains("on")) { stopCamStream(); }
@@ -2003,8 +2231,8 @@ function emberUpload(name, desc, durSecs){
   prog(0.02, "Starting…");
   api("/api/uploads/start", {
     method: "POST",
-    body: { filename: filename, mime: mime, size: file.size, title: "Ember by @" + me,
-      description: "", duration: durSecs, visibility: "public", kind: "ember", scan: "skipped" }
+    body: { filename: filename, mime: mime, size: file.size, title: name,
+      description: desc, duration: durSecs, visibility: "public", kind: "ember", scan: "skipped" }
   }).then(function(j){
     sess = j.sessionId; chunkSize = j.chunkSize || 6e6;
     return sendChunks(sess, file, chunkSize, prog);
@@ -2077,6 +2305,164 @@ function emberThumb(file){
     v.onerror = function(){ URL.revokeObjectURL(url); res(null); };
     setTimeout(function(){ grab(); }, 4000);
   });
+}
+
+/* =====================================================================
+   SHORTS
+   =====================================================================
+   One ember per screen, swipe up for the next - the Shorts gesture. The track
+   is a scroll-snap container, so the swipe, the snap and the momentum come
+   from the platform; an IntersectionObserver decides which slide is "current"
+   and plays it. Every video is muted and looping by default because that is
+   the only combination a browser will autoplay without a user gesture, and
+   unmuting is one tap away in the top bar. */
+var shortsIO = null, shortsList = [], shortsMuted = true;
+var curFeedList = [];
+/* One-shot. The comment button sends you to the full watch page on purpose,
+   so loadWatch has to know not to bounce you straight back into here. */
+var watchPlain = false;
+
+function shortSlide(v, i){
+  return '<div class="short" data-i="' + i + '">' +
+    '<div class="short-stage">' +
+      '<video playsinline loop muted preload="none" poster="' + esc(mediaUrl("t", v.id)) + '"></video>' +
+      '<div class="short-tap"></div>' +
+      '<div class="short-big">' + ICON.play + '</div>' +
+      '<div class="short-info"><div class="sh-at">@' + esc(v.owner) + '</div>' +
+        '<div class="sh-ti">' + esc(v.title) + '</div></div>' +
+      '<div class="short-rail">' +
+        '<div class="sh-av' + (me === v.owner ? " mine" : "") + '" data-ch="' + esc(v.owner) + '">' + esc(initials(v.owner)) + '</div>' +
+        '<button data-a="like" class="s-like" aria-label="Like">' + ICON.like + '<span>Like</span></button>' +
+        '<button data-a="dislike" class="s-dislike" aria-label="Dislike">' + ICON.dislike + '<span></span></button>' +
+        '<button data-a="comment" class="s-cmt" aria-label="Comments">' + ICON.cmt + '<span></span></button>' +
+        '<button data-a="share" class="s-share" aria-label="Share">' + ICON.share + '<span>Share</span></button>' +
+      '</div>' +
+      '<div class="short-prog"><i></i></div>' +
+    '</div></div>';
+}
+
+/* list omitted = fetch it. The Embers tab already has the array, so it passes
+   one in and the user can swipe through exactly what they were looking at. */
+function openShorts(list, startId){
+  if (!list) {
+    $("shortsMsg").textContent = "Loading…";
+    $("shortsMsg").classList.remove("hidden");
+    return api("/api/videos?kind=ember&limit=50").then(function(j){
+      openShorts(j.videos || [], startId);
+    }).catch(function(e){ toast(e.message || "Could not load embers"); });
+  }
+  var items = (list || []).filter(function(v){ return v && v.id; });
+  if (!items.length) { toast("No embers yet"); return; }
+  shortsList = items;
+  var track = $("shortsTrack");
+  track.innerHTML = items.map(shortSlide).join("");
+  $("shorts").classList.add("on");
+  $("shortsMsg").classList.add("hidden");
+  wireShorts();
+  var at = 0;
+  for (var i = 0; i < items.length; i++) if (items[i].id === startId) { at = i; break; }
+  // Only now that the overlay is displayed is clientHeight meaningful, so the
+  // scroll has to happen after the class is on - not before.
+  track.scrollTop = at * track.clientHeight;
+  observeShorts();
+  paintShortMute();
+}
+function wireShorts(){
+  var track = $("shortsTrack");
+  Array.prototype.forEach.call(track.querySelectorAll(".short"), function(sl){
+    var v = shortsList[+sl.dataset.i], video = sl.querySelector("video"), stage = sl.querySelector(".short-stage");
+    // Tap to pause. A paused clip shows the play glyph, which is the only cue
+    // that anything happened - a Short with no controls needs it.
+    sl.querySelector(".short-tap").onclick = function(){
+      if (video.paused) { video.play().catch(function(){}); stage.classList.remove("paused"); }
+      else { video.pause(); stage.classList.add("paused"); }
+    };
+    video.addEventListener("timeupdate", function(){
+      var f = video.duration && isFinite(video.duration) ? video.currentTime / video.duration : 0;
+      sl.querySelector(".short-prog i").style.width = (f * 100).toFixed(2) + "%";
+    });
+    sl.querySelector(".sh-av").onclick = function(){ closeShorts(); curChannel = v.owner; go("channel", true); };
+    sl.querySelector('[data-a="like"]').onclick = function(){ shortReact(sl, "like"); };
+    sl.querySelector('[data-a="dislike"]').onclick = function(){ shortReact(sl, "dislike"); };
+    sl.querySelector('[data-a="comment"]').onclick = function(){
+      watchPlain = true; closeShorts(); curVideo = v.id; go("watch", true);
+    };
+    sl.querySelector('[data-a="share"]').onclick = function(){ shareVideo(v, this); };
+  });
+}
+function observeShorts(){
+  if (shortsIO) shortsIO.disconnect();
+  shortsIO = new IntersectionObserver(function(entries){
+    for (var i = 0; i < entries.length; i++) {
+      var sl = entries[i].target, video = sl.querySelector("video");
+      if (entries[i].isIntersecting && entries[i].intersectionRatio > 0.6) shortActivate(sl);
+      else if (video && !video.paused) video.pause();
+    }
+  }, { root: $("shortsTrack"), threshold: [0, 0.6] });
+  Array.prototype.forEach.call($("shortsTrack").querySelectorAll(".short"), function(sl){ shortsIO.observe(sl); });
+}
+function shortActivate(sl){
+  var v = shortsList[+sl.dataset.i];
+  if (!v) return;
+  var video = sl.querySelector("video");
+  if (!video.getAttribute("src")) video.src = mediaUrl("v", v.id);
+  try { video.currentTime = 0; } catch(e){}
+  sl.querySelector(".short-stage").classList.remove("paused");
+  video.play().catch(function(){});
+  api("/api/video/view", { method:"POST", body:{ id: v.id } }).catch(function(){});
+  shortReact0(sl, v.id);
+}
+/* The rail's like count and state have to come from somewhere, and /api/video
+   already carries both, so the active slide asks for it as it comes into view. */
+function shortReact0(sl, id){
+  api("/api/video?id=" + encodeURIComponent(id)).then(function(j){
+    var lk = sl.querySelector(".s-like"), ds = sl.querySelector(".s-dislike");
+    lk.classList.toggle("on", j.reaction === "like");
+    ds.classList.toggle("on", j.reaction === "dislike");
+    lk.querySelector("span").textContent = j.likes ? num(j.likes) : "Like";
+  }).catch(function(){});
+}
+function shortReact(sl, kind){
+  if (!me) { closeShorts(); authSheet("login"); return; }
+  var v = shortsList[+sl.dataset.i];
+  if (!v) return;
+  var btn = sl.querySelector(kind === "like" ? ".s-like" : ".s-dislike");
+  var want = btn.classList.contains("on") ? "none" : kind;   // tapping again clears it
+  api("/api/video/react", { method:"POST", body:{ id: v.id, kind: want } }).then(function(j){
+    sl.querySelector(".s-like").classList.toggle("on", j.reaction === "like");
+    sl.querySelector(".s-dislike").classList.toggle("on", j.reaction === "dislike");
+    sl.querySelector(".s-like span").textContent = j.likes ? num(j.likes) : "Like";
+  }).catch(function(e){ toast(e.message || "Could not save that"); });
+}
+function paintShortMute(){
+  var b = $("shortMute");
+  if (b) b.innerHTML = shortsMuted ? ICON.mute : ICON.vol;
+}
+function toggleShortMute(){
+  shortsMuted = !shortsMuted;
+  paintShortMute();
+  Array.prototype.forEach.call($("shortsTrack").querySelectorAll("video"), function(v){ v.muted = shortsMuted; });
+}
+function closeShorts(){
+  if (shortsIO) { shortsIO.disconnect(); shortsIO = null; }
+  var t = $("shortsTrack");
+  Array.prototype.forEach.call(t.querySelectorAll("video"), function(v){
+    try { v.pause(); v.removeAttribute("src"); v.load(); } catch(e){}
+  });
+  t.innerHTML = "";
+  $("shorts").classList.remove("on");
+  shortsList = [];
+}
+$("shortsClose").innerHTML = ICON.x;
+$("shortsClose").onclick = closeShorts;
+$("shortMute").onclick = toggleShortMute;
+paintShortMute();
+
+/* The feed card that stands in for an ember, and the ember passed by id when
+   someone lands on it from a link or the watch route. */
+function feedVideoById(id){
+  for (var i = 0; i < curFeedList.length; i++) if (curFeedList[i].id === id) return curFeedList[i];
+  return null;
 }
 
 /* =====================================================================
@@ -2304,9 +2690,18 @@ $("main").addEventListener("scroll", function(){
   // early and the browser compiled the truncated handler as JavaScript. That
   // is a SyntaxError the moment the image fails to load - which it always does
   // in the APK, where /mobile/logo.png does not exist under file://.
+  // The src is RELATIVE, and that is the whole fix for the app. The APK serves
+  // this page from file:///android_asset/index.html, so an absolute
+  // "/mobile/logo.png" resolved to file:///mobile/logo.png - a file that does
+  // not exist - and the SVG fallback was what everyone saw. A relative
+  // "logo.png" resolves to /mobile/logo.png on the site and to
+  // file:///android_asset/logo.png in the app, which is bundled next to this
+  // page. The cache-buster is dropped under file:// where there is no cache to
+  // bust and a query string is one more thing for the asset loader to trip on.
+  var logoSrc = location.protocol === "file:" ? "logo.png" : "logo.png?v=22";
   var mark = $("brandMark");
   if (mark) {
-    mark.innerHTML = '<img src="/mobile/logo.png?v=21" alt="FirFall" width="33" height="22">';
+    mark.innerHTML = '<img src="' + logoSrc + '" alt="FirFall" width="33" height="22">';
     var logoImg = mark.querySelector("img");
     if (logoImg) logoImg.onerror = function(){ mark.innerHTML = svgFromPoints(FLAME, "#ff0000"); };
   }
@@ -2334,6 +2729,7 @@ window.FirFall = {
      app genuinely has nowhere left to go, so Back closes an open sheet or
      backs out of a channel before it ever backs out of the app. */
   onBack: function(){
+    if ($("shorts").classList.contains("on")) { closeShorts(); return "handled"; }
     if ($("scrim").classList.contains("on")) { closeSheet(); return "handled"; }
     if ($("searchWrap").classList.contains("on")) { $("searchWrap").classList.remove("on"); return "handled"; }
     if (!$("ban").classList.contains("hidden")) return "exit";

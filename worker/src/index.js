@@ -700,7 +700,11 @@ var index_default = {
           // The owner's role is joined in so the UI can badge moderator
           // channels. Previously it read v.role, which this query never
           // returned, so the badge could never have shown for anyone.
-          const row = await env.DB.prepare("SELECT v.id,v.owner,v.title,v.description,v.mime,v.size,v.views,v.duration,v.visibility,v.created_at,u.role AS owner_role FROM videos v JOIN users u ON u.username=v.owner WHERE v.id=? AND v.status='clean'").bind(url.searchParams.get("id")).first();
+          // v.kind is what lets the mobile player pick the vertical frame: an
+          // ember must play in a 9:16 box even when the clip it was made from
+          // was 16:9. Without it the client has to guess from the feed it was
+          // opened from, and an ember opened from the home shelf plays sideways.
+          const row = await env.DB.prepare("SELECT v.id,v.owner,v.title,v.description,v.mime,v.size,v.views,v.duration,v.visibility,v.created_at,v.kind,u.role AS owner_role FROM videos v JOIN users u ON u.username=v.owner WHERE v.id=? AND v.status='clean'").bind(url.searchParams.get("id")).first();
           if (!row) return json(404, { error: "Video not found." });
           if (row.visibility === "private") {
             const u2 = await authedUser();

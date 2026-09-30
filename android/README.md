@@ -110,6 +110,11 @@ The Create tab opens an in-app flow, no trip to the website needed:
   document picker by `onShowFileChooser`. The clip's real duration is probed
   with a throwaway `<video>` element and anything over 60s is refused.
 
+Both paths then ask for a name before a single byte goes anywhere: a title
+box, an optional description, and a `Post ember` button. Leave the title
+empty and it is called `<your channel>'s Ember`. Nothing is uploaded until
+you press it, and `Discard this ember` throws the recording away.
+
 Both paths run the same upload as the website client: `/api/uploads/start`
 with `kind=ember`, 6 MB chunks with resume offsets, then `/api/uploads/complete`
 with a JPEG thumbnail drawn onto a 9:16 canvas. The worker re-checks the
@@ -119,6 +124,83 @@ lies.
 Front and back cameras are supported; the front preview is mirrored while
 framing and un-mirrored in review. If camera permission is denied the record
 option says so and the gallery picker still works.
+
+### Why the flip button needed its own ladder
+
+The flip did nothing on a real phone. The cause was `facingMode: { ideal: f }`:
+`ideal` is a hint, not a request, and Android's WebView routinely answers an
+`{ ideal: "environment" }` request with the **front** camera. The screen never
+changed, and the toast cheerfully said "Back camera" over a picture of the
+front one — which reads exactly like a dead button.
+
+Two changes, and both are needed:
+
+- `CAM_FLIP_TRIES` leads with `facingMode: { exact: f }`. `exact` names the
+  camera or fails with `OverconstrainedError`, so a device with no back camera
+  is told the truth instead of quietly returning the wrong one. The `ideal`
+  rungs remain underneath for WebViews that reject `exact` outright.
+- `camMatches()` **verifies what came back** — `getSettings().facingMode`, or
+  `deviceId` identity when the device reports that but not facingMode — and
+  discards any stream that is not the camera that was asked for. Asking for
+  something is not the same as getting it.
+
+The toast moved into `startCam`'s success path (`announce`), so it can only
+ever name the camera actually on screen. If every rung is exhausted the
+selection reverts, the previously working camera is restored, and the user is
+told "This phone would not switch cameras" rather than being left staring at an
+unchanged preview.
+
+Recording is unaffected by the flip fix: `stopCamStream()` runs before every
+re-open, so the old track is always released before the new one is requested.
+
+## Landscape clips
+
+An ember is meant to be vertical, but a 16:9 clip picked from the gallery is
+accepted rather than refused. A browser cannot re-encode video — there is no
+codec library in this project and it is not going to grow one — so the shape is
+corrected on the way out instead of in the file:
+
+- the thumbnail is drawn **cover** onto a 9:16 canvas, so the stored poster is
+  a vertical crop of the middle of the frame;
+- the Embers tab is a three-across grid of 9:16 cards;
+- the watch page gives an ember a 9:16 player box with `object-fit:contain`,
+  so a landscape ember plays whole inside the vertical frame — letterboxed on
+  black — instead of being cropped or stretched. `v.kind` is what tells the
+  player to do this, which is why `/api/video` selects it.
+
+If a genuine re-encode is ever wanted, it belongs in the worker, not here.
+
+## Shorts
+
+Tapping an ember opens the full-screen vertical player rather than the
+landscape watch page. Every route to an ember goes there — the Embers tab, the
+history list, a link — because `loadWatch` bounces anything with
+`kind === "ember"` straight into it.
+
+- The track is a plain `scroll-snap-type: y mandatory` column, so the swipe,
+  the snap and the momentum come from the platform rather than from hand-rolled
+  touch maths. An `IntersectionObserver` picks the current slide and plays it;
+  the others pause.
+- Slides are built on open and torn down on close, so no page ever holds fifty
+  paused video elements.
+- Tap to pause, with a play glyph as the only cue — a panel with no visible
+  controls has to say something when it stops.
+- Clips start muted. A browser will not autoplay sound before a user gesture,
+  and a panel that sits silent because `play()` was rejected is worse than one
+  that starts quiet behind an unmute button.
+- The right-hand rail is like / dislike / comments / share. Like and dislike hit
+  `/api/video/react` and tapping the active one clears it. Comments have no room
+  in a full-screen panel, so that button opens the ordinary watch page — and
+  sets a one-shot `watchPlain` flag, because otherwise `loadWatch` would bounce
+  the ember straight back into here.
+- The Android back button closes the panel; `window.FirFall.onBack` checks it
+  first, above the sheet and above the pushed-screen logic.
+
+The desktop site has its own copy of the same panel in `app.js`, running
+sideways — a desktop window has no column to scroll, so the arrow keys page it
+and `Esc` closes. `android/smoke.mjs` drives both panels and checks they build,
+snap, sit at 9:16 with `object-fit: contain`, and leave nothing behind on
+close.
 
 ## What the app does not do
 

@@ -285,6 +285,52 @@ body:not(.site-down) #downOverlay{display:none}
 @media(max-width:900px){.shelf-row{grid-auto-columns:132px}}
 @media(max-width:800px){.h-center .yt-search input{display:none}.yt-sidebar{display:none}}
 
+/* ---- Shorts: the full-screen vertical player ----
+   Desktop Shorts is a horizontal strip, not a vertical one, so the track
+   scrolls sideways and the arrow keys page it. Scroll-snap does the gesture
+   work and keeps each clip aligned to the window. */
+#shorts{position:fixed;inset:0;z-index:120;background:#000;display:none}
+#shorts.on{display:block}
+.shorts-track{height:100%;display:flex;align-items:center;justify-content:center;
+  overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
+.shorts-track::-webkit-scrollbar{display:none}
+.short{flex:0 0 auto;height:100%;scroll-snap-align:center;scroll-snap-stop:always;
+  display:flex;align-items:center;justify-content:center;position:relative}
+.short-stage{position:relative;height:100%;aspect-ratio:9/16;background:#000;overflow:hidden}
+.short-stage video{width:100%;height:100%;object-fit:contain;background:#000;display:block}
+.short-tap{position:absolute;inset:0;z-index:1;cursor:pointer}
+.short-big{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  z-index:2;opacity:0;transition:opacity .12s;pointer-events:none;font-size:64px;color:#fff}
+.short-stage.paused .short-big{opacity:.92}
+.short-info{position:absolute;left:0;right:78px;bottom:18px;z-index:3;
+  padding:0 16px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.75);pointer-events:none}
+.short-info .sh-at{font-size:15px;font-weight:700;margin-bottom:6px}
+.short-info .sh-ti{font-size:14px;line-height:1.35;display:-webkit-box;
+  -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.short-rail{position:absolute;right:6px;bottom:18px;z-index:3;
+  display:flex;flex-direction:column;align-items:center;gap:16px}
+.short-rail button{background:none;color:#fff;cursor:pointer;display:flex;
+  flex-direction:column;align-items:center;gap:4px;font-size:12px;font-weight:600;
+  text-shadow:0 1px 3px rgba(0,0,0,.75);padding:0;font-family:inherit}
+.short-rail svg{width:28px;height:28px;fill:#fff;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+.short-rail button.on svg{fill:#ff0000}
+.short-rail .sh-av{width:46px;height:46px;border-radius:50%;background:#3f3f3f;
+  border:2px solid #fff;display:flex;align-items:center;justify-content:center;
+  color:#fff;font-weight:700;font-size:17px;cursor:pointer}
+.short-prog{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.22);z-index:4}
+.short-prog i{display:block;height:100%;width:0;background:#ff0000}
+.short-top{position:absolute;left:0;right:0;top:0;z-index:5;display:flex;
+  align-items:center;gap:10px;padding:16px 18px;background:linear-gradient(rgba(0,0,0,.5),transparent)}
+.short-top button{color:#fff;background:rgba(0,0,0,.35);border:0;border-radius:50%;
+  width:38px;height:38px;cursor:pointer;font-size:20px;line-height:1;display:flex;
+  align-items:center;justify-content:center;font-family:inherit}
+.short-top svg{width:22px;height:22px;fill:#fff}
+.short-top .sh-lbl{flex:1;text-align:center;font-size:15px;font-weight:700;color:#fff;
+  text-shadow:0 1px 3px rgba(0,0,0,.7)}
+/* The room either side of the 9:16 stage is dead black on a wide window. */
+.shorts-hint{position:absolute;bottom:22px;left:0;right:0;text-align:center;
+  color:#666;font-size:12px;z-index:2;pointer-events:none}
+
 .ip-fp{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:#9aa0a6;background:#1f1f1f;border:1px solid #303030;border-radius:4px;padding:1px 6px;letter-spacing:.3px;cursor:help}
 
 

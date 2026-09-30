@@ -60,6 +60,10 @@ check("AndroidManifest.xml present", byName.has("AndroidManifest.xml"));
 check("classes.dex present", byName.has("classes.dex"));
 check("resources.arsc present", byName.has("resources.arsc"));
 check("assets/index.html present", byName.has("assets/index.html"));
+// The page loads its logo with a RELATIVE src, which under file:///android_asset/
+// means assets/logo.png. If it is not bundled the app silently falls back to the
+// SVG flame on every launch - the bug this check exists to stop repeating.
+check("assets/logo.png present", byName.has("assets/logo.png"));
 // AndroidManifest.xml first, then the resources, then the dex, which is the
 // order aapt2 produces and the order the installer expects.
 check("AndroidManifest.xml is the first entry", entries[0].name === "AndroidManifest.xml",
@@ -101,6 +105,17 @@ if (byName.has("assets/index.html")) {
     packed.length + " vs " + source.length + " bytes");
   const html = packed.toString("utf8");
   check("HTML points at the live API", html.includes("firfall-auth.b8golddude.workers.dev"));
+  // An absolute src cannot resolve under file://, and an onerror attribute whose
+  // SVG fallback contains double quotes is a SyntaxError. Both shipped here.
+  check("logo src is relative", /<img src="logo\.png/.test(html) || html.includes('"logo.png"'),
+    "expected a bare relative logo.png, not /mobile/logo.png");
+  // The feed thumbnail's own onerror="this.style.display='none'" is fine - it
+  // holds no quotes. The logo's is not: its SVG fallback has double quotes in
+  // it, which truncated the attribute and made the whole script a SyntaxError.
+  const logoLine = html.split("\n").find(l => /alt="FirFall"/.test(l)) || "";
+  check("logo fallback is assigned, not an onerror attribute",
+    !!logoLine && !/\bonerror=/.test(logoLine) && /logoSrc/.test(logoLine),
+    logoLine.trim().slice(0, 120));
   check("HTML has the bottom nav", html.includes('id="nav"'));
   check("HTML has no sample/fake video ids",
     !/vcard\("?sample/i.test(html));

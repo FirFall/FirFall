@@ -486,12 +486,193 @@ async function loadEmbers() {
         '<div class="ember-meta"><h3></h3><p></p></div>';
       b.querySelector('h3').textContent = v.title;
       b.querySelector('p').textContent = v.owner + ' • ' + timeAgo(v.created_at);
-      b.onclick = () => { location.hash = '#/watch/' + v.id; };
+      // The shelf hands over the whole list it was built from, so paging
+      // through the viewer walks the shelf rather than refetching.
+      b.onclick = () => openShorts(list, v.id);
       row.appendChild(b);
     });
     shelf.classList.remove('hidden');
   } catch { shelf.classList.add('hidden'); }
 }
+// ---- Shorts: the full-screen vertical player ----
+// One ember per screen with the Shorts gesture. On the phone that gesture is
+// vertical, so the track scrolls down a column; on a desktop window there is
+// no column to scroll, so it runs sideways and the arrow keys page it. Both
+// are the same component - a scroll-snap track and an IntersectionObserver
+// that decides which slide is current - which is why one implementation
+// covers both.
+//
+// Every clip starts muted: a browser will not autoplay sound before a user
+// gesture, and a Shorts panel that sits silent because play() was rejected is
+// worse than one that starts quiet with an obvious unmute button.
+let shortsIO = null, shortsList = [], shortsMuted = true, watchPlain = false;
+// True when the panel was opened from a #/watch/... link rather than the shelf,
+// so closing it puts the address bar back where it started.
+let shortsPushed = false;
+
+function shortSlide(v, i) {
+  return '<div class="short" data-i="' + i + '">' +
+    '<div class="short-stage">' +
+      '<video playsinline loop muted preload="none" poster="' + esc(API + '/t/' + v.id) + '"></video>' +
+      '<div class="short-tap"></div>' +
+      '<div class="short-big">&#9654;</div>' +
+      '<div class="short-info"><div class="sh-at">@' + esc(v.owner) + '</div>' +
+        '<div class="sh-ti">' + esc(v.title) + '</div></div>' +
+      '<div class="short-rail">' +
+        '<div class="sh-av" data-ch="' + esc(v.owner) + '">' + esc((v.owner[0] || '?').toUpperCase()) + '</div>' +
+        '<button data-a="like" class="s-like" aria-label="Like"><svg viewBox="0 0 24 24"><path d="M18.77 11h-4.23l1.52-4.94C16.38 5.03 15.54 4 14.38 4c-.58 0-1.14.24-1.52.65L7 11H3v10h4h1h9.43c1.06 0 1.98-.67 2.19-1.61l1.34-6C21.23 12.15 20.18 11 18.77 11z"/></svg><span>Like</span></button>' +
+        '<button data-a="dislike" class="s-dislike" aria-label="Dislike"><svg viewBox="0 0 24 24"><path d="M5.23 13h4.23l-1.52 4.94C7.62 18.97 8.46 20 9.62 20c.58 0 1.14-.24 1.52-.65L17 13h4V3h-4H8.57c-1.06 0-1.98.67-2.19 1.61l-1.34 6C4.77 11.85 5.82 13 7.23 13z"/></svg><span></span></button>' +
+        '<button data-a="comment" class="s-cmt" aria-label="Comments"><svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg><span></span></button>' +
+        '<button data-a="share" class="s-share" aria-label="Share"><svg viewBox="0 0 24 24"><path d="M15 5.63 20.66 12 15 18.37V14h-1c-3.96 0-7.14 1-9.75 3.09 1.84-4.07 5.11-6.4 9.89-7.1l.86-.13V5.63M14 3v6C6.22 10.13 3.11 15.33 2 21c2.78-3.97 6.44-5.78 12-5.78V21l8-9-8-9z"/></svg><span>Share</span></button>' +
+      '</div>' +
+      '<div class="short-prog"><i></i></div>' +
+    '</div></div>';
+}
+
+// list omitted = fetch it. The shelf already has the array, so it passes one in
+// and you page through exactly what you were looking at.
+function openShorts(list, startId) {
+  if (!list) {
+    fetch(API + '/api/videos?kind=ember&limit=50').then(r => r.json()).then(j => openShorts(j.videos || [], startId))
+      .catch(() => {});
+    return;
+  }
+  const items = (list || []).filter(v => v && v.id);
+  if (!items.length) return;
+  shortsList = items;
+  const track = document.getElementById('shortsTrack');
+  track.innerHTML = items.map(shortSlide).join('');
+  document.getElementById('shorts').classList.add('on');
+  wireShorts();
+  let at = 0;
+  items.forEach((v, i) => { if (v.id === startId) at = i; });
+  // clientWidth is only meaningful once the overlay is displayed.
+  track.scrollLeft = at * track.clientWidth;
+  observeShorts();
+  paintShortMute();
+}
+function wireShorts() {
+  const track = document.getElementById('shortsTrack');
+  track.querySelectorAll('.short').forEach(sl => {
+    const v = shortsList[+sl.dataset.i];
+    const video = sl.querySelector('video'), stage = sl.querySelector('.short-stage');
+    sl.querySelector('.short-tap').onclick = () => {
+      if (video.paused) { video.play().catch(() => {}); stage.classList.remove('paused'); }
+      else { video.pause(); stage.classList.add('paused'); }
+    };
+    video.addEventListener('timeupdate', () => {
+      const f = video.duration && isFinite(video.duration) ? video.currentTime / video.duration : 0;
+      sl.querySelector('.short-prog i').style.width = (f * 100).toFixed(2) + '%';
+    });
+    sl.querySelector('.sh-av').onclick = () => { closeShorts(); location.hash = '#/channel/' + v.owner; };
+    sl.querySelector('[data-a="like"]').onclick = () => shortReact(sl, 'like');
+    sl.querySelector('[data-a="dislike"]').onclick = () => shortReact(sl, 'dislike');
+    // Comments live on the full watch page, so that button asks for it - and
+    // watchPlain stops renderWatch bouncing an ember straight back in here.
+    sl.querySelector('[data-a="comment"]').onclick = () => { watchPlain = true; closeShorts(); location.hash = '#/watch/' + v.id; };
+    sl.querySelector('[data-a="share"]').onclick = e => shareShort(e.currentTarget, v);
+  });
+}
+function observeShorts() {
+  if (shortsIO) shortsIO.disconnect();
+  shortsIO = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      const video = e.target.querySelector('video');
+      if (e.isIntersecting && e.intersectionRatio > 0.6) shortActivate(e.target);
+      else if (video && !video.paused) video.pause();
+    });
+  }, { root: document.getElementById('shortsTrack'), threshold: [0, 0.6] });
+  document.querySelectorAll('#shortsTrack .short').forEach(sl => shortsIO.observe(sl));
+}
+function shortActivate(sl) {
+  const v = shortsList[+sl.dataset.i];
+  if (!v) return;
+  const video = sl.querySelector('video');
+  if (!video.getAttribute('src')) video.src = mediaUrlWithToken('v', v.id);
+  try { video.currentTime = 0; } catch (e) {}
+  sl.querySelector('.short-stage').classList.remove('paused');
+  video.play().catch(() => {});
+  fetch(API + '/api/video/view', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: v.id })
+  }).catch(() => {});
+  shortPaint(sl, v.id);
+}
+function shortPaint(sl, id) {
+  fetch(API + '/api/video?id=' + encodeURIComponent(id)).then(r => r.json()).then(j => {
+    const lk = sl.querySelector('.s-like'), ds = sl.querySelector('.s-dislike');
+    lk.classList.toggle('on', j.reaction === 'like');
+    ds.classList.toggle('on', j.reaction === 'dislike');
+    lk.querySelector('span').textContent = j.likes ? fmt(j.likes) : 'Like';
+  }).catch(() => {});
+}
+function shortReact(sl, kind) {
+  if (!me()) { closeShorts(); setMode('login'); modal.classList.remove('hidden'); return; }
+  const v = shortsList[+sl.dataset.i];
+  if (!v) return;
+  const btn = sl.querySelector(kind === 'like' ? '.s-like' : '.s-dislike');
+  const want = btn.classList.contains('on') ? 'none' : kind;   // tapping again clears it
+  fetch(API + '/api/video/react', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+    body: JSON.stringify({ id: v.id, kind: want })
+  }).then(r => r.json()).then(j => {
+    sl.querySelector('.s-like').classList.toggle('on', j.reaction === 'like');
+    sl.querySelector('.s-dislike').classList.toggle('on', j.reaction === 'dislike');
+    sl.querySelector('.s-like span').textContent = j.likes ? fmt(j.likes) : 'Like';
+  }).catch(() => {});
+}
+// The site copies a link; there is no native share sheet on the desktop, and
+// inventing one would be a worse experience than the clipboard.
+async function shareShort(btn, v) {
+  const link = location.origin + location.pathname + '#/watch/' + v.id;
+  const done = () => {
+    btn.querySelector('span').textContent = 'Copied';
+    setTimeout(() => { if (btn.isConnected) btn.querySelector('span').textContent = 'Share'; }, 1500);
+  };
+  try { await navigator.clipboard.writeText(link); done(); }
+  catch { prompt('Copy link:', link); }
+}
+function mediaUrlWithToken(kind, id) {
+  const u = API + (kind === 'v' ? '/v/' : '/t/') + encodeURIComponent(id);
+  return token() ? u + '?token=' + encodeURIComponent(token()) : u;
+}
+function paintShortMute() {
+  const b = document.getElementById('shortMute');
+  if (b) b.innerHTML = shortsMuted
+    ? '<svg viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"/></svg>'
+    : '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>';
+}
+function toggleShortMute() {
+  shortsMuted = !shortsMuted;
+  paintShortMute();
+  document.querySelectorAll('#shortsTrack video').forEach(v => { v.muted = shortsMuted; });
+}
+function closeShorts() {
+  if (shortsIO) { shortsIO.disconnect(); shortsIO = null; }
+  const track = document.getElementById('shortsTrack');
+  track.querySelectorAll('video').forEach(v => { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} });
+  track.innerHTML = '';
+  document.getElementById('shorts').classList.remove('on');
+  shortsList = [];
+  // Opened from a #/watch/... link? Put the address bar back to the shelf, or
+  // Reload would drop you straight back into the panel you just closed.
+  if (shortsPushed) { shortsPushed = false; location.hash = '#/'; }
+}
+document.getElementById('shortsClose').onclick = closeShorts;
+document.getElementById('shortMute').onclick = toggleShortMute;
+paintShortMute();
+// Arrow keys page the strip; Esc closes. Bound on the document because the
+// track itself is not focusable and focus may be anywhere on the page.
+document.addEventListener('keydown', e => {
+  if (!document.getElementById('shorts').classList.contains('on')) return;
+  if (e.key === 'Escape') { closeShorts(); return; }
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  e.preventDefault();
+  const track = document.getElementById('shortsTrack');
+  track.scrollBy({ left: (e.key === 'ArrowRight' ? 1 : -1) * track.clientWidth, behavior: 'smooth' });
+});
+
 // Search + chips (working)
 document.getElementById('searchInput').addEventListener('input', (e) => { homeQuery = e.target.value.trim(); loadHome(); });
 document.getElementById('chips').addEventListener('click', (e) => {
@@ -706,6 +887,19 @@ async function renderWatch(id) {
     if (!r.ok) { document.getElementById('wTitle').textContent = 'Video not found.'; return; }
     const { video: v, likes, reaction } = await r.json();
     currentVideo = v;
+    // An ember opened by link or from a list goes to the full-screen vertical
+    // player. watchPlain is the comment button inside that player, which asked
+    // for the full page on purpose; the flag is consumed either way.
+    if (v.kind === 'ember' && !watchPlain) {
+      watchPlain = false;
+      // Already showing this clip: the router can fire twice for one Back, and
+      // rebuilding the panel under the user would throw away their place.
+      const already = document.getElementById('shorts').classList.contains('on') &&
+        shortsList.some(x => x.id === v.id);
+      if (!already) { shortsPushed = true; openShorts(null, v.id); }
+      return;
+    }
+    watchPlain = false;
     const q = me() ? '?token=' + encodeURIComponent(token()) : '';
     player.poster = API + '/t/' + v.id + q;
     player.src = API + '/v/' + v.id + q;
@@ -1275,6 +1469,14 @@ async function adminUpdate(target, patch, tr) {
 
 function router() {
   if (SITE_DOWN) return;
+  // Back must close the Shorts panel before it changes anything underneath.
+  // The overlay is not part of the view stack, so without this the URL moves
+  // to '#/' while a full-screen video is still sitting on top of the page.
+  if (document.getElementById('shorts').classList.contains('on')) {
+    const sm = location.hash.match(/^#\/watch\/([A-Za-z0-9-]+)\/?$/);
+    const id = sm && sm[1];
+    if (!id || !shortsList.some(v => v.id === id)) { shortsPushed = false; closeShorts(); }
+  }
   const sh = document.getElementById('adminShieldBtn');
   if (sh) sh.classList.remove('on');
   let m = location.hash.match(/^#\/watch\/([A-Za-z0-9-]+)\/?$/);
