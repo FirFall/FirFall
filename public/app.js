@@ -41,12 +41,33 @@ function refreshAuthUI() {
   if (u) {
     signInAvatar.textContent = u[0].toUpperCase(); menuUser.textContent = '@' + u; menuAvatar.textContent = u[0].toUpperCase();
     notifKnown = parseInt(localStorage.getItem('firfall_notif_known') || '0', 10) || 0;
-    if (!SITE_DOWN) loadNotifs(false);
+    if (!SITE_DOWN) { loadNotifs(false); syncRole(); }
   } else {
     accountMenu.classList.add('hidden');
     notifPanel.classList.add('hidden');
     notifBadge.classList.add('hidden');
   }
+}
+// The cached role in localStorage goes stale when an admin is promoted or demoted
+// while they are already signed in, which silently hides the admin panel. Ask the
+// server for the authoritative role on every load and update the UI if it changed.
+async function syncRole() {
+  const t = localStorage.getItem('firfall_token');
+  if (!t) return;
+  try {
+    const r = await fetch(API + '/api/me', { headers: { Authorization: 'Bearer ' + t } });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (!j || !j.role) return;
+    if (localStorage.getItem('firfall_role') !== j.role) {
+      localStorage.setItem('firfall_role', j.role);
+      const adminNav = document.getElementById('adminNav');
+      if (adminNav) adminNav.classList.toggle('hidden', j.role !== 'admin');
+      const shield = document.getElementById('adminShieldBtn');
+      if (shield) shield.classList.toggle('hidden', j.role !== 'admin');
+      if (j.role === 'admin' && location.hash.startsWith('#/admin')) router();
+    }
+  } catch { }
 }
 function setMode(m) {
   mode = m;

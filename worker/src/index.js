@@ -274,6 +274,11 @@ var index_default = {
         await env.DB.prepare("UPDATE users SET last_ip=? WHERE username=?").bind(ip, u).run();
         return json(200, { username: row.username, token, role: row.role || "user" });
       }
+      if (req.method === "GET" && url.pathname === "/api/me") {
+        const user = await authedUser();
+        if (!user) return json(401, { error: "Not signed in." });
+        return json(200, { username: user.username, role: user.role || "user" });
+      }
       if (req.method === "GET" && url.pathname === "/api/count") {
         const row = await env.DB.prepare("SELECT COUNT(*) c FROM users").first();
         return json(200, { users: row.c });
