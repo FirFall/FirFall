@@ -462,6 +462,30 @@ input,textarea{font:inherit}
 #camReview{position:absolute;inset:0;display:none;background:#000;z-index:3}
 #camReview.on{display:block}
 #camReview video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+
+/* ---------- mic level ----------
+   Live proof the microphone is capturing, because a clip with no sound looks
+   identical to a good one until it is uploaded and played back. Driven by a
+   real AnalyserNode on the captured track, not a guess from the permission
+   state: having the permission says nothing about whether anything is arriving.
+   When there is no audio track, or it never moves while recording, the label
+   says so in words rather than leaving a flat bar to be interpreted. */
+#camMic{position:absolute;top:calc(var(--safeTop) + 62px);right:14px;z-index:4;
+  display:flex;align-items:center;gap:7px;padding:6px 10px;border-radius:18px;
+  background:rgba(0,0,0,.45);font-size:11px;color:#ddd;letter-spacing:.4px;
+  max-width:calc(100vw - 28px)}
+#camMicIcon{font-size:9px;color:#ff4d4d;line-height:1;flex:0 0 auto}
+#camMic .mic-bar{width:46px;height:5px;border-radius:3px;background:rgba(255,255,255,.22);overflow:hidden;flex:0 0 auto}
+#camMic .mic-bar i{display:block;height:100%;width:0;background:#4dd07a;transition:width .08s linear}
+#camMic.off #camMicIcon{color:#888}
+#camMic.off .mic-bar i{background:#888}
+#camMic.live #camMicIcon{animation:micPulse .9s ease-in-out infinite}
+@keyframes micPulse{0%,100%{opacity:1}50%{opacity:.35}}
+/* Recording with a mic that is definitely picking up nothing: said outright,
+   because silence in the clip is invisible until it is played back. */
+#camMic.silent{color:#ffb02e}
+#camMic.silent #camMicIcon{color:#ffb02e;animation:none}
+#camMic.silent .mic-bar i{background:#ffb02e}
 .cam-actions{position:absolute;bottom:calc(var(--nav) + var(--safeBot) + 18px);left:0;right:0;
   display:flex;justify-content:center;gap:14px;z-index:2}
 .cam-actions button{flex:0 0 auto;min-width:110px;padding:11px 18px;border-radius:22px;
@@ -687,6 +711,10 @@ input,textarea{font:inherit}
     <span></span>
   </div>
   <div id="camTimer"><span class="dot"></span><span id="camTimerTxt">0:00 / 0:60</span></div>
+  <!-- Whether the mic is actually picking anything up. Recording silently and
+       finding out afterwards is the worst version of this: the clip looks fine
+       and is unusable. Driven by a real AnalyserNode on the captured track. -->
+  <div id="camMic" class="off"><span id="camMicIcon">&#9679;</span><div class="mic-bar"><i id="camMicFill"></i></div><span id="camMicTxt">mic</span></div>
   <div id="camReview">
     <video id="reviewVideo" playsinline loop></video>
     <div class="cam-actions">
@@ -2402,11 +2430,12 @@ function startCam(facing, flipping, announce){
   stopCamStream();
   var tries = flipping ? CAM_FLIP_TRIES : CAM_TRIES;
   var i = 0;
-  // Retries spent on the rung we are currently on. This is a plain counter and
-  // not a property of the rung, because each call to a rung function builds a
-  // fresh constraints object: hanging the count off it reset the counter on
-  // every retry and looped on one rung for ever.
-  var busyAt = 0;
+  // Retries spent on the rung we are currently on. Reset ONLY when the rung
+  // index actually changes - see attempt(). Resetting it on every call meant
+  // the counter never rose past 1, so a phone that kept answering "busy" was
+  // retried for ever: no camera, and no error message either, which is exactly
+  // how the camera came to look simply broken.
+  var busyAt = 0, rungAt = -1;
   // A generation that has been overtaken is not allowed to keep asking for the
   // camera. Without this, two fast flips leave both ladders retrying and the
   // user gets one "busy" message for a camera that is working.
@@ -2426,9 +2455,12 @@ function startCam(facing, flipping, announce){
       } else camFail("nocam");
       return;
     }
-    var rung = tries[i++](facing);
+    var idx = i++;
+    var rung = tries[idx](facing);
     var cons = rung.cons, anyRung = rung.any;
-    busyAt = 0;                                  // a new rung starts fresh
+    // A genuinely new rung gets a fresh budget; a retry of the SAME rung (which
+    // comes back here with i-- and the same idx) keeps what it has spent.
+    if (idx !== rungAt) { rungAt = idx; busyAt = 0; }
     navigator.mediaDevices.getUserMedia(cons).then(function(s){
       if (!live()) { dead(s); return; }
       if (!anyRung && !camMatches(s, facing)) {
@@ -2456,6 +2488,8 @@ function startCam(facing, flipping, announce){
       // Mirror on the real facing when we have one, else on what we asked for.
       v.classList.toggle("mirror", (camFacingOf(s) || facing) === "user");
       v.play().catch(function(){});
+      // Once there is a stream there is something to measure the mic on.
+      micWatch();
       if (announce) toast((camFacingOf(s) || facing) === "user" ? "Front camera" : "Back camera");
     }).catch(function(e){
       if (!live()) return;
@@ -2510,7 +2544,115 @@ function camFail(reason){
   $("camGal").onclick = function(){ closeSheet(); $("emberFile").value = ""; $("emberFile").click(); };
   $("camCancel").onclick = closeSheet;
 }
+/* ---- mic level ----
+   "I cannot tell if the mic works" was the actual complaint, so this shows it
+   rather than describing it. An AnalyserNode is put on the captured audio track
+   and polled for the RMS level, which is the only honest answer: the permission
+   being granted says nothing about whether sound is arriving, and neither does
+   the track existing.
+
+   Three states, all visible:
+     off    - no audio track in the stream at all (permission refused, or the
+              device refused the mic): "no mic", said plainly.
+     silent - a track exists but the level has not moved while recording:
+              "no sound". This is the one that used to be invisible, because
+              the finished clip looks perfect and plays back as silence.
+     live   - levels are arriving.
+
+   The context is created on the first stream and kept, because creating an
+   AudioContext needs a user gesture and re-creating it per take leaks. */
+var camAudioCtx = null, camAnalyser = null, camAudioBuf = null, camMicIv = null;
+var camMicPeak = 0, camMicHeard = false;
+/* Silence is only meaningful once someone is actually recording, and only after
+   a moment: a half-second of talking before the clip starts would otherwise
+   look like a dead mic. */
+var MIC_GRACE_MS = 900;
+function micPaint(state, pct){
+  var w = $("camMic");
+  if (!w) return;
+  w.classList.remove("off", "live", "silent");
+  if (state) w.classList.add(state);
+  var fill = $("camMicFill");
+  if (fill) fill.style.width = Math.max(0, Math.min(100, Math.round(pct))) + "%";
+  var t = $("camMicTxt");
+  if (t) t.textContent = state === "off" ? "no mic" : state === "silent" ? "no sound" : "mic";
+}
+function micReset(){
+  if (camMicIv) { clearInterval(camMicIv); camMicIv = null; }
+  camAnalyser = null; camAudioBuf = null; camMicPeak = 0; camMicHeard = false;
+  micPaint("off", 0);
+}
+function micWatch(){
+  micReset();
+  var tracks = camStream && camStream.getAudioTracks ? camStream.getAudioTracks() : [];
+  var at = tracks && tracks[0];
+  if (!at || at.readyState === "ended" || (at.enabled === false)) {
+    // No microphone in this stream. The ladder already tried with audio; this
+    // is the rung that gave up on it, and the user deserves to know why the
+    // clip will be silent rather than finding out after posting it.
+    micPaint("off", 0);
+    return;
+  }
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) { micPaint("live", 40); return; }
+  try {
+    if (!camAudioCtx) camAudioCtx = new AC();
+    if (camAudioCtx.state === "suspended" && camAudioCtx.resume) camAudioCtx.resume();
+    // The track goes in directly. Wrapping it in a new MediaStream first -
+    // which is what this did - throws on some WebView builds, and the throw was
+    // being swallowed into camAnalyser = null, which the meter then reported as
+    // "no mic". The symptom was the meter insisting there was no microphone on
+    // a phone that had one working.
+    var src = camAudioCtx.createMediaStreamSource(at);
+    camAnalyser = camAudioCtx.createAnalyser();
+    camAnalyser.fftSize = 512;
+    camAnalyser.smoothingTimeConstant = 0.6;
+    src.connect(camAnalyser);
+    // Deliberately NOT connected to the destination. Routing the mic to the
+    // speaker would play it back and howl, and this is a meter, not a monitor.
+    camAudioBuf = new Uint8Array(camAnalyser.fftSize);
+  } catch (e) {
+    // The meter cannot run on this device, but the microphone may still be
+    // recording perfectly well - so this must NOT be reported as "no mic".
+    // Saying the obvious thing here would be a second lie on top of the first.
+    camAnalyser = null;
+    camAudioBuf = null;
+    micPaint("", 0);
+    var txt = $("camMicTxt");
+    if (txt) txt.textContent = "mic";
+    return;
+  }
+  camMicIv = setInterval(function(){
+    if (!camAnalyser || !camAudioBuf) return;
+    if (!camStream) { micPaint("off", 0); return; }
+    camAnalyser.getByteTimeDomainData(camAudioBuf);
+    var sum = 0;
+    for (var i = 0; i < camAudioBuf.length; i++) {
+      var d = (camAudioBuf[i] - 128) / 128;
+      sum += d * d;
+    }
+    var rms = Math.sqrt(sum / camAudioBuf.length);
+    // A phone mic in a quiet room sits well under this; anything above is
+    // definitely sound. Scaled so ordinary speech fills a good part of the bar.
+    var pct = Math.min(100, Math.round(rms * 420));
+    camMicPeak = Math.max(camMicPeak, pct);
+    if (pct > 6) camMicHeard = true;
+    if (camRec) {
+      var elapsed = Date.now() - camStart;
+      var state = (camMicHeard || elapsed < MIC_GRACE_MS) ? "live" : "silent";
+      micPaint(state, pct);
+    } else {
+      // Idle: show the room, not the recording state, so the bar is already
+      // doing something useful before the shutter is pressed.
+      micPaint(camMicHeard ? "live" : (pct > 6 ? "live" : ""), pct);
+    }
+  }, 100);
+}
 function stopCamStream(){
+  // The meter holds an AudioContext source built from the old audio track, so
+  // it has to go before the track does. Left running it keeps a dead stream
+  // alive and polls a track that has ended, which reports "no mic" forever.
+  micReset();
   if (camStream) { try { camStream.getTracks().forEach(function(t){ t.stop(); }); } catch(e){} camStream = null; }
   var v = $("camVideo");
   if (v) { try { v.pause(); } catch(e){} v.srcObject = null; }
@@ -2570,6 +2712,11 @@ $("camRec").onclick = function(){
     emberMime = (camRec && camRec.mimeType) || mime || "video/webm";
     emberBlob = new Blob(camChunks, { type: emberMime.split(";")[0] });
     camChunks = [];
+    // If the mic never produced anything, say it here rather than letting a
+    // silent clip reach the feed. People record an ember because they saw
+    // something worth hearing, and a silent one is not worth posting.
+    if (!camMicHeard && camAnalyser)
+      toast("That clip has no sound - the mic picked up nothing");
     var rv = $("reviewVideo");
     rv.src = URL.createObjectURL(emberBlob);
     rv.play().catch(function(){});
@@ -2579,6 +2726,9 @@ $("camRec").onclick = function(){
   try { camRec.start(250); } catch(e) { toast("Could not start recording"); return; }
   $("camRec").classList.add("rec");
   $("camTimer").classList.add("on");
+  // A fresh take starts with a fresh judgement about the mic: levels heard on
+  // the previous clip say nothing about this one.
+  camMicHeard = false;
   camTimerIv = setInterval(function(){
     var s = Math.min(EMBER_MAX_S, Math.round((Date.now() - camStart) / 1000));
     $("camTimerTxt").textContent = "0:" + (s < 10 ? "0" : "") + s + " / 0:60";

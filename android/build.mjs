@@ -74,8 +74,8 @@ run(AAPT2, [
   "--java", join(OUT, "gen"),
   "--min-sdk-version", "24",
   "--target-sdk-version", "35",
-  "--version-code", "4",
-  "--version-name", "1.3",
+  "--version-code", "5",
+  "--version-name", "1.4",
   join(OUT, "res.zip")
 ]);
 

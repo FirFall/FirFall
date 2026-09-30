@@ -594,6 +594,141 @@ function checkShortsTopOverlaysVideo() {
   return true;
 }
 
+/* A camera that stays busy for ever is the case the busy-retry counter exists
+   for, and it is a regression that has already shipped once: the counter was
+   reset at the top of attempt(), so it never rose past 1, and a phone that
+   always answered "busy" was retried on the same rung for ever - no camera and
+   no error message, which reads to a user as "the camera is broken".
+
+   So this drives a device that is busy EVERY time, with a ceiling on how many
+   times it may be asked. What matters is that the ladder gives up and says so
+   rather than spinning: a bounded number of calls, then a reported failure. */
+const CAM_BUSY_DRIVE = `<script>
+(function(){
+  var calls = 0;
+  function fakeStream(facing){
+    return {
+      getVideoTracks: function(){
+        return [{ getSettings: function(){ return { facingMode: facing, deviceId: "dev" }; },
+                  stop: function(){}, readyState: "live" }];
+      },
+      getAudioTracks: function(){
+        return [{ getSettings: function(){ return {}; }, stop: function(){}, readyState: "live", enabled: true }];
+      },
+      getTracks: function(){ return this.getVideoTracks().concat(this.getAudioTracks()); }
+    };
+  }
+  // Always busy. This is the device that broke it.
+  navigator.mediaDevices.getUserMedia = function(){
+    calls++;
+    var e = new Error("device busy");
+    e.name = "NotReadableError";
+    return Promise.reject(e);
+  };
+  window.__camFail = "";
+  window.camFail = function(reason){ window.__camFail = reason; };
+
+  var vEl = document.getElementById("camVideo");
+  if (vEl) Object.defineProperty(vEl, "srcObject", { value: null, writable: true, configurable: true });
+
+  var box = document.createElement("div");
+  box.id = "driveOut"; box.style.display = "none";
+  document.body.appendChild(box);
+  function rec(k, v){ box.textContent += k + "=" + v + ";"; }
+
+  camFacing = "environment";
+  startCam(camFacing);
+  // Generous: 5 rungs x (1 first try + 3 busy retries) with waits of
+  // 500/1000/1500ms each is well over 20s of scheduled time, and this has to
+  // outlast all of it or the ladder is caught mid-walk and looks like it hung.
+  setTimeout(function(){
+    try{
+      rec("busyCalls", calls);
+      rec("busyFail", window.__camFail || "none");
+      rec("busyStream", camStream ? "yes" : "no");
+      rec("micMeterExists", document.getElementById("camMic") ? "yes" : "no");
+      // The meter must have been torn down with the stream, not left polling.
+      rec("micIv", window.camMicIv ? "running" : "stopped");
+    }catch(e){ rec("busyError", e.message); }
+  }, 45000);
+})();
+</script>`;
+
+/* The mic meter, driven against a stream that HAS an audio track and against
+   one that has none. The second case is the reason this is checked: the meter
+   was built by wrapping the track in a fresh MediaStream, which throws on some
+   WebView builds, the throw was swallowed, and the meter reported "no mic" on
+   a phone with a perfectly good microphone. Silently wrong is worse than
+   absent, because a user who believes the mic is dead stops recording.
+
+   So: with a track, the meter must build an analyser and move when sound
+   arrives; with no track it must say "no mic" and mean it. */
+const MIC_DRIVE = (withAudio) => `<script>
+(function(){
+  var phase = 0;
+  function tr(kind, facing){
+    return { getSettings: function(){ return kind === "video" ? { facingMode: facing, deviceId: "d1" } : {}; },
+             stop: function(){}, readyState: "live", enabled: true };
+  }
+  function stream(facing){
+    return { getVideoTracks: function(){ return [tr("video", facing)]; },
+             getAudioTracks: function(){ return ${withAudio ? "[tr('audio')]" : "[]"}; },
+             getTracks: function(){ return this.getVideoTracks().concat(this.getAudioTracks()); } };
+  }
+  navigator.mediaDevices.getUserMedia = function(cons){
+    var v = cons && cons.video, fm = v && v.facingMode;
+    var want = (fm && (fm.exact || fm.ideal)) || "environment";
+    return Promise.resolve(stream(want === "user" ? "user" : "environment"));
+  };
+  var vEl = document.getElementById("camVideo");
+  Object.defineProperty(vEl, "srcObject", { value: null, writable: true, configurable: true });
+  window.AudioContext = function(){
+    this.state = "running";
+    this.createMediaStreamSource = function(){ return { connect: function(){} }; };
+    this.createAnalyser = function(){
+      return { fftSize: 512, smoothingTimeConstant: 0.6,
+               getByteTimeDomainData: function(buf){
+                 var amp = phase < 3 ? 0 : 0.30;
+                 for (var i = 0; i < buf.length; i++)
+                   buf[i] = 128 + Math.round(Math.sin(phase + i / 9) * amp * 127);
+               } };
+    };
+    this.resume = function(){};
+  };
+  var box = document.createElement("div");
+  box.id = "driveOut"; box.style.display = "none";
+  document.body.appendChild(box);
+  function rec(k, v){ box.textContent += k + "=" + v + ";"; }
+
+  camFacing = "environment";
+  document.getElementById("camWrap").classList.add("on");
+  startCam(camFacing);
+  setTimeout(function(){
+    try{
+      var m = document.getElementById("camMic");
+      var b = m.getBoundingClientRect();
+      rec("pillOnScreen", (b.width > 20 && b.left >= -1 && b.right <= window.innerWidth + 1) ? "yes" : "no");
+      rec("audioTracks", camStream ? camStream.getAudioTracks().length : -1);
+      rec("analyser", camAnalyser ? "yes" : "no");
+      rec("labelIdle", document.getElementById("camMicTxt").textContent);
+      // Recording with sound arriving: the bar has to actually move.
+      camRec = { state: "recording", stop: function(){} };
+      camStart = Date.now() - 3000;
+      camMicHeard = false;
+      setInterval(function(){ phase++; }, 100);
+      setTimeout(function(){
+        rec("labelRec", document.getElementById("camMicTxt").textContent);
+        rec("classRec", m.className);
+        rec("heard", camMicHeard ? "yes" : "no");
+        rec("fill", document.getElementById("camMicFill").style.width);
+        var w = parseFloat(document.getElementById("camMicFill").style.width) || 0;
+        rec("moved", w > 10 ? "yes" : "no");
+      }, 2500);
+    }catch(e){ rec("micError", e.message); }
+  }, 1500);
+})();
+</script>`;
+
 function prepare() {
   rmSync(OUT, { recursive: true, force: true });
   mkdirSync(OUT, { recursive: true });
@@ -614,6 +749,9 @@ function prepare() {
     // the relative logo src resolves exactly as it does in the browser.
     if (page === "mobile/index.html") writeFileSync(join(OUT, "mobile", "drive.html"), html.replace("</body>", DRIVE + "</body>"));
     if (page === "mobile/index.html") writeFileSync(join(OUT, "mobile", "camera.html"), html.replace("</body>", CAM_DRIVE + "</body>"));
+    if (page === "mobile/index.html") writeFileSync(join(OUT, "mobile", "camera-busy.html"), html.replace("</body>", CAM_BUSY_DRIVE + "</body>"));
+    if (page === "mobile/index.html") writeFileSync(join(OUT, "mobile", "mic.html"), html.replace("</body>", MIC_DRIVE(true) + "</body>"));
+    if (page === "mobile/index.html") writeFileSync(join(OUT, "mobile", "mic-none.html"), html.replace("</body>", MIC_DRIVE(false) + "</body>"));
     // Same page, but pretending to be the app: one copy one version behind, one
     // copy already current. The stub goes in right after the trap so it exists
     // before the page's script runs.
@@ -698,7 +836,10 @@ function load(path) {
       "--disable-background-networking", "--disable-sync", "--mute-audio",
       "--user-data-dir=" + profile,
       "--host-resolver-rules=MAP " + API_HOST + " 127.0.0.1:9",
-      "--virtual-time-budget=9000",
+      // Long enough for the slowest driven page: the always-busy camera ladder
+      // schedules 5 rungs x 3 retries of 500-1500ms before it gives up, and a
+      // budget that expires mid-walk reports a hang that is not there.
+      "--virtual-time-budget=" + (path.includes("camera-busy") ? 60000 : 12000),
       "--dump-dom", "http://localhost:" + PORT + path
     ];
     const child = spawn(CHROME, args, { stdio: ["ignore", "pipe", "ignore"] });
@@ -922,6 +1063,47 @@ server.listen(PORT, async () => {
     }
     for (const k of ["openError", "flipError", "doubleError"]) if (r[k]) { failed = true; console.log(`  FAIL  camera  threw: ${r[k]}`); }
     console.log(`  ${failed ? "FAIL" : "ok  "}  camera  flip waits for the release and retries the same rung (${r.flipCalls} calls, still on "${r.flipFacing}")`);
+  }
+
+  // A camera that is busy every single time must be given up on, not retried for
+  // ever. This is the regression that shipped once already.
+  const busy = await load("/mobile/camera-busy.html");
+  const bm = busy.dom && /<div id="driveOut"[^>]*>([\s\S]*?)<\/div>/i.exec(busy.dom);
+  if (!bm) { failed = true; console.log("  FAIL  cam-busy  the driver never reported"); }
+  else {
+    const r = {};
+    for (const kv of bm[1].split(";")) { const i = kv.indexOf("="); if (i > 0) r[kv.slice(0, i)] = kv.slice(i + 1); }
+    if (r.busyError) { failed = true; console.log(`  FAIL  cam-busy  threw: ${r.busyError}`); }
+    // 5 rungs x 4 tries (first + 3 busy retries) = 20. Anything above that is
+    // the infinite retry, which is the bug.
+    const n = Number(r.busyCalls);
+    if (!(n > 0 && n <= 20)) { failed = true; console.log(`  FAIL  cam-busy  asked the busy camera ${r.busyCalls} times (max 20)`); }
+    if (r.busyFail === "none") { failed = true; console.log("  FAIL  cam-busy  never reported a failure after exhausting the ladder"); }
+    if (r.busyStream !== "no") { failed = true; console.log(`  FAIL  cam-busy  kept a stream from a camera that never opened (${r.busyStream})`); }
+    if (r.micIv !== "stopped") { failed = true; console.log(`  FAIL  cam-busy  the mic meter is still polling after the stream died (${r.micIv})`); }
+    console.log(`  ${failed ? "FAIL" : "ok  "}  cam-busy  a permanently busy camera gives up after ${r.busyCalls} tries and says so (${r.busyFail})`);
+  }
+
+  // The mic meter: with a track and without one. Both directions matter, because
+  // the failure mode is a meter that confidently lies in either direction.
+  for (const [path, want] of [
+    ["/mobile/mic.html", { pillOnScreen: "yes", audioTracks: "1", analyser: "yes", labelIdle: "mic",
+      labelRec: "mic", classRec: "live", heard: "yes", moved: "yes" }],
+    ["/mobile/mic-none.html", { pillOnScreen: "yes", audioTracks: "0", analyser: "no", labelIdle: "no mic" }]
+  ]) {
+    const mic = await load(path);
+    const mm = mic.dom && /<div id="driveOut"[^>]*>([\s\S]*?)<\/div>/i.exec(mic.dom);
+    if (!mm) { failed = true; console.log(`  FAIL  mic      ${path} never reported`); continue; }
+    const r = {};
+    for (const kv of mm[1].split(";")) { const i = kv.indexOf("="); if (i > 0) r[kv.slice(0, i)] = kv.slice(i + 1); }
+    if (r.micError) { failed = true; console.log(`  FAIL  mic      ${path} threw: ${r.micError}`); continue; }
+    for (const [k, v] of Object.entries(want)) {
+      if (r[k] !== v) { failed = true; console.log(`  FAIL  mic      ${path} ${k} was "${r[k]}", expected "${v}"`); }
+    }
+    if (want.analyser === "yes")
+      console.log(`  ${failed ? "FAIL" : "ok  "}  mic      level meter runs off the captured track and moves with sound (${r.fill})`);
+    else
+      console.log(`  ${failed ? "FAIL" : "ok  "}  mic      a stream with no audio track honestly says "no mic"`);
   }
 
   // The update gate, driven both ways round.
