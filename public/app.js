@@ -833,6 +833,9 @@ async function renderChannel(name) {
     if (c.avatar) { avImg.src = API + c.avatar + '?t=' + Date.now(); avImg.classList.remove('hidden'); avFb.classList.add('hidden'); }
     else { avImg.classList.add('hidden'); avFb.classList.remove('hidden'); avFb.textContent = c.username[0].toUpperCase(); }
     document.getElementById('chOwnBar').classList.toggle('hidden', !own);
+    // Ask the server whether a deletion is already pending, so the button
+    // turns into the status (and the way out) instead of filing a second one.
+    if (own) paintDeleteState();
     meta.textContent = '@' + c.username + ' • ' + fmt(c.subscribers) + ' subscribers • ' + c.videos + ' videos';
     // The bio, on the profile itself. It used to sit only behind the About tab,
     // so a channel with a good description looked like it had none unless you
@@ -2141,6 +2144,10 @@ async function renderAdmin() {
     return;
   }
   box.innerHTML = '<p class="modal-sub">Loading users…</p>';
+  // Deletion requests sit above the user table: they are the one item with a
+  // deadline attached, and burying them under a list of accounts would mean
+  // they get met late - or not at all, which the 3-day sweep then does instead.
+  box.appendChild(await deletionQueue());
   let users = [];
   try {
     const r = await fetch(API + '/api/admin/users', { headers: { 'Authorization': 'Bearer ' + token() } });
@@ -2736,3 +2743,136 @@ if (!SITE_DOWN) router();
   // A beat after boot, so it does not land on top of the first paint of the feed.
   setTimeout(() => box.classList.remove('hidden'), 700);
 })();
+
+/* ---- account deletion ----
+   A member asks to be deleted, an admin confirms, and if nobody does it goes
+   through on its own after three days. The cancel path is not a nicety: without
+   it, changing your mind is not an option and a stray tap becomes a deletion
+   three days later. */
+const delModal = document.getElementById('delModal');
+
+function closeDelModal() { if (delModal) delModal.classList.add('hidden'); }
+
+async function paintDeleteState() {
+  const btn = document.getElementById('chDeleteBtn');
+  const state = document.getElementById('chDeleteState');
+  if (!btn || !state) return;
+  if (!me()) { btn.classList.add('hidden'); state.classList.add('hidden'); return; }
+  btn.classList.remove('hidden');
+  state.classList.add('hidden');
+  try {
+    const r = await fetch(API + '/api/account/delete-request',
+      { headers: { 'Authorization': 'Bearer ' + token() } });
+    const j = await r.json();
+    if (r.ok && j.pending) {
+      // The date is the whole point: "it will happen on its own" is only
+      // reassuring if the person can see when.
+      state.textContent = 'Deletion requested — goes through ' +
+        (j.auto_delete_at ? new Date(j.auto_delete_at).toLocaleDateString() : 'shortly') +
+        '. ';
+      const undo = document.createElement('button');
+      undo.className = 'ch-del-undo';
+      undo.textContent = 'Cancel';
+      undo.onclick = async () => {
+        await fetch(API + '/api/account/delete-cancel',
+          { method: 'POST', headers: { 'Authorization': 'Bearer ' + token() } });
+        ok('Deletion cancelled.');
+        paintDeleteState();
+      };
+      state.appendChild(undo);
+      state.classList.remove('hidden');
+      btn.classList.add('hidden');
+    }
+  } catch { /* offline: the button still works and the server has the final say */ }
+}
+
+document.getElementById('chDeleteBtn').onclick = () => {
+  if (!me()) { setMode('login'); modal.classList.remove('hidden'); return; }
+  document.getElementById('delWho').textContent = '@' + me();
+  document.getElementById('delReason').value = '';
+  delModal.classList.remove('hidden');
+};
+document.getElementById('delCancel').onclick = closeDelModal;
+document.getElementById('delSend').onclick = async () => {
+  const btn = document.getElementById('delSend');
+  btn.disabled = true;
+  try {
+    const r = await fetch(API + '/api/account/delete-request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+      // The reason is optional, and sending it as an empty string rather than
+      // omitting it keeps the request body well formed either way.
+      body: JSON.stringify({ reason: document.getElementById('delReason').value.trim() })
+    });
+    const j = await r.json();
+    if (!r.ok) { alert(j.error || 'Could not send that request.'); btn.disabled = false; return; }
+    closeDelModal();
+    ok('Requested. It goes through ' +
+      (j.auto_delete_at ? new Date(j.auto_delete_at).toLocaleDateString() : 'shortly') + ' at the latest.');
+    paintDeleteState();
+  } catch { alert('Could not reach FirFall.'); btn.disabled = false; }
+};
+
+/* The admin side: a queue of people who asked to be deleted, oldest first,
+   each with the reason they gave and the date it happens on its own. */
+async function deletionQueue() {
+  const wrap = document.createElement('div');
+  wrap.className = 'fs-card del-queue';
+  let rows = [];
+  try {
+    const r = await fetch(API + '/api/admin/deletions', { headers: { 'Authorization': 'Bearer ' + token() } });
+    if (r.ok) rows = (await r.json()).requests || [];
+  } catch { wrap.innerHTML = '<h3>Account deletion</h3><p class="modal-sub">Queue unavailable.</p>'; return wrap; }
+
+  const h = document.createElement('h3');
+  h.textContent = 'Account deletion requests';
+  wrap.appendChild(h);
+  if (!rows.length) {
+    const p = document.createElement('p');
+    p.className = 'modal-sub';
+    p.textContent = 'Nobody is waiting to be deleted.';
+    wrap.appendChild(p);
+    return wrap;
+  }
+  const list = document.createElement('div');
+  rows.forEach(row => {
+    const line = document.createElement('div');
+    line.className = 'del-row';
+    const who = document.createElement('a');
+    who.href = '#/channel/' + encodeURIComponent(row.username);
+    who.textContent = '@' + row.username;
+    const when = document.createElement('span');
+    when.className = 'modal-sub';
+    when.textContent = ' asked ' + timeAgo(row.requested_at) + ' · deletes itself ' +
+      new Date(row.auto_delete_at).toLocaleDateString();
+    const why = document.createElement('div');
+    why.className = 'del-why';
+    why.textContent = row.reason ? '"' + row.reason + '"' : 'No reason given.';
+    const b = document.createElement('button');
+    b.className = 'btn-mini danger';
+    b.textContent = 'Confirm deletion';
+    b.title = 'Deletes the account, its videos and their files, its comments and everything else attached to it.';
+    b.onclick = async () => {
+      if (!confirm('Delete @' + row.username + ' permanently?\n\nTheir videos, files, comments, likes, subscriptions and profile are removed. This cannot be undone.')) return;
+      b.disabled = true;
+      try {
+        const r = await fetch(API + '/api/admin/deletions/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+          body: JSON.stringify({ id: row.id })
+        });
+        const j = await r.json();
+        if (!r.ok) { alert(j.error || 'Could not delete that account.'); b.disabled = false; return; }
+        ok('Deleted @' + j.deleted + '.');
+        renderAdmin();
+      } catch { alert('Could not reach FirFall.'); b.disabled = false; }
+    };
+    line.appendChild(who);
+    line.appendChild(when);
+    line.appendChild(why);
+    line.appendChild(b);
+    list.appendChild(line);
+  });
+  wrap.appendChild(list);
+  return wrap;
+}

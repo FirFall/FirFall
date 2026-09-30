@@ -412,6 +412,24 @@ body:not(.site-down) #downOverlay{display:none}
 .fv-acts{display:flex;gap:10px;justify-content:flex-end}
 .fv-acts button{padding:9px 18px;font-size:14px}
 
+/* ---- account deletion ---- */
+.del-box{max-width:520px;line-height:1.6}
+.del-box p{color:#ddd;font-size:14.5px;margin:0 0 12px}
+.del-box .field textarea{width:100%;background:#0f0f0f;color:#f1f1f1;border:1px solid #3f3f3f;
+  border-radius:10px;padding:10px 12px;font:inherit;font-size:13.5px;resize:vertical;outline:0}
+.del-box .field textarea:focus{border-color:#ff6a00}
+.ch-ownbar{align-items:center}
+.ch-del-state{color:#aaa;font-size:13px}
+.ch-del-undo{background:none;border:1px solid #3d3d3d;color:#aaa;border-radius:14px;
+  padding:3px 10px;font-size:12px;cursor:pointer;margin-left:4px}
+.ch-del-undo:hover{color:#fff;border-color:#717171}
+.del-queue{margin:0 0 18px}
+.del-queue h3{margin:0 0 8px;font-size:15px}
+.del-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 0;
+  border-top:1px solid #272727;font-size:14px}
+.del-row a{color:#3ea6ff;font-weight:600}
+.del-why{width:100%;color:#aaa;font-size:13px;font-style:italic;word-break:break-word}
+
 /* ---- FirFall Studio ----
    Deliberately its own visual language: the site is a YouTube pastiche, and
    the creator side should not pretend to be YouTube Studio. FirFall's orange

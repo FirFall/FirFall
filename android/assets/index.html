@@ -259,6 +259,10 @@ input,textarea{font:inherit}
 .mfoot a:active{color:var(--txt)}
 .fvlinks{display:flex;flex-direction:column;gap:10px;margin-top:14px}
 .fvlinks a{color:var(--blue);font-size:14.5px;font-weight:600;text-decoration:none}
+/* Deletion state on the account screen. A row that says "delete your account"
+   while a request is already in would be asking the same question twice. */
+.row.del-pending{border-left:3px solid var(--red)}
+.row.del-pending .rt{color:var(--red)}
 /* A reply thread, folded behind its count the way YouTube folds it. */
 .thread{display:none}
 .thread.open{display:block}
@@ -2111,8 +2115,21 @@ function legalFoot(){
   '</div>';
 }
 
+var delPending = "";
 function loadYou(){
   show("you");
+  // Whether a request is already in decides what this screen says: the button,
+  // or the countdown with its Cancel. Asked after the first paint rather than
+  // before it, so opening the account view is never held up by the network.
+  // Repainting only when the answer CHANGED is what stops this from looping -
+  // and the answer has to be stored, not just compared, or every repaint looks
+  // like a change and the view refreshes forever without ever drawing the row.
+  if (me) api("/api/account/delete-request").then(function(j){
+    var want = (j && j.pending && j.auto_delete_at) ? j.auto_delete_at : "";
+    if (want === delPending) return;
+    delPending = want;
+    loadYou();
+  }).catch(function(){});
   if (!me) {
     $("you").innerHTML = '<div class="empty"><div class="big">Sign in</div>' +
       'Sign in to comment, like, subscribe and upload.<br>' +
@@ -2133,14 +2150,56 @@ function loadYou(){
       '<div class="rs">@' + esc(me) + '</div></div></div>' +
     '<div class="row" data-act="create"><div class="rtxt"><div class="rt">Create an ember</div>' +
       '<div class="rs">Record a vertical clip or upload one up to 60s.</div></div></div>' +
+    (delPending
+      ? '<div class="row del-pending"><div class="rtxt"><div class="rt">Deletion requested</div>' +
+          '<div class="rs">Goes through ' + esc(delPending.slice(0, 10)) + ' at the latest unless an admin reviews it first.</div>' +
+          '<div style="margin-top:8px"><button class="act" id="delUndo">Cancel request</button></div></div></div>'
+      : '<div class="row" data-act="del"><div class="rtxt"><div class="rt">Delete account</div>' +
+          '<div class="rs">Ask an admin to remove you. If nobody gets to it in 3 days, it happens anyway. You can cancel until then.</div></div></div>') +
     '<div class="row" data-act="out"><div class="rtxt"><div class="rt">Sign out</div></div></div>' +
     legalFoot() + '<div style="padding:6px 12px 24px;text-align:center;color:var(--dim2);font-size:12px">FirFall for Android</div>';
   $("you").querySelector('[data-act="channel"]').onclick = function(){ curChannel = me; go("channel", true); };
   $("you").querySelector('[data-act="create"]').onclick = createNote;
   $("you").querySelector('[data-act="out"]').onclick = signOut;
+  var delRow = $("you").querySelector('[data-act="del"]');
+  if (delRow) delRow.onclick = delSheet;
+  var undo = $("you").querySelector("#delUndo");
+  if (undo) undo.onclick = function(){
+    api("/api/account/delete-cancel", { method:"POST" }).then(function(){
+      delPending = "";
+      toast("Deletion cancelled");
+      loadYou();
+    }).catch(function(e){ toast(e.message || "Could not cancel that"); });
+  };
   var s = $("you").querySelector('[data-act="staff"]');
   if (s) s.onclick = function(){ toast("Open the admin panel on the website to review reports."); };
 }
+/* Account deletion, on the phone. The reason is optional - it is there so the
+   admin has something to read, not because anything depends on it. */
+function delSheet(){
+  openSheet(
+    "<div id=\"sheetTitle\">Delete your account</div>" +    "<div id=\"sheetSub\">This asks an admin to delete <b>@" + esc(me) + "</b>. If no admin gets to it, it is deleted automatically after <b>3 days</b> anyway - you do not have to wait for a human.<br><br>It removes your videos and their files, your comments, your profile picture and banner, your likes, hearts, subscriptions and history, and your account. It cannot be undone.<br><br>You can cancel the request at any point before then.</div>" +
+    "<div class=\"field\" style=\"margin-top:14px\"><textarea id=\"delReason\" rows=\"3\" maxlength=\"1000\" placeholder=\"Why are you leaving? (optional - nobody will be upset)\"></textarea></div>" +
+    "<div class=\"sheet-msg\" id=\"delMsg\"></div>" +
+    "<button class=\"sheet-go\" id=\"delSend\">Request deletion</button>" +
+    "<button class=\"sheet-alt\" id=\"delCancel\">Never mind</button>"
+  );
+  $("delCancel").onclick = closeSheet;
+  $("delSend").onclick = function(){
+    var btn = $("delSend");
+    btn.disabled = true;
+    api("/api/account/delete-request", { method:"POST", body:{ reason: $("delReason").value.trim() } })
+      .then(function(j){
+        closeSheet();
+        toast(j.already ? "You already asked - nothing to do." :
+              "Requested. It goes through " + (j.auto_delete_at ? j.auto_delete_at.slice(0, 10) : "shortly") + " at the latest.");
+        delPending = j.auto_delete_at || "";
+        loadYou();
+      })
+      .catch(function(e){ $("delMsg").textContent = e.message || "Could not send that."; btn.disabled = false; });
+  };
+}
+
 function createNote(){
   // Uploads used to be refused with a note pointing at the website. Now the
   // phone does the whole thing: record a vertical clip with the camera, or

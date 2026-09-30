@@ -152,6 +152,116 @@ async function roleFromToken(env, req) {
 __name(roleFromToken, "roleFromToken");
 
 // src/index.js
+// =====================================================================
+// ACCOUNT DELETION
+// =====================================================================
+// A person asks to be deleted; a moderator looks at it; if nobody does, it
+// happens anyway after three days. The automatic half is the important half:
+// a request that only a human can complete is a request some accounts never
+// get, and leaving people's data behind because no moderator had a free
+// afternoon is not a defensible answer to "delete my account".
+
+const DELETE_GRACE_MS = 72 * 60 * 60 * 1000; // three days
+let deletionReady = null;
+
+function ensureDeletionRequests(env) {
+  if (!deletionReady) {
+    deletionReady = (async () => {
+      await env.DB.prepare(
+        "CREATE TABLE IF NOT EXISTS deletion_requests(" +
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL," +
+        " reason TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending'," +
+        " requested_at TEXT NOT NULL, reviewed_by TEXT, reviewed_at TEXT)"
+      ).run();
+      await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_delreq_status ON deletion_requests(status, requested_at)").run();
+    })().catch(e => { deletionReady = null; throw e; });
+  }
+  return deletionReady;
+}
+
+/* Remove an account and everything that belongs to it. */
+async function purgeAccount(env, username) {
+  const u = await env.DB.prepare("SELECT id,banner_key,avatar_key FROM users WHERE username=?").bind(username).first();
+  if (!u) return { ok: false, error: "No such account." };
+  const vids = await env.DB.prepare("SELECT id,r2_key,thumb_key FROM videos WHERE owner=?").bind(username).all();
+  const rows = vids.results || [];
+
+  // Files first. A row that outlives its object is an orphan nobody will ever
+  // find again, and the storage key is the only pointer to it.
+  if (storageConfigured()) {
+    for (const v of rows) {
+      if (v.r2_key) { try { await s3Delete(v.r2_key); } catch (e) { } }
+      if (v.thumb_key) { try { await s3Delete(v.thumb_key); } catch (e) { } }
+    }
+    if (u.banner_key) { try { await s3Delete(u.banner_key); } catch (e) { } }
+    if (u.avatar_key) { try { await s3Delete(u.avatar_key); } catch (e) { } }
+  }
+
+  // Their comments go too, and their ids are collected FIRST: a like or a heart
+  // row is only findable through its comment, so deleting the comments first
+  // would orphan every reaction they ever left.
+  try {
+    await ensureCommentsExt(env);
+    const cids = await env.DB.prepare("SELECT id FROM comments WHERE user=?").bind(username).all();
+    for (const c of (cids.results || [])) {
+      await env.DB.prepare("DELETE FROM comment_likes WHERE comment_id=?").bind(c.id).run();
+      await env.DB.prepare("DELETE FROM comment_hearts WHERE comment_id=?").bind(c.id).run();
+    }
+  } catch (e) { console.error("PURGE_COMMENT_REACTIONS:", String(e && e.message || e)); }
+
+  // Watch stats are keyed by video rather than by account, so they leave with
+  // the videos instead of with the user row.
+  try {
+    for (const v of rows)
+      await env.DB.prepare("DELETE FROM video_stats WHERE video_id=?").bind(v.id).run();
+  } catch (e) { console.error("PURGE_STATS:", String(e && e.message || e)); }
+
+  const wipe = [
+    ["comments", "user"],
+    ["comment_likes", "username"],
+    ["comment_hearts", "username"],
+    ["video_likes", "username"],
+    ["notifications", "username"],
+    ["appeals", "username"],
+    ["ban_tokens", "username"],
+    ["reports", "reporter"],
+    ["uploads", "owner"],
+    ["deletion_requests", "username"],
+    ["subscriptions", "subscriber"],
+    ["subscriptions", "channel"],
+    ["videos", "owner"],
+  ];
+  for (const [table, col] of wipe) {
+    try { await env.DB.prepare("DELETE FROM " + table + " WHERE " + col + "=?").bind(username).run(); }
+    catch (e) { console.error("PURGE_TABLE " + table + ":", String(e && e.message || e)); }
+  }
+  try { await env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(u.id).run(); } catch (e) { }
+  await env.DB.prepare("DELETE FROM users WHERE id=?").bind(u.id).run();
+  return { ok: true };
+}
+
+/* Delete anything nobody reviewed inside the grace period. Safe to call as
+   often as we like: it only touches rows that are both pending and old. */
+async function sweepDeletions(env) {
+  await ensureDeletionRequests(env);
+  const rows = await env.DB.prepare(
+    "SELECT id,username,requested_at FROM deletion_requests WHERE status='pending'"
+  ).all();
+  const now = Date.now();
+  const done = [];
+  for (const r of (rows.results || [])) {
+    const asked = Date.parse(r.requested_at || "");
+    if (!asked || now - asked < DELETE_GRACE_MS) continue;
+    const res = await purgeAccount(env, r.username);
+    if (res.ok) {
+      await env.DB.prepare("UPDATE deletion_requests SET status='done', reviewed_by='auto', reviewed_at=? WHERE id=?")
+        .bind(new Date().toISOString(), r.id).run();
+      done.push(r.username);
+    }
+  }
+  return done;
+}
+
 var index_default = {
   async fetch(req, env) {
     const url = new URL(req.url);
@@ -1255,6 +1365,85 @@ var index_default = {
         const n = await env.DB.prepare("SELECT COUNT(*) AS c FROM comment_likes WHERE comment_id=?").bind(row.id).first();
         return json(200, { likes: n ? n.c : 0, liked: !had });
       }
+      /* ---- account deletion ----
+         A member asks to be deleted and may say why, though nothing depends on
+         them saying it. Staff cannot use this route: a site run by one person
+         would otherwise be one 3-day-old request away from having no admin
+         panel, and nobody left to undo it. */
+      if (req.url.indexOf("/api/account/delete") >= 0) {
+        const user = await authedUser();
+        if (!user) return json(401, { error: "Sign in." });
+        if (user.role === "admin" || user.role === "mod")
+          return json(403, { error: "Staff accounts cannot be deleted this way. Ask another admin to remove you." });
+        await ensureDeletionRequests(env);
+
+        if (req.method === "GET" && url.pathname === "/api/account/delete-request") {
+          // Sweeping here means somebody checking their own request can also
+          // be the one who triggers their own overdue deletion.
+          await sweepDeletions(env);
+          const row = await env.DB.prepare(
+            "SELECT id,reason,requested_at FROM deletion_requests WHERE username=? AND status='pending'"
+          ).bind(user.username).first();
+          return json(200, {
+            pending: !!row,
+            requested_at: row ? row.requested_at : null,
+            auto_delete_at: row ? new Date(Date.parse(row.requested_at) + DELETE_GRACE_MS).toISOString() : null
+          });
+        }
+        if (req.method === "POST" && url.pathname === "/api/account/delete-cancel") {
+          await env.DB.prepare("DELETE FROM deletion_requests WHERE username=? AND status='pending'").bind(user.username).run();
+          return json(200, { ok: true, pending: false });
+        }
+        if (req.method === "POST" && url.pathname === "/api/account/delete-request") {
+          let reason = "";
+          try { const j = await req.json(); reason = String(j && j.reason || ""); }
+          catch (e) { reason = ""; }   // the reason is optional; a body-less POST is fine
+          reason = reason.trim().slice(0, 1000);
+          const existing = await env.DB.prepare(
+            "SELECT id,requested_at FROM deletion_requests WHERE username=? AND status='pending'"
+          ).bind(user.username).first();
+          if (existing) return json(200, { ok: true, already: true, requested_at: existing.requested_at,
+            auto_delete_at: new Date(Date.parse(existing.requested_at) + DELETE_GRACE_MS).toISOString() });
+          const now = new Date().toISOString();
+          await env.DB.prepare(
+            "INSERT INTO deletion_requests(username,reason,status,requested_at) VALUES(?,?,'pending',?)"
+          ).bind(user.username, reason, now).run();
+          return json(200, { ok: true, requested_at: now,
+            auto_delete_at: new Date(Date.parse(now) + DELETE_GRACE_MS).toISOString() });
+        }
+      }
+      /* The queue an admin works through. Only admins: this deletes accounts,
+         comments and files without a second confirmation step. */
+      if (url.pathname.startsWith("/api/admin/deletions")) {
+        const user = await authedUser();
+        if (!user) return json(401, { error: "Sign in." });
+        if (user.role !== "admin") return json(403, { error: "Admin only." });
+        await ensureDeletionRequests(env);
+        await sweepDeletions(env);
+        if (req.method === "GET") {
+          const rows = await env.DB.prepare(
+            "SELECT id,username,reason,requested_at FROM deletion_requests WHERE status='pending' ORDER BY requested_at ASC"
+          ).all();
+          return json(200, { requests: (rows.results || []).map(r => Object.assign(r, {
+            auto_delete_at: new Date(Date.parse(r.requested_at) + DELETE_GRACE_MS).toISOString()
+          })) });
+        }
+        if (req.method === "POST" && url.pathname === "/api/admin/deletions/confirm") {
+          const { id, username } = await req.json();
+          const row = id
+            ? await env.DB.prepare("SELECT id,username FROM deletion_requests WHERE id=? AND status='pending'").bind(id).first()
+            : await env.DB.prepare("SELECT id,username FROM deletion_requests WHERE username=? AND status='pending'").bind(username).first();
+          if (!row) return json(404, { error: "No pending request for that account." });
+          const target = await env.DB.prepare("SELECT role FROM users WHERE username=?").bind(row.username).first();
+          if (target && (target.role === "admin" || target.role === "mod"))
+            return json(403, { error: "Refusing to delete a staff account through this route." });
+          const res = await purgeAccount(env, row.username);
+          if (!res.ok) return json(404, { error: res.error });
+          await env.DB.prepare("UPDATE deletion_requests SET status='done', reviewed_by=?, reviewed_at=? WHERE id=?")
+            .bind(user.username, new Date().toISOString(), row.id).run();
+          return json(200, { ok: true, deleted: row.username });
+        }
+      }
       if (req.method === "POST" && url.pathname === "/api/report") {
         const user = await authedUser();
         if (!user) return json(401, { error: "Sign in to report." });
@@ -1626,7 +1815,19 @@ var index_default = {
     }
   }
 };
+/* The daily sweep. Without it, "auto deletes after three days" would really
+   mean "auto deletes the next time somebody opens the admin panel", which is
+   not a deadline. */
+async function index_scheduled(event, env, ctx) {
+  ctx.waitUntil((async () => {
+    try {
+      const done = await sweepDeletions(env);
+      if (done.length) console.log("AUTO-DELETE:", done.join(", "));
+    } catch (e) { console.error("SWEEP:", String(e && e.message || e)); }
+  })());
+}
 export {
-  index_default as default
+  index_default as default,
+  index_scheduled as scheduled
 };
 //# sourceMappingURL=index.js.map

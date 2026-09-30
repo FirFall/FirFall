@@ -183,3 +183,17 @@ CREATE TABLE IF NOT EXISTS video_stats(
   PRIMARY KEY (video_id, day, viewer)
 );
 CREATE INDEX IF NOT EXISTS idx_stats_day ON video_stats(day);
+-- A member asked for their account to be deleted. A moderator reviews it and
+-- confirms; if nobody gets to it, the scheduled sweep carries it out after
+-- three days anyway. status is pending until it is either confirmed, cancelled
+-- by the member, or done by the sweep ('reviewed_by' is then 'auto').
+CREATE TABLE IF NOT EXISTS deletion_requests(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL,
+  reason TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending',
+  requested_at TEXT NOT NULL,
+  reviewed_by TEXT,
+  reviewed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_delreq_status ON deletion_requests(status, requested_at);

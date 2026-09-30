@@ -303,6 +303,13 @@ setTimeout(function(){
                 const ownBar = document.getElementById("chOwnBar");
                 rec("chOwnBarButtons", ownBar ? ownBar.querySelectorAll("button").length : -1);
                 rec("chOwnBarLinks", ownBar ? ownBar.querySelectorAll("a").length : -1);
+                // Account deletion: a button on your own channel, and a screen
+                // that says what happens and when. The optional reason box is
+                // the part that is easy to lose in a redesign - without it the
+                // request stays anonymous to the admin, which is worse.
+                rec("delButton", document.getElementById("chDeleteBtn") ? "yes" : "no");
+                rec("delModal", document.getElementById("delModal") ? "yes" : "no");
+                rec("delHasReason", document.getElementById("delReason") ? "yes" : "no");
                 rec("chEditButtonsGone",
                   ["chBannerEdit", "chAvatarEdit", "chBannerRemove", "chAvatarRemove", "chAboutEdit"]
                     .some(i => document.getElementById(i)) ? "no" : "yes");
@@ -608,7 +615,11 @@ server.listen(PORT, async () => {
         btnAboutSave: "yes", kindTabs: "2", visibilityFilter: "yes",
         anRange: "yes", anChart: "yes", anRetention: "yes",
         cropperDefined: "yes", bannerAspect: "6", avatarAspect: "1",
-        btnOpenStudio: "yes", chOwnBarButtons: "0", chOwnBarLinks: "1",
+        btnOpenStudio: "yes",
+        // The bar carries Studio plus the one control that is not a setting and
+        // deliberately does not live in Studio: deleting the account.
+        chOwnBarButtons: "1", chOwnBarLinks: "1",
+        delButton: "yes", delModal: "yes", delHasReason: "yes",
         chEditButtonsGone: "yes",
         simultaneous: "1", commentPanel: "yes", commentUI: "yes", signinUI: "yes",
         navEmbers: "yes", embersRoute: "#/embers",

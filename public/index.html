@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="/logo-192.png?v=20">
 <meta property="og:title" content="FirFall">
 <meta property="og:image" content="/logo-512.png?v=20">
-<link rel="stylesheet" href="styles.css?v=34" />
+<link rel="stylesheet" href="styles.css?v=35" />
 </head>
 <body>
 <div id="downOverlay" role="alertdialog" aria-modal="true" aria-labelledby="downTitle">
@@ -233,6 +233,12 @@
         way in beats two that drift apart. -->
     <div id="chOwnBar" class="ch-ownbar hidden">
        <a href="#/studio" class="pill-btn">Open Studio</a>
+       <!-- Deleting an account is not a setting, so it does not live in Studio.
+            It sits here because this is the one page that is unambiguously
+            "mine", and it is a link-looking button so it cannot be hit by
+            accident while editing a banner. -->
+       <button class="pill-btn ghost-btn" id="chDeleteBtn">Delete account</button>
+       <span id="chDeleteState" class="ch-del-state hidden"></span>
      </div>
      <div class="ch-tabs">
        <button data-chtab="videos" class="active">Videos</button>
@@ -412,6 +418,29 @@
   <div class="shorts-hint">&#8592; &#8594; or scroll to move between clips &middot; Esc to close</div>
 </div>
 
+<!-- Account deletion. The reason is optional and nothing depends on it: the
+     point of the screen is to say exactly what is about to happen and when. -->
+<div id="delModal" class="modal hidden">
+  <div class="modal-box del-box">
+    <div class="fv-head"><strong>Delete your FirFall account</strong></div>
+    <p>This asks an admin to delete <b id="delWho">your account</b>. If no admin
+    gets to it, it is deleted automatically after <b>3 days</b> anyway — you do
+    not have to wait for a human.</p>
+    <p>Deleting removes your videos and their files, your comments, your
+    profile picture and banner, your likes, hearts, subscriptions and history,
+    and your account. It cannot be undone &mdash; but you can cancel the request
+    at any point before then, and this page will offer you a way back.</p>
+    <div class="field" style="margin-top:14px">
+      <textarea id="delReason" rows="2" maxlength="1000"
+        placeholder="Why are you leaving? (optional — nobody will be upset)"></textarea>
+    </div>
+    <div class="fv-acts">
+      <button class="ghost-btn" id="delCancel">Never mind</button>
+      <button class="auth-go" id="delSend">Request deletion</button>
+    </div>
+  </div>
+</div>
+
 <!-- Shown once, to somebody who has never opened FirFall before, so the rules
      and the data policy are read before the first comment rather than after. -->
 <div id="firstVisit" class="modal hidden">
@@ -434,6 +463,6 @@
 </div>
 
 <script>window.FIRFALL_API = "https://firfall-auth.b8golddude.workers.dev";</script>
-<script src="app.js?v=34"></script>
+<script src="app.js?v=35"></script>
 </body>
 </html>
