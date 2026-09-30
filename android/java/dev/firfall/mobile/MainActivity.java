@@ -58,6 +58,12 @@ public class MainActivity extends Activity {
      */
     private android.webkit.PermissionRequest pendingWebPermission;
 
+    /** This app's own version, read from the package rather than hardcoded, so
+        the page can compare it with the version published on the website and
+        tell the user to update. */
+    private String appVersion = "0";
+    private int appVersionCode = 0;
+
     /** Anything not on our own origin opens in the user's real browser. */
     private static final String[] OWN_HOSTS = {
         "file://", "dev.firfall.mobile", "firfall.b8golddude.workers.dev",
@@ -73,6 +79,12 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(Color.parseColor("#0f0f0f"));
         root.setLayoutParams(new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        try {
+            android.content.pm.PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+            appVersion = pi.versionName == null ? "0" : pi.versionName;
+            appVersionCode = pi.versionCode;
+        } catch (Exception e) { /* leave the defaults; the page falls back to not nagging */ }
 
         web = new WebView(this);
         web.setBackgroundColor(Color.parseColor("#0f0f0f"));
@@ -335,6 +347,41 @@ public class MainActivity extends Activity {
                     i.putExtra(Intent.EXTRA_SUBJECT, title == null ? "FirFall" : title);
                     i.putExtra(Intent.EXTRA_TEXT, text == null ? "" : text);
                     startActivity(Intent.createChooser(i, "Share on FirFall"));
+                }
+            });
+        }
+
+        /**
+         * The page asks what it is running inside, so it can tell the user to
+         * update instead of leaving them on a build the server has moved past.
+         */
+        @JavascriptInterface
+        public String appVersion() {
+            return appVersion;
+        }
+
+        @JavascriptInterface
+        public int appVersionCode() {
+            return appVersionCode;
+        }
+
+        /**
+         * Opens a link in the real browser even when the host is one of ours.
+         * handleUrl deliberately keeps our own pages inside this WebView, which
+         * is right for browsing and useless for an .apk: Android will not
+         * install a package from inside a WebView, so the update button has to
+         * hand the URL to the system.
+         */
+        @JavascriptInterface
+        public void openInBrowser(final String url) {
+            runOnUiThread(new Runnable() {
+                public void run() {
+                    if (url == null || url.length() == 0) return;
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                    } catch (ActivityNotFoundException e) {
+                        Toast.makeText(MainActivity.this, "No app can open that link.", Toast.LENGTH_SHORT).show();
+                    }
                 }
             });
         }

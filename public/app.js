@@ -185,6 +185,10 @@ document.getElementById('menuChannel').onclick = () => {
   accountMenu.classList.add('hidden');
   location.hash = '#/channel/' + me();
 };
+document.getElementById('menuApp').onclick = () => {
+  accountMenu.classList.add('hidden');
+  location.href = 'download.html';
+};
 document.getElementById('menuSignout').onclick = () => {
   localStorage.removeItem('firfall_user');
   localStorage.removeItem('firfall_token');
@@ -2722,6 +2726,44 @@ function captureThumb(file) {
 window.addEventListener('hashchange', router);
 refreshAuthUI();
 if (!SITE_DOWN) router();
+
+/* ---- get the app ----
+   A phone reaches FirFall in a browser first, long before anyone installs
+   anything, and on a phone the footer is a long scroll away - so the one link
+   that gets the app onto the phone is put where a thumb will find it.
+
+   Only for a small, touch screen in a browser. Inside the FirFall app the
+   page is served over file:// with no site chrome around it, and "get the app"
+   there would be asking someone who is already in it to install it. Dismissal
+   is remembered per browser, like the guidelines notice. */
+(function appBar() {
+  const KEY = 'ff_appbar_dismissed';
+  const bar = document.getElementById('appBar');
+  if (!bar) return;
+  try { if (localStorage.getItem(KEY)) return; } catch (e) { /* private mode */ }
+  const small = window.matchMedia('(max-width:800px)');
+  const touch = window.matchMedia('(pointer:coarse)');
+  if (!small.matches || !touch.matches) return;
+  const show = () => {
+    bar.classList.add('on');
+    document.body.classList.add('appbar-on');
+    // The current build, so the bar can say whether it is already the latest.
+    // A failure here just leaves the default text: this is an advert, not a
+    // thing anybody should see an error message about.
+    fetch(API + '/api/app-version', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => {
+        if (j && j.version) document.getElementById('appBarMeta').textContent = 'Version ' + j.version + ' \u00b7 embers, uploads, subscriptions.';
+      })
+      .catch(() => { });
+  };
+  document.getElementById('appBarX').onclick = () => {
+    bar.classList.remove('on');
+    document.body.classList.remove('appbar-on');
+    try { localStorage.setItem(KEY, String(Date.now())); } catch (e) { }
+  };
+  setTimeout(show, 900);
+})();
 
 /* ---- first visit ----
    The guidelines and the privacy policy are worth reading before somebody's

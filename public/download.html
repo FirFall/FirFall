@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Get FirFall for Android</title>
+<meta name="description" content="Download the FirFall Android app. Record embers, upload, comment and subscribe - signed release build, no ads, no trackers." />
+<style>
+  :root{ --bg:#0f0f0f; --card:#181818; --line:#272727; --txt:#f1f1f1; --dim:#aaa; --accent:#ff6a00 }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-text-size-adjust:100%}
+  .wrap{max-width:760px;margin:0 auto;padding:0 20px 80px}
+  header{border-bottom:1px solid var(--line);padding:28px 0 22px;margin-bottom:28px}
+  .brand{display:flex;align-items:gap:10px;font-weight:800;letter-spacing:-.3px;font-size:19px}
+  .brand a{color:inherit;text-decoration:none}
+  .flame{width:14px;height:20px;border-radius:50% 50% 45% 45%;
+    background:linear-gradient(180deg,#ff2d00,#ffb800);display:inline-block}
+  h1{font-size:32px;margin:22px 0 6px;letter-spacing:-.6px}
+  .sub{color:var(--dim);margin:0 0 4px;font-size:15px}
+  h2{font-size:21px;margin:38px 0 10px;letter-spacing:-.3px;
+     padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:16px;margin:24px 0 6px}
+  p,li{color:#ddd}
+  ul,ol{padding-left:22px}
+  li{margin:7px 0}
+  a{color:#3ea6ff}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:18px 20px;margin:18px 0}
+  .muted{color:var(--dim);font-size:14px}
+  nav.pages{margin:0 0 28px;display:flex;gap:10px;flex-wrap:wrap}
+  nav.pages a{font-size:14px;color:var(--dim);text-decoration:none;
+    border:1px solid var(--line);border-radius:18px;padding:6px 14px}
+  nav.pages a:hover{color:var(--txt);border-color:#3d3d3d}
+
+  /* The download box. Big on purpose: most people who land here are on a
+     phone, one-handed, and want the file now. */
+  .dl{background:linear-gradient(180deg,#1d1d1d,#151515);border:1px solid var(--line);
+    border-radius:18px;padding:22px;margin:22px 0}
+  .dl .name{font-size:22px;font-weight:700;letter-spacing:-.3px}
+  .dl .meta{color:var(--dim);font-size:14px;margin-top:4px}
+  .btn{display:block;width:100%;text-align:center;margin-top:18px;padding:16px 20px;
+    border-radius:14px;background:var(--accent);color:#1a0d00;font-weight:800;
+    font-size:18px;letter-spacing:-.2px;text-decoration:none;border:0}
+  .btn:active{transform:translateY(1px)}
+  .btn.alt{background:transparent;color:var(--txt);border:1px solid var(--line);
+    font-size:15px;font-weight:600;padding:12px}
+  .notes{color:var(--dim);font-size:14.5px}
+  .tag{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.4px;
+    text-transform:uppercase;color:#2fd07a;border:1px solid #235c3d;
+    border-radius:20px;padding:3px 10px;margin:10px 0 0}
+  .tag.old{color:#ffb02e;border-color:#5c4323}
+  .warn{border-left:3px solid var(--accent)}
+  footer{border-top:1px solid var(--line);margin-top:44px;padding-top:20px;
+    color:var(--dim);font-size:14px;display:flex;gap:16px;flex-wrap:wrap}
+  footer a{color:var(--dim);text-decoration:none}
+  footer a:hover{color:var(--txt)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><a href="index.html"><span class="flame"></span> FirFall</a></div>
+    <h1>Get FirFall for Android</h1>
+    <p class="sub">The same site as an app. Signed release build, no ads, no trackers, no Play Store.</p>
+  </header>
+
+  <nav class="pages">
+    <a href="index.html">Back to FirFall</a>
+    <a href="guidelines.html">Community Guidelines</a>
+    <a href="privacy.html">Privacy Policy</a>
+  </nav>
+
+  <div class="dl">
+    <div class="name">FirFall <span id="ver">for Android</span></div>
+    <div class="meta" id="meta">Checking the published build&hellip;</div>
+    <div id="tag"></div>
+    <a class="btn" id="dlBtn" href="#" rel="noopener">Download the APK</a>
+    <a class="btn alt" id="dlBtn2" style="display:none" rel="noopener">Download again</a>
+    <p class="notes" style="margin:14px 0 0" id="notes"></p>
+  </div>
+
+  <div class="card" id="yours" style="display:none">
+    <h3 style="margin-top:0">You already have FirFall</h3>
+    <p style="margin:0">This browser is running inside FirFall <span id="mine"></span>.
+      Open the link above and Android will install the newer build over the top -
+      you stay signed in, nothing is lost.</p>
+  </div>
+
+  <h2>Installing it</h2>
+  <ol>
+    <li>Tap <strong>Download the APK</strong>. The file saves to your Downloads folder.</li>
+    <li>Open it. Android will ask which app should handle it - choose Package Installer, or just tap the downloaded file.</li>
+    <li>Android will warn that the app comes from outside the Play Store. Tap
+        <strong>Settings</strong> and turn on <em>Install unknown apps</em> for whichever app you opened the
+        file with (your browser, or Files). Then go back and confirm the install.</li>
+    <li>That permission is per-app, and it is the only thing this page asks you to change.</li>
+  </ol>
+
+  <h2>Updating later</h2>
+  <p>Every time the app opens it asks the server which build is current. If the
+     one on your phone is out of date the app stops and offers you the update
+     before you can use it, so you are never silently on a build the server has
+     moved past. Updates are the same APK file, installed over the old one.</p>
+  <p>If the button does nothing, you downloaded a stale copy: close it, clear the
+     browser's download and try again. The version and size above are read from
+     the server each time you load this page.</p>
+
+  <h2>What it asks for</h2>
+  <div class="card warn">
+    <h3 style="margin-top:0">Two permissions, only when you use them</h3>
+    <ul>
+      <li><strong>Camera</strong> - only when you record an ember. Picking an existing clip from your gallery does not need it.</li>
+      <li><strong>Microphone</strong> - only to record sound with a clip.</li>
+      <li><strong>Internet</strong> - that is the whole app; it talks to the same FirFall API the website uses.</li>
+    </ul>
+    <p class="notes" style="margin-bottom:0">Decline either permission and the rest of
+      the app keeps working - you just cannot record a clip with sound, or at all.</p>
+  </div>
+
+  <h2>Where it comes from</h2>
+  <p>FirFall is a small self-hosted project. The APK in this page is the build
+     this repository produces, signed with the project's release key, and it is
+     the same code the website serves. Read the
+     <a href="privacy.html">Privacy Policy</a> for what it stores and what it does not.</p>
+
+  <footer>
+    <a href="index.html">FirFall</a>
+    <a href="guidelines.html">Community Guidelines</a>
+    <a href="privacy.html">Privacy Policy</a>
+  </footer>
+</div>
+
+<script>
+/* The version, size and file URL come from the API rather than being typed into
+   this page, so publishing a new APK is one edit in one place and this page
+   cannot point at a build that is no longer the current one. The static values
+   below are only what someone sees if the API cannot be reached. */
+var API = "https://firfall-auth.b8golddude.workers.dev";
+var FALLBACK = {
+  version: "1.1",
+  url: "https://firfall.b8golddude.workers.dev/FirFall.apk",
+  size: 0,
+  published: "2026-09-30",
+  notes: ""
+};
+
+function sizeText(n){
+  if (!n) return "";
+  return n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.round(n / 1024) + " KB";
+}
+
+function apply(r, live){
+  var url = (r && r.url) || FALLBACK.url;
+  var parts = [];
+  parts.push("Version " + ((r && r.version) || FALLBACK.version));
+  var sz = (r && r.size) || FALLBACK.size;
+  if (sz) parts.push(sizeText(sz));
+  if (r && r.published) parts.push("published " + r.published);
+  document.getElementById("ver").textContent = (r && r.version) ? "v" + r.version : "for Android";
+  document.getElementById("meta").textContent = parts.join(" \u00b7 ");
+  document.getElementById("dlBtn").href = url;
+  document.getElementById("dlBtn2").href = url;
+  document.getElementById("dlBtn2").style.display = "block";
+  var notes = (r && r.notes) || "";
+  document.getElementById("notes").textContent = notes ? "What's new: " + notes : "";
+  if (!live) {
+    document.getElementById("meta").textContent += " \u00b7 could not reach the server, showing the last known build";
+  }
+}
+
+fetch(API + "/api/app-version", { cache: "no-store" })
+  .then(function(res){ if (!res.ok) throw new Error("bad status"); return res.json(); })
+  .then(function(j){ apply(j, true); })
+  .catch(function(){ apply(null, false); });
+
+/* If this page was somehow opened inside the app itself, say so: the button
+   hands the APK to the system installer, which is the only thing that can
+   install it. */
+(function(){
+  try {
+    if (!window.Android || !window.Android.appVersion) return;
+    var mine = window.Android.appVersion();
+    if (!mine || mine === "0") return;
+    document.getElementById("mine").textContent = "v" + mine;
+    document.getElementById("yours").style.display = "block";
+    document.getElementById("dlBtn").textContent = "Update to the current build";
+  } catch (e) { /* plain browser */ }
+})();
+</script>
+</body>
+</html>

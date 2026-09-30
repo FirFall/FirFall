@@ -500,6 +500,27 @@ input,textarea{font:inherit}
   padding:13px;border-radius:4px;width:100%}
 #ban .bgl{margin-top:12px;color:#888;font-size:12px;text-decoration:underline}
 
+/* ---------- update required ----------
+   Above everything, including the ban screen, and with no way out: an app that
+   the server has moved past can be talking to a protocol the API no longer
+   speaks, so "ignore this and carry on" is not a kind option here. The only
+   buttons are Update and Try again. */
+#upd{position:fixed;inset:0;background:#141414;z-index:300;display:none;
+  align-items:center;justify-content:center;padding:24px;overflow-y:auto}
+#upd.on{display:flex}
+#upd .ux{max-width:400px;width:100%;text-align:center}
+#upd img{width:64px;height:64px;border-radius:15px;margin-bottom:20px;display:block;
+  margin-left:auto;margin-right:auto}
+#upd h1{font-size:23px;letter-spacing:-.3px;margin:0 0 8px}
+#upd .sub{color:var(--dim);font-size:14px;line-height:1.55;margin:0 0 18px}
+#upd .vers{display:inline-block;font-size:12.5px;color:var(--dim);border:1px solid var(--line);
+  border-radius:20px;padding:5px 13px;margin-bottom:20px}
+#upd .ug{background:#ff6a00;color:#1a0d00;font-weight:800;font-size:16px;
+  padding:15px;border-radius:24px;width:100%}
+#upd .ug:active{opacity:.85}
+#upd .ur{margin-top:12px;color:var(--dim2);font-size:13px;text-decoration:underline}
+#upd .uw{margin-top:16px;color:var(--red);font-size:13px;min-height:18px}
+
 /* =====================================================================
    SHORTS: the full-screen vertical player
    =====================================================================
@@ -563,6 +584,23 @@ input,textarea{font:inherit}
 <body>
 
 <div id="ban" class="hidden"></div>
+
+<!-- Shown only when the server says this build is out of date. Never in a
+     plain browser: there is nothing to update in a browser tab. -->
+<div id="upd">
+  <div class="ux">
+    <!-- Plain relative src: under file:// a query string would be part of the
+     filename and the logo would not load. Bundled next to this page in the
+     APK, and /mobile/logo.png on the site. -->
+<img id="updLogo" src="logo.png" alt="FirFall logo" width="64" height="64">
+    <h1>Update FirFall</h1>
+    <div class="sub" id="updSub">This version of the app is no longer the current one.</div>
+    <div class="vers" id="updVer"></div>
+    <button class="ug" id="updGo">Update now</button>
+    <button class="ur" id="updRetry">Check again</button>
+    <div class="uw" id="updWarn"></div>
+  </div>
+</div>
 
 <header id="topbar">
   <button class="brand" id="brandBtn">
@@ -688,6 +726,11 @@ input,textarea{font:inherit}
    placeholder channels: if the API has nothing, the screen says so.
    ===================================================================== */
 var API = "https://firfall-auth.b8golddude.workers.dev";
+/* The website itself, for the few links that leave the app (the APK, the
+   download page). Everything else talks to the API. */
+var SITE = "https://firfall.b8golddude.workers.dev";
+var APP_APK = SITE + "/FirFall.apk";
+var APP_DOWNLOAD = SITE + "/download";
 var K_TOKEN="ff_token", K_USER="ff_user", K_ROLE="ff_role", K_MYREP="ff_myrep";
 var K_LATER="ff_later", K_HIST="ff_hist", K_SPEED="ff_speed", K_SEEN="ff_seen";
 
@@ -2155,6 +2198,9 @@ function loadYou(){
           '<div style="margin-top:8px"><button class="act" id="delUndo">Cancel request</button></div></div></div>'
       : '<div class="row" data-act="del"><div class="rtxt"><div class="rt">Delete account</div>' +
           '<div class="rs">Ask an admin to remove you. If nobody gets to it in 3 days, it happens anyway. You can cancel until then.</div></div></div>') +
+    '<div class="row" data-act="app"><div class="rtxt"><div class="rt">FirFall for Android</div>' +
+      '<div class="rs" id="appState">Version ' + esc(window.FirFallApp ? window.FirFallApp.version() : "") +
+      ' \u00b7 checking for updates\u2026</div></div></div>' +
     '<div class="row" data-act="out"><div class="rtxt"><div class="rt">Sign out</div></div></div>' +
     legalFoot() + '<div style="padding:6px 12px 24px;text-align:center;color:var(--dim2);font-size:12px">FirFall for Android</div>';
   $("you").querySelector('[data-act="channel"]').onclick = function(){ curChannel = me; go("channel", true); };
@@ -2172,6 +2218,22 @@ function loadYou(){
   };
   var s = $("you").querySelector('[data-act="staff"]');
   if (s) s.onclick = function(){ toast("Open the admin panel on the website to review reports."); };
+  // The version row is here as much for reinstalling onto a new phone as for
+  // checking: the download page lives on the site, so it has to open outside
+  // the app rather than resolve to a file:// path that does not exist.
+  var appRow = $("you").querySelector('[data-act="app"]');
+  if (appRow) appRow.onclick = function(){
+    if (window.FirFallApp) window.FirFallApp.openDownloadPage();
+    else location.href = APP_DOWNLOAD;
+  };
+  if (appRow && window.FirFallApp) window.FirFallApp.latest().then(function(v){
+    var line = $("appState");
+    if (!line) return;
+    var mine = window.FirFallApp.version();
+    line.textContent = !v ? "Version " + mine + " \u00b7 could not check for updates"
+      : v === mine ? "Version " + mine + " \u00b7 up to date"
+      : "Version " + mine + " \u00b7 " + v + " is out";
+  });
 }
 /* Account deletion, on the phone. The reason is optional - it is there so the
    admin has something to read, not because anything depends on it. */
@@ -3310,6 +3372,117 @@ window.FirFall = {
                             v.addEventListener("pause", function(){ on = false; sync(); }); }
   }, 1000);
 })();
+/* ---- update check ----
+   Runs on every open, before anything else can be used. If the server's build
+   is newer than the one on the phone, the app stops and asks for an update:
+   an old build talking to a newer API is how you get a silently broken app
+   that people blame on the site.
+
+   Two rules keep it from being a trap:
+     - Only inside the app. In a browser tab there is nothing to update, and
+       locking a tab would be a bug, not a feature.
+     - Only on a positive answer. If the request fails - no signal, airplane
+       mode, server down - the app runs normally. Locking somebody out of
+       their own account because a request timed out is not acceptable.
+   The version on the server is compared as numbers, never as strings:
+   "1.10" sorts before "1.9" alphabetically. */
+(function updateCheck(){
+  var A = window.Android;
+  if (!A || !A.appVersionCode) return;
+  var mineCode = 0, mineName = "0";
+  try {
+    mineCode = Number(A.appVersionCode()) || 0;
+    mineName = A.appVersion() || "0";
+  } catch (e) { return; }
+  if (!mineCode) return;
+
+  function newer(remoteCode, remoteName){
+    var rc = Number(remoteCode) || 0;
+    // The code is the authority; it only ever goes up. The dotted name is the
+    // fallback for a server that has not published one.
+    if (rc) return rc > mineCode;
+    var a = String(remoteName || "0").split("."), b = String(mineName).split(".");
+    for (var i = 0; i < Math.max(a.length, b.length); i++) {
+      var x = Number(a[i] || 0), y = Number(b[i] || 0);
+      if (x !== y) return x > y;
+    }
+    return false;
+  }
+
+  function fetchLatest(){
+    return fetch(API + "/api/app-version?t=" + Date.now(), { cache: "no-store" })
+      .then(function(r){ if (!r.ok) throw new Error("bad status"); return r.json(); });
+  }
+
+  function lock(remote){
+    var wrap = $("upd");
+    if (!wrap) return;
+    $("updSub").textContent = "FirFall " + (remote.version || "a newer build") +
+      " is out. Update to keep using the app - this takes a moment and nothing " +
+      "is lost: you stay signed in.";
+    $("updVer").textContent = "You have " + mineName + "  \u00b7  current is " + (remote.version || "?");
+    wrap.classList.add("on");
+    $("updWarn").textContent = "";
+  }
+
+  function check(showFailure){
+    fetchLatest().then(function(remote){
+      if (!remote) return;
+      if (newer(remote.versionCode, remote.version)) lock(remote);
+    }).catch(function(){
+      // Only ever an error while the update screen is already up: a failed
+      // check on a good launch is not worth a word on screen.
+      if (showFailure && $("upd").classList.contains("on")) {
+        $("updWarn").textContent = "Could not reach FirFall. Check your connection and try again.";
+      }
+    });
+  }
+
+  function openUpdate(){
+    try {
+      // An .apk cannot be installed from inside a WebView, so this has to go
+      // out to the system, which hands it to the package installer.
+      if (A.openInBrowser) A.openInBrowser(APP_APK);
+      else location.href = APP_APK;
+    } catch (e) {
+      try { A.toast("Could not open the download."); } catch (e2) {}
+    }
+  }
+
+  $("updGo").onclick = openUpdate;
+  $("updRetry").onclick = function(){ $("updWarn").textContent = "Checking\u2026"; check(true); };
+
+  check(false);
+  // Coming back from the installer is the one moment the answer can have
+  // changed without the app being restarted.
+  document.addEventListener("visibilitychange", function(){
+    if (!document.hidden && $("upd").classList.contains("on")) check(true);
+  });
+  window.addEventListener("focus", function(){
+    if ($("upd").classList.contains("on")) check(true);
+  });
+
+  /* The account view also offers the current build by name, so somebody who
+     wants to reinstall or move to a new phone has somewhere to go. */
+  window.FirFallApp = {
+    version: function(){ return mineName; },
+    versionCode: function(){ return mineCode; },
+    download: APP_DOWNLOAD,
+    /* Resolves to the published version, or "" if it could not be read. Used by
+       the account view to say whether this build is current. */
+    latest: function(){
+      return fetchLatest().then(function(r){ return (r && r.version) || ""; })
+        .catch(function(){ return ""; });
+    },
+    /* Inside the app this must leave the WebView - file:///android_asset has no
+       download.html - so the system browser opens it instead. */
+    openDownloadPage: function(){
+      if (A.openInBrowser) A.openInBrowser(APP_DOWNLOAD);
+      else location.href = APP_DOWNLOAD;
+    }
+  };
+})();
+
 /* ---- first visit ----
    The guidelines and the privacy policy are worth reading before somebody's
    first comment, not after it. Shown once per phone: both buttons dismiss it

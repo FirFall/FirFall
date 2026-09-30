@@ -164,6 +164,27 @@ __name(roleFromToken, "roleFromToken");
 const DELETE_GRACE_MS = 72 * 60 * 60 * 1000; // three days
 let deletionReady = null;
 
+/* The Android build currently published on the website.
+   The APK itself is a static file served by the site (FirFall.apk) - an APK has
+   to be a plain HTTPS download an Android installer can be pointed at, and the
+   site already serves one. This is only the "what is current" half: the app
+   calls /api/app-version on every open and, if versionCode is newer than the
+   one it was built with, refuses to run until the user updates.
+
+   Bump this whenever a new APK is published. versionCode must go up every
+   time; it is the number the app compares on (a dotted name like 1.10 vs 1.9
+   does not survive a string sort). `size` is only shown on the download page,
+   so being slightly stale is harmless. */
+const APP_RELEASE = {
+  version: "1.1",
+  versionCode: 2,
+  url: "https://firfall.b8golddude.workers.dev/FirFall.apk",
+  page: "https://firfall.b8golddude.workers.dev/download",
+  size: 194097,
+  published: "2026-09-30",
+  notes: "Adds the in-app update check and the APK download on the website."
+};
+
 function ensureDeletionRequests(env) {
   if (!deletionReady) {
     deletionReady = (async () => {
@@ -592,6 +613,9 @@ var index_default = {
         const row = await env.DB.prepare("SELECT status,reply FROM appeals WHERE username=? ORDER BY id DESC LIMIT 1").bind(name).first();
         if (!row) return json(200, { status: "none" });
         return json(200, { status: row.status, reply: row.reply || null });
+      }
+      if (req.method === "GET" && url.pathname === "/api/app-version") {
+        return json(200, APP_RELEASE);
       }
       if (req.method === "GET" && url.pathname === "/api/count") {
         const row = await env.DB.prepare("SELECT COUNT(*) c FROM users").first();

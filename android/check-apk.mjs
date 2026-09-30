@@ -126,6 +126,9 @@ if (byName.has("assets/index.html")) {
     !/vcard\("?sample/i.test(html));
   check("no literal markup leaked into textContent assignments",
     !/\.textContent\s*=\s*['"][^'"]*</.test(html));
+  // The update gate is the whole reason the bundle has to know the API's
+  // version endpoint, and it is easy to delete while tidying the page.
+  check("HTML has the update gate", html.includes('id="upd"') && html.includes("/api/app-version"));
 }
 
 if (byName.has("classes.dex")) {
@@ -134,6 +137,11 @@ if (byName.has("classes.dex")) {
   const asText = dex.toString("latin1");
   check("dex contains MainActivity", asText.includes("MainActivity"));
   check("dex contains the package path", asText.includes("dev/firfall/mobile"));
+  // The update check is entirely dependent on these three being on the bridge.
+  // If a refactor drops one, the app still builds and still runs - it just
+  // silently stops noticing it is out of date, and nothing else would say so.
+  check("bridge exposes appVersionCode", asText.includes("appVersionCode"));
+  check("bridge exposes openInBrowser", asText.includes("openInBrowser"));
   check("dex is not empty", dex.length > 1000, dex.length + " bytes");
 }
 

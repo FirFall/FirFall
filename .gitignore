@@ -16,8 +16,13 @@ android/build/
 android/firfall-release.jks
 android/firfall-release.jks.*
 
-# The built APK and the generated icons are outputs, not source. The APK is
-# attached to releases rather than committed. The .idsig is apksigner's v4
-# signature sidecar and only matters for incremental install.
+# The built APK and the generated icons are outputs, not source in dist/. The
+# .idsig is apksigner's v4 signature sidecar and only matters for incremental
+# install.
+#
+# public/FirFall.apk IS committed, deliberately: it is the copy the website
+# serves to phones that want the app, and the site is deployed straight out of
+# this working tree, so an uncommitted APK means a download link with nothing
+# behind it. Rebuild with android/build.mjs, then copy it here.
 dist/FirFall.apk
 dist/FirFall.apk.idsig

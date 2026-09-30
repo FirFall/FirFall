@@ -412,6 +412,24 @@ body:not(.site-down) #downOverlay{display:none}
 .fv-acts{display:flex;gap:10px;justify-content:flex-end}
 .fv-acts button{padding:9px 18px;font-size:14px}
 
+/* ---- "get the app" bar ----
+   Only ever shown on a small touch screen in a browser (app.js decides that),
+   pinned to the bottom where a thumb is, and hidden in the DOM by default so
+   nothing about it depends on a media query alone. */
+.appbar{position:fixed;left:0;right:0;bottom:0;z-index:70;display:none;
+  align-items:center;gap:12px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+  background:#181818;border-top:1px solid #272727;box-shadow:0 -6px 20px rgba(0,0,0,.45)}
+.appbar.on{display:flex}
+body.appbar-on{padding-bottom:78px}
+.appbar-txt{flex:1;min-width:0;line-height:1.3}
+.appbar-txt strong{display:block;font-size:14.5px}
+.appbar-txt span{display:block;color:#aaa;font-size:12.5px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.appbar-go{background:#ff6a00;color:#1a0d00;font-weight:700;border-radius:10px;
+  padding:11px 14px;text-decoration:none;font-size:14.5px;white-space:nowrap}
+.appbar-x{background:none;border:0;color:#717171;font-size:16px;padding:6px 4px}
+.appbar-x:hover{color:#f1f1f1}
+
 /* ---- account deletion ---- */
 .del-box{max-width:520px;line-height:1.6}
 .del-box p{color:#ddd;font-size:14.5px;margin:0 0 12px}

@@ -324,6 +324,65 @@ setTimeout(function(){
 ${THREAD_CHECK}
 </script>`;
 
+/* The update gate is the one part of the app that can make itself unusable,
+   so it gets driven rather than parsed: a fake Android bridge and a fake
+   /api/app-version are injected BEFORE the page's own script runs (a stub added
+   at the end of the body would arrive after the check has already decided), and
+   then the gate is opened and its button pressed.
+
+   Both directions are driven, because only one of them is a bug you can ship:
+   an old build must lock, and a current build must NOT - a false positive locks
+   every installed copy of the app out of its own account. */
+function androidStub(version, versionCode, remoteVersion, remoteCode) {
+  return `<script>
+window.__opened = "";
+window.Android = {
+  appVersion: function(){ return ${JSON.stringify(version)}; },
+  appVersionCode: function(){ return ${versionCode}; },
+  openInBrowser: function(u){ window.__opened = String(u || ""); },
+  keepAwake: function(){}, hasCamPerms: function(){ return true; },
+  openAppSettings: function(){}, toast: function(){}
+};
+(function(){
+  var real = window.fetch;
+  window.fetch = function(u){
+    u = String(u && u.url ? u.url : u);
+    if (u.indexOf("/api/app-version") >= 0) {
+      return Promise.resolve({ ok: true, json: function(){
+        return Promise.resolve({ version: ${JSON.stringify(remoteVersion)},
+                                 versionCode: ${remoteCode},
+                                 url: "https://firfall.b8golddude.workers.dev/FirFall.apk" });
+      } });
+    }
+    return real.apply(window, arguments);
+  };
+})();
+</script>`;
+}
+
+const UPDATE_DRIVE = `<script>
+setTimeout(function(){
+  var box = document.createElement("div");
+  box.id = "driveOut"; box.style.display = "none";
+  document.body.appendChild(box);
+  function rec(k, v){ box.textContent += k + "=" + v + ";"; }
+  try{
+    var u = document.getElementById("upd");
+    rec("updOn", u.classList.contains("on") ? "yes" : "no");
+    rec("updText", ((document.getElementById("updSub").textContent) || "").replace(/\\s+/g, " ").trim().slice(0, 40));
+    rec("updVer", ((document.getElementById("updVer").textContent) || "").replace(/\\s+/g, " ").trim());
+    // Above the ban screen, which is the only other full-bleed overlay.
+    rec("updAbove", parseInt(getComputedStyle(u).zIndex, 10) >
+        parseInt(getComputedStyle(document.getElementById("ban")).zIndex, 10) ? "yes" : "no");
+    rec("updButtons", u.querySelectorAll("button").length);
+    // The one thing the gate must never do: offer a way past it.
+    rec("updDismiss", u.querySelectorAll(".close, .bgl, [data-close], #updX").length);
+    document.getElementById("updGo").click();
+    rec("updOpened", String(window.__opened).replace("https://firfall.b8golddude.workers.dev", ""));
+  }catch(e){ rec("updError", e.message); }
+}, 2000);
+</script>`;
+
 function prepare() {
   rmSync(OUT, { recursive: true, force: true });
   mkdirSync(OUT, { recursive: true });
@@ -343,6 +402,15 @@ function prepare() {
     // The same page again, with a driver appended. Both live under /mobile/ so
     // the relative logo src resolves exactly as it does in the browser.
     if (page === "mobile/index.html") writeFileSync(join(OUT, "mobile", "drive.html"), html.replace("</body>", DRIVE + "</body>"));
+    // Same page, but pretending to be the app: one copy one version behind, one
+    // copy already current. The stub goes in right after the trap so it exists
+    // before the page's script runs.
+    if (page === "mobile/index.html") {
+      const behind = html.replace("</head>", androidStub("1.0", 1, "1.1", 2) + "</head>");
+      writeFileSync(join(OUT, "mobile", "update-old.html"), behind.replace("</body>", UPDATE_DRIVE + "</body>"));
+      const current = html.replace("</head>", androidStub("1.1", 2, "1.1", 2) + "</head>");
+      writeFileSync(join(OUT, "mobile", "update-new.html"), current.replace("</body>", UPDATE_DRIVE + "</body>"));
+    }
     if (page === "index.html") writeFileSync(join(OUT, "drive-desktop.html"), html.replace("</body>", DRIVE_DESKTOP + "</body>"));
     writeFileSync(dest, html);
   }
@@ -350,7 +418,17 @@ function prepare() {
   for (const f of readdirSync(join(ROOT, "public"))) {
     const p = join(ROOT, "public", f);
     if (statSync(p).isFile() && f !== "index.html") {
-      writeFileSync(join(OUT, f), readFileSync(p));
+      let buf = readFileSync(p);
+      // download.html is loaded as a page in its own right, so it needs the
+      // trap the two shells get. Copied verbatim, its real <title> is read as
+      // the smoke report and a thrown error on that page is invisible.
+      if (/\.html$/i.test(f)) {
+        const t = buf.toString("utf8");
+        buf = Buffer.from(t.includes("<meta charset")
+          ? t.replace(/(<meta charset="utf-8"[^>]*>)/i, "$1" + TRAP)
+          : t.replace(/<head>/i, "<head>" + TRAP));
+      }
+      writeFileSync(join(OUT, f), buf);
     }
   }
   // ...and the mobile page pulls logo.png from its OWN directory, which is the
@@ -540,7 +618,9 @@ server.listen(PORT, async () => {
   if (!checkDanglingIds()) failed = true;
   if (!checkCameraLadder()) failed = true;
   prepare();
-  for (const path of ["/", "/mobile/"]) {
+  // download.html talks to the API for the current version; offline here, which
+  // is the branch where it must still leave a usable link on the page.
+  for (const path of ["/", "/mobile/", "/download.html"]) {
     const r = await load(path);
     if (r.real && r.real.length) {
       failed = true;
@@ -562,6 +642,14 @@ server.listen(PORT, async () => {
       for (const tab of ["home", "embers", "create", "subs", "you"]) {
         if (!new RegExp('data-tab="' + tab + '"').test(r.dom)) { failed = true; console.log("        nav item missing: " + tab); }
       }
+    }
+    if (path === "/download.html" && r.dom) {
+      // With the API unreachable the page must fall back to a real APK link
+      // rather than sitting there with href="#", which is the difference
+      // between an offline visitor and a broken one.
+      const btn = /<a class="btn" id="dlBtn" href="([^"]*)"/.exec(r.dom);
+      if (!btn || btn[1] === "#") { failed = true; console.log("        download button has no APK link"); }
+      else console.log("        download page falls back to " + btn[1]);
     }
   }
   // Now drive the mobile page: press Embers, then read the router's own state
@@ -593,6 +681,31 @@ server.listen(PORT, async () => {
         if (r[k]) { failed = true; console.log(`  FAIL  drive  threw: ${r[k]}`); }
       }
       console.log(`  ${failed ? "FAIL" : "ok  "}  drive  embers button routes (tab=${r.curTab}, vertical=${r.feedVertical}), logo loaded (${r.logoSrc})`);
+    }
+  }
+
+  // The update gate, driven both ways round.
+  for (const [path, want] of [
+    ["/mobile/update-old.html", { updOn: "yes", updAbove: "yes", updDismiss: "0", updButtons: "2",
+      updOpened: "/FirFall.apk", updVer: "You have 1.0 \u00b7 current is 1.1" }],
+    ["/mobile/update-new.html", { updOn: "no" }]
+  ]) {
+    const u = await load(path);
+    const um = u.dom && /<div id="driveOut"[^>]*>([\s\S]*?)<\/div>/i.exec(u.dom);
+    if (!um) { failed = true; console.log(`  FAIL  update  ${path} never reported`); continue; }
+    const r = {};
+    for (const kv of um[1].split(";")) { const i = kv.indexOf("="); if (i > 0) r[kv.slice(0, i)] = kv.slice(i + 1); }
+    if (r.updError) { failed = true; console.log(`  FAIL  update  ${path} threw: ${r.updError}`); continue; }
+    for (const [k, v] of Object.entries(want)) {
+      if (r[k] !== v) { failed = true; console.log(`  FAIL  update  ${path} ${k} was "${r[k]}", expected "${v}"`); }
+    }
+    if (r.updOn === "yes") {
+      // Tapping Update has to reach the system, not this WebView: an .apk
+      // cannot be installed from inside one.
+      if (r.updOpened !== "/FirFall.apk") { failed = true; console.log(`  FAIL  update  ${path} Update opened "${r.updOpened}"`); }
+      console.log(`  ok    update  an out-of-date build locks the app (${r.updVer}) and Update hands the APK to the system`);
+    } else {
+      console.log("  ok    update  a current build is left alone");
     }
   }
 
