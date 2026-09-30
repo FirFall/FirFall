@@ -176,13 +176,13 @@ let deletionReady = null;
    does not survive a string sort). `size` is only shown on the download page,
    so being slightly stale is harmless. */
 const APP_RELEASE = {
-  version: "1.2",
-  versionCode: 3,
+  version: "1.3",
+  versionCode: 4,
   url: "https://firfall.b8golddude.workers.dev/FirFall.apk",
   page: "https://firfall.b8golddude.workers.dev/download",
   size: 194097,
   published: "2026-09-30",
-  notes: "Fixes switching cameras, which said another app was using the camera."
+  notes: "Mods can now answer appeals. The Embers mute button sits on the video."
 };
 
 function ensureDeletionRequests(env) {
@@ -1802,14 +1802,22 @@ var index_default = {
       }
       if (req.method === "GET" && url.pathname === "/api/admin/appeals") {
         const user = await authedUser();
-        if (!user || user.role !== "admin") return json(403, { error: "Admin only." });
+        // Staff, not admins only. An appeal is a report about a ban, and the
+        // person who reviews reports has no way to answer one - so the queue
+        // that mods already work from could show them someone wrongly banned
+        // with no way to fix it. Reading and answering is a moderator's job;
+        // changing roles or the user table is not, and stays behind /api/admin.
+        if (!isStaff(user && user.role)) return json(403, { error: "Staff only." });
         const list = (await env.DB.prepare("SELECT id,username,message,status,reply,created_at,resolved_at FROM appeals ORDER BY (status='open') DESC, id DESC LIMIT 100").all()).results || [];
         const open = list.filter((a) => a.status === "open").length;
         return json(200, { appeals: list, open });
       }
       if (req.method === "POST" && url.pathname === "/api/admin/appeal") {
         const user = await authedUser();
-        if (!user || user.role !== "admin") return json(403, { error: "Admin only." });
+        // Same reasoning as the read above: a mod answering an appeal upholds it
+        // or lifts the ban. Both are within what a mod can already do from the
+        // report queue, and both are recorded against whoever decided.
+        if (!isStaff(user && user.role)) return json(403, { error: "Staff only." });
         const { id, action, reply } = await req.json();
         const row = await env.DB.prepare("SELECT * FROM appeals WHERE id=?").bind(id).first();
         if (!row) return json(404, { error: "Appeal not found." });

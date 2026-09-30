@@ -354,8 +354,25 @@ body:not(.site-down) #downOverlay{display:none}
   color:#fff;font-weight:700;font-size:17px;cursor:pointer}
 .short-prog{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.22);z-index:4}
 .short-prog i{display:block;height:100%;width:0;background:#ff0000}
-.short-top{position:absolute;left:0;right:0;top:0;z-index:5;display:flex;
-  align-items:center;gap:10px;padding:16px 18px;background:linear-gradient(rgba(0,0,0,.5),transparent)}
+/* The top bar belongs to the VIDEO, not the page. .short-stage is a centred9:16
+   column, so on a wide screen it is far narrower than the overlay - and a bar
+   stretched across the page (left:0;right:0) put the mute button out at the
+   window edge, nowhere near the thing it silences. These properties mirror
+   .short-stage exactly - full height, same aspect ratio, same centring - so the
+   bar tracks the video at any window size with nothing to measure in JS.
+
+   The scrim is a fixed 96px layer at the top rather than a gradient over the
+   full height, which would now dim the entire clip.
+
+   pointer-events:none is load-bearing. The bar is as tall as the video, so
+   leaving it clickable would swallow every tap on the clip; only the buttons
+   themselves take input, and the gaps pass through to .short-tap as they did
+   before. */
+.short-top{position:absolute;top:0;left:50%;transform:translateX(-50%);
+  height:100%;aspect-ratio:9/16;z-index:5;display:flex;
+  align-items:flex-start;gap:10px;padding:16px 18px;pointer-events:none;
+  background:linear-gradient(rgba(0,0,0,.5),transparent) top center/100% 96px no-repeat}
+.short-top>*{pointer-events:auto}
 .short-top button{color:#fff;background:rgba(0,0,0,.35);border:0;border-radius:50%;
   width:38px;height:38px;cursor:pointer;font-size:20px;line-height:1;display:flex;
   align-items:center;justify-content:center;font-family:inherit}

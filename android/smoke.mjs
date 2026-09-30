@@ -235,6 +235,22 @@ setTimeout(function(){
         // side on a desktop, which is the bug this guards against.
         var first = tr.querySelector(".short"), second = tr.querySelectorAll(".short")[1];
         rec("sideBySide", (first && second && second.offsetLeft < tr.clientWidth - 1) ? "yes" : "no");
+        // The mute button has to be ON the clip, not at the edge of the window.
+        // Measured against the stage box, because that is the requirement.
+        var mute = document.getElementById("shortMute");
+        var topBar = document.querySelector(".short-top");
+        if (mute && st) {
+          var mr = mute.getBoundingClientRect(), sr = st.getBoundingClientRect();
+          var br = topBar ? topBar.getBoundingClientRect() : null;
+          rec("muteInside", (mr.left >= sr.left - 1 && mr.right <= sr.right + 1) ? "yes" : "no");
+          rec("muteTop", Math.round(mr.top - sr.top));
+          rec("muteRightGap", Math.round(sr.right - mr.right));
+          // And the bar must not be the full page width on a wide window.
+          rec("barVsStage", (br && st) ? Math.round(br.width - sr.width) : -1);
+          // Full-height bar that is still clickable would eat taps on the clip.
+          rec("barTaps", (topBar && br) ? getComputedStyle(topBar).pointerEvents : "none");
+          rec("btnTaps", mute ? getComputedStyle(mute).pointerEvents : "none");
+        }
         var stW = first ? Math.round(first.querySelector(".short-stage").getBoundingClientRect().width) : 0;
         var trW = tr.clientWidth;
         rec("stageNarrower", stW > 0 && stW < trW ? "yes" : "no");
@@ -506,6 +522,78 @@ const CAM_DRIVE = `<script>
 })();
 </script>`;
 
+/* Appeals used to be admin-only while the report queue was open to mods, so a
+   mod reviewing reports had no way to answer an appeal - and an appeal is
+   exactly a report about a ban. Both halves are checked here because either one
+   alone leaves the queue useless: the route admitting staff is what lets a mod
+   answer one, and the mod view rendering the inbox is what puts it in front of
+   them. A check on the word "appeal" alone would pass against either bug. */
+function checkAppealsForMods() {
+  const w = readFileSync(join(ROOT, "worker/src/index.js"), "utf8");
+  const js = readFileSync(join(ROOT, "public/app.js"), "utf8");
+  const bad = [];
+  for (const [route, method] of [["/api/admin/appeals", "GET"], ["/api/admin/appeal", "POST"]]) {
+    const at = w.indexOf(`url.pathname === "${route}"`);
+    if (at < 0) { bad.push(route + " route not found"); continue; }
+    // req.method is written BEFORE url.pathname on the same line, so the line
+    // has to be taken from its start, not from the pathname match onwards.
+    const lineStart = w.lastIndexOf("\n", at) + 1;
+    const line = w.slice(lineStart, w.indexOf("\n", at));
+    if (!line.includes(`req.method === "${method}"`)) bad.push(route + " is not a " + method + " route");
+    // The gate is the handful of lines after the route match, before the body.
+    // Generous on purpose: the reason a route is gated the way it is sits in a
+    // comment above the check, and a window sized to the code would fail every
+    // time somebody explains themselves properly.
+    const gate = w.slice(at, at + 900);
+    if (/role\s*!==\s*"admin"|role\s*===\s*"admin"/.test(gate)) bad.push(route + " is still admin-only");
+    if (!/isStaff\(/.test(gate)) bad.push(route + " does not gate on isStaff");
+  }
+  // The mod branch of renderAdmin returns early with the report queue only.
+  const modBranch = /if \(isMod\(\) && !isAdmin\(\)\) \{[\s\S]*?\n  \}/.exec(js);
+  if (!modBranch) bad.push("could not find the mod branch of renderAdmin");
+  else if (!/adminAppealsInbox\(\)/.test(modBranch[0])) bad.push("the mod queue does not render the appeals inbox");
+  // ...and the admin path must still have it, or this moved the problem.
+  if (!/adminAppealsInbox\(\)/.test(js)) bad.push("adminAppealsInbox is never called");
+  if (bad.length) {
+    console.log("  FAIL  appeals  " + bad.join("; "));
+    return false;
+  }
+  console.log("  ok    appeals  mods can read and answer appeals, and the inbox renders in their queue");
+  return true;
+}
+
+/* The Embers mute button is the only control for sound on a clip, so it has to
+   sit on the clip. The bar used to span the whole overlay while the video is a
+   centred 9:16 column, which put mute at the window edge on any wide screen -
+   far from the picture it silences, and easy to miss entirely. Checked against
+   the stage's own box rather than the viewport, because "near the top right of
+   the video" is the actual requirement. */
+function checkShortsTopOverlaysVideo() {
+  const css = readFileSync(join(ROOT, "public/styles.css"), "utf8");
+  const bad = [];
+  const block = /\.short-top\{[^}]*\}/.exec(css);
+  if (!block) { console.log("  FAIL  mute     .short-top not found"); return false; }
+  const rule = block[0];
+  // Stretching across the page is the bug: it must not be left/right:0 wide.
+  if (/left:\s*0/.test(rule) && /right:\s*0/.test(rule)) bad.push(".short-top still spans the whole page");
+  if (!/aspect-ratio:\s*9\/16/.test(rule)) bad.push(".short-top does not take the stage's 9:16 shape");
+  if (!/transform:translateX\(-50%\)/.test(rule)) bad.push(".short-top is not centred over the video");
+  if (!/height:\s*100%/.test(rule)) bad.push(".short-top is not full height");
+  // Full height plus clickable would eat every tap on the clip.
+  if (!/pointer-events:\s*none/.test(rule)) bad.push(".short-top would swallow taps on the video");
+  if (!/\.short-top>\*\{pointer-events:auto\}/.test(css)) bad.push("the buttons inside .short-top are not clickable");
+  // The stage rule the mirror above is copied from, so a change to one and not
+  // the other is caught here rather than by eye on a wide monitor.
+  const stage = /\.short-stage\{[^}]*\}/.exec(css);
+  if (!stage || !/aspect-ratio:\s*9\/16/.test(stage[0])) bad.push(".short-stage is no longer 9:16");
+  if (bad.length) {
+    console.log("  FAIL  mute     " + bad.join("; "));
+    return false;
+  }
+  console.log("  ok    mute     the Embers top bar tracks the 9:16 video, not the page");
+  return true;
+}
+
 function prepare() {
   rmSync(OUT, { recursive: true, force: true });
   mkdirSync(OUT, { recursive: true });
@@ -741,6 +829,8 @@ server.listen(PORT, async () => {
   if (!checkCustomPlayer()) failed = true;
   if (!checkDanglingIds()) failed = true;
   if (!checkCameraLadder()) failed = true;
+  if (!checkAppealsForMods()) failed = true;
+  if (!checkShortsTopOverlaysVideo()) failed = true;
   prepare();
   // download.html talks to the API for the current version; offline here, which
   // is the branch where it must still leave a usable link on the page.
@@ -871,6 +961,7 @@ server.listen(PORT, async () => {
       if (r.stageRatio) r.stageRatio = r.stageRatio.replace(/\s+/g, "");
       const want = { shortsOpen: "yes", slides: "2", railButtons: "4", snapX: "yes",
         stageRatio: "9/16", objectFit: "contain", muteLabel: "yes", shortsClosed: "yes", leftBehind: "0",
+        muteInside: "yes", barVsStage: "0", barTaps: "none", btnTaps: "auto",
         sideBySide: "no", stageNarrower: "yes",
         studioView: "yes", studioBrand: "FirFall Studio", studioFlame: "yes",
         entryCards: "3", cardCustomise: "yes", cardVideos: "yes", navStudio: "yes",

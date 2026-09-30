@@ -2144,6 +2144,10 @@ async function renderAdmin() {
   // bans, so it stays behind the admin check on both sides.
   if (isMod() && !isAdmin()) {
     box.innerHTML = '<p class="modal-sub">Loading reports…</p>';
+    // Appeals first: they are the ones with a person waiting on an answer,
+    // and a mod who cannot reach this from their own queue has no way to
+    // contest a ban they believe is wrong.
+    box.appendChild(await adminAppealsInbox());
     box.appendChild(await staffReportQueue());
     return;
   }
@@ -2303,6 +2307,9 @@ async function staffReportQueue() {
 
 // Appeals land here because there is no Discord to send them to. Approving one
 // lifts the ban server-side, so the decision is not just a label on the row.
+// Shown to mods as well as admins: an appeal is a report about a ban, and the
+// route already admits staff, so a mod who could see the accusation has to be
+// able to answer it.
 async function adminAppealsInbox() {
   const sec = document.createElement('div');
   sec.className = 'admin-appeals';
