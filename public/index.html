@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>FirFall</title>
-<link rel="stylesheet" href="styles.css?v=17" />
+<link rel="stylesheet" href="styles.css?v=18" />
 </head>
 <body>
 <div id="downOverlay" role="alertdialog" aria-modal="true" aria-labelledby="downTitle">
@@ -180,6 +180,7 @@
            <span class="w-chmeta"><strong id="wChannel">@channel</strong><span id="wSubCount" class="modal-sub"></span></span>
          </a>
          <button id="wSubBtn" class="sub-btn">Subscribe</button>
+<button id="wReportBtn" class="report-btn hidden">Report</button>
          <button id="wBellBtn" class="yt-icon-btn hidden" aria-label="Notifications">🔔</button>
          <span class="w-space"></span>
          <span class="seg">
@@ -329,7 +330,21 @@
   </div>
 </div>
 
+<div id="reportModal" class="modal hidden">
+  <div class="modal-box" style="width:400px">
+    <button id="reportX" class="modal-x" aria-label="Close">&times;</button>
+    <h2 id="reportTitle">Report</h2>
+    <p class="modal-sub" id="reportTarget"></p>
+    <div class="report-reasons" id="reportReasons"></div>
+    <textarea id="reportDetail" rows="3" maxlength="500" placeholder="Anything else the moderators should know? (optional)"></textarea>
+    <div class="report-row">
+      <button id="reportSend" class="auth-go">Send report</button>
+      <span id="reportMsg" class="auth-err"></span>
+    </div>
+  </div>
+</div>
+
 <script>window.FIRFALL_API = "https://firfall-auth.b8golddude.workers.dev";</script>
-<script src="app.js?v=17"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>

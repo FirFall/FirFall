@@ -39,6 +39,18 @@ function banInfo(row) {
 }
 __name(banInfo, "banInfo");
 
+// Moderators and admins both get the report queue. The role value written by the
+// panel was "mod" while the badge in the UI checked for "moderator", so the two
+// never agreed and the mod badge could not have appeared. "mod" is canonical
+// here and the badge was corrected to match.
+function isStaff(role) {
+  return role === "admin" || role === "mod";
+}
+__name(isStaff, "isStaff");
+
+const REPORT_REASONS = /* @__PURE__ */ ["spam", "harassment", "hate", "sexual", "violence", "scam", "other"];
+__name(REPORT_REASONS, "REPORT_REASONS");
+
 // A network ban must never be able to lock out the person who can undo it. The
 // poison check runs before all routing, so without this an admin who poisons a
 // shared address (their own included) can never reach /api/admin/update again
@@ -639,7 +651,10 @@ var index_default = {
       }
       if (req.method === "GET" && url.pathname === "/api/video") {
         try {
-          const row = await env.DB.prepare("SELECT id,owner,title,description,mime,size,views,duration,visibility,created_at FROM videos WHERE id=? AND status='clean'").bind(url.searchParams.get("id")).first();
+          // The owner's role is joined in so the UI can badge moderator
+          // channels. Previously it read v.role, which this query never
+          // returned, so the badge could never have shown for anyone.
+          const row = await env.DB.prepare("SELECT v.id,v.owner,v.title,v.description,v.mime,v.size,v.views,v.duration,v.visibility,v.created_at,u.role AS owner_role FROM videos v JOIN users u ON u.username=v.owner WHERE v.id=? AND v.status='clean'").bind(url.searchParams.get("id")).first();
           if (!row) return json(404, { error: "Video not found." });
           if (row.visibility === "private") {
             const u2 = await authedUser();
@@ -760,7 +775,7 @@ var index_default = {
       if (req.method === "GET" && url.pathname === "/api/channel") {
         try {
           const name = String(url.searchParams.get("u") || "").toLowerCase();
-          const row = await env.DB.prepare("SELECT username,about,banner_key,avatar_key,created_at FROM users WHERE username=?").bind(name).first();
+          const row = await env.DB.prepare("SELECT username,role,about,banner_key,avatar_key,created_at FROM users WHERE username=?").bind(name).first();
           if (!row) return json(404, { error: "Channel not found." });
           const nvRes = await env.DB.prepare("SELECT COUNT(*) as c FROM videos WHERE owner=? AND status='clean'").bind(name).first();
           const nv = nvRes ? nvRes.c : 0;
@@ -969,7 +984,10 @@ var index_default = {
       if (req.method === "GET" && url.pathname === "/api/comments") {
         try {
           const vid = url.searchParams.get("video");
-          const res = await env.DB.prepare("SELECT user,text,created_at FROM comments WHERE video_id=? AND status='clean' ORDER BY id DESC LIMIT 50").bind(vid).all();
+          // id is selected so the client can attach a report button to each
+          // comment; status='clean' means a moderator-removed comment drops out
+          // of this list without any extra filtering on the client.
+          const res = await env.DB.prepare("SELECT id,user,text,created_at FROM comments WHERE video_id=? AND status='clean' ORDER BY id DESC LIMIT 50").bind(vid).all();
           const rows = res && res.results ? res.results : [];
           return json(200, { comments: rows });
         } catch (e) {
@@ -993,6 +1011,108 @@ var index_default = {
           return json(429, { error: "Slow down — 5s between comments." });
         await env.DB.prepare("INSERT INTO comments(video_id,user,text,status,created_at) VALUES(?,?,?,'clean',?)").bind(video_id, user.username, t, (/* @__PURE__ */ new Date()).toISOString()).run();
         return json(200, { ok: true });
+      }
+      if (req.method === "POST" && url.pathname === "/api/report") {
+        const user = await authedUser();
+        if (!user) return json(401, { error: "Sign in to report." });
+        const { kind, id, reason, detail } = await req.json();
+        if (kind !== "comment" && kind !== "video") return json(400, { error: "Can only report comments or videos." });
+        if (!id) return json(400, { error: "Missing target." });
+        const why = REPORT_REASONS.includes(reason) ? reason : "other";
+        // Verify the target exists before accepting a report, otherwise anyone
+        // could flood the queue with reports against ids that do not exist and
+        // moderators would spend their time on phantom entries.
+        if (kind === "video") {
+          const v = await env.DB.prepare("SELECT owner FROM videos WHERE id=?").bind(String(id)).first();
+          if (!v) return json(404, { error: "Video not found." });
+          if (v.owner === user.username) return json(400, { error: "You cannot report your own video." });
+        } else {
+          const c = await env.DB.prepare("SELECT id,user FROM comments WHERE id=?").bind(String(id)).first();
+          if (!c) return json(404, { error: "Comment not found." });
+          if (c.user === user.username) return json(400, { error: "You cannot report your own comment." });
+        }
+        try {
+          await env.DB.prepare("INSERT INTO reports(target_kind,target_id,reporter,reason,detail,status,created_at) VALUES(?,?,?,?,?,'open',?)").bind(kind, String(id), user.username, why, String(detail || "").slice(0, 500) || null, (/* @__PURE__ */ new Date()).toISOString()).run();
+        } catch {
+          return json(409, { error: "You already reported this." });
+        }
+        return json(200, { ok: true });
+      }
+      if (req.method === "GET" && url.pathname === "/api/reports/mine") {
+        const user = await authedUser();
+        if (!user) return json(401, { error: "Sign in." });
+        // Lets the client mark a report as already filed, and keeps an honest
+        // reporter from being told they did nothing when it registered fine.
+        const rows = (await env.DB.prepare("SELECT target_kind,target_id,status FROM reports WHERE reporter=?").bind(user.username).all()).results || [];
+        return json(200, { reported: rows.map((r) => r.target_kind + ":" + r.target_id + ":" + r.status) });
+      }
+      if (req.method === "GET" && url.pathname === "/api/staff/reports") {
+        const user = await authedUser();
+        if (!isStaff(user && user.role)) return json(403, { error: "Moderators only." });
+        const rows = (await env.DB.prepare(
+          "SELECT id,target_kind,target_id,reporter,reason,detail,status,resolution,resolved_by,created_at,resolved_at FROM reports ORDER BY (status='open') DESC, id DESC LIMIT 200"
+        ).all()).results || [];
+        // Attach the reported content and its author so a moderator can judge
+        // without cross-referencing three tables by hand.
+        for (const r of rows) {
+          if (r.target_kind === "comment") {
+            const c = await env.DB.prepare("SELECT user,text FROM comments WHERE id=?").bind(r.target_id).first();
+            r.subject = c ? { user: c.user, text: c.text, gone: false } : { gone: true };
+            const v = await env.DB.prepare("SELECT id,title FROM videos WHERE id=(SELECT video_id FROM comments WHERE id=?)").bind(r.target_id).first();
+            r.context = v ? { video: v.title } : null;
+          } else {
+            const v = await env.DB.prepare("SELECT owner,title FROM videos WHERE id=?").bind(r.target_id).first();
+            r.subject = v ? { user: v.owner, text: v.title, gone: false } : { gone: true };
+            r.context = null;
+          }
+        }
+        const open = rows.filter((r) => r.status === "open").length;
+        return json(200, { reports: rows, open });
+      }
+      if (req.method === "POST" && url.pathname === "/api/staff/report") {
+        const user = await authedUser();
+        if (!isStaff(user && user.role)) return json(403, { error: "Moderators only." });
+        const { id, action, network } = await req.json();
+        const row = await env.DB.prepare("SELECT * FROM reports WHERE id=?").bind(id).first();
+        if (!row) return json(404, { error: "Report not found." });
+        if (row.status !== "open") return json(409, { error: "Already handled." });
+        const note = (/* @__PURE__ */ new Date()).toISOString();
+        const resolve = async (resolution, victim) => {
+          await env.DB.prepare("UPDATE reports SET status='resolved',resolution=?,resolved_by=?,resolved_at=? WHERE id=?").bind(resolution, user.username, note, id).run();
+          if (victim && victim.action === "ban") {
+            const vres = await env.DB.prepare("SELECT banned FROM users WHERE username=?").bind(victim.username).first();
+            if (vres && !vres.banned) {
+              await env.DB.prepare("UPDATE users SET banned=1,ban_reason=?,banned_at=?,banned_by=? WHERE username=?").bind(victim.reason || "Confirmed by a moderator report.", note, user.username, victim.username).run();
+              const uip = await env.DB.prepare("SELECT last_ip FROM users WHERE username=?").bind(victim.username).first();
+              if (victim.network && uip && uip.last_ip) await env.DB.prepare("INSERT OR REPLACE INTO poison_bans(ip,created_at) VALUES(?,?)").bind(uip.last_ip, note).run();
+            }
+          }
+          return json(200, { ok: true, resolution });
+        };
+        if (action === "dismiss") return resolve("dismissed", null);
+        if (action === "remove") {
+          if (row.target_kind === "comment") {
+            await env.DB.prepare("UPDATE comments SET status='removed' WHERE id=?").bind(row.target_id).run();
+          } else {
+            const v = await env.DB.prepare("SELECT r2_key,thumb_key FROM videos WHERE id=?").bind(row.target_id).first();
+            if (v) {
+              if (storageConfigured()) {
+                try { await s3Delete(v.r2_key); if (v.thumb_key) await s3Delete(v.thumb_key); } catch (e) { console.error("Report removal storage error:", e); }
+              }
+              await env.DB.prepare("DELETE FROM videos WHERE id=?").bind(row.target_id).run();
+            }
+          }
+          return resolve("content removed", null);
+        }
+        if (action === "ban") {
+          if (row.target_kind === "comment") {
+            const c = await env.DB.prepare("SELECT user FROM comments WHERE id=?").bind(row.target_id).first();
+            return resolve("author banned", c ? { username: c.user, action: "ban", reason: "Confirmed by a moderator review of a reported comment." } : null);
+          }
+          const v = await env.DB.prepare("SELECT owner FROM videos WHERE id=?").bind(row.target_id).first();
+          return resolve("author banned", v ? { username: v.owner, action: "ban", reason: "Confirmed by a moderator review of a reported video.", network: !!network } : null);
+        }
+        return json(400, { error: "Unknown action." });
       }
       if (req.method === "POST" && url.pathname === "/api/video/delete") {
         const user = await authedUser();

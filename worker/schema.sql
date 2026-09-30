@@ -119,3 +119,22 @@ CREATE TABLE IF NOT EXISTS ban_tokens(
   username TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+-- User reports against a comment or a video. target_kind + target_id is a
+-- polymorphic pointer rather than two nullable columns so one queue and one
+-- resolution path cover both. UNIQUE on reporter is deliberately per-target,
+-- not global: someone should be able to flag two different videos.
+CREATE TABLE IF NOT EXISTS reports(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  target_kind TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  reporter TEXT NOT NULL,
+  reason TEXT NOT NULL DEFAULT 'other',
+  detail TEXT,
+  status TEXT NOT NULL DEFAULT 'open',
+  resolution TEXT,
+  resolved_by TEXT,
+  created_at TEXT NOT NULL,
+  resolved_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_once ON reports(target_kind, target_id, reporter);
+CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at DESC);

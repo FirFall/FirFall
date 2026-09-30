@@ -26,6 +26,10 @@ const me = () => localStorage.getItem('firfall_user');
 const token = () => localStorage.getItem('firfall_token');
 const myRole = () => localStorage.getItem('firfall_role') || 'user';
 const isAdmin = () => myRole() === 'admin';
+// Mods get the report queue but not the user table, which can change roles and
+// bans. The server enforces the same split; this only decides what to draw.
+const isMod = () => myRole() === 'mod';
+const isStaff = () => isAdmin() || isMod();
 
 function refreshAuthUI() {
   const u = me();
@@ -35,13 +39,13 @@ function refreshAuthUI() {
   signInIcon.classList.toggle('hidden', !!u);
   notifBtn.classList.toggle('hidden', !u);
   const adminNav = document.getElementById('adminNav');
-  if (adminNav) adminNav.classList.toggle('hidden', !isAdmin());
+  if (adminNav) { adminNav.classList.toggle('hidden', !isStaff()); adminNav.querySelector('span').textContent = isMod() && !isAdmin() ? 'Mod Queue' : 'Admin Panel'; }
   const shield = document.getElementById('adminShieldBtn');
-  if (shield) shield.classList.toggle('hidden', !isAdmin());
+  if (shield) shield.classList.toggle('hidden', !isStaff());
   if (u) {
     signInAvatar.textContent = u[0].toUpperCase(); menuUser.textContent = '@' + u; menuAvatar.textContent = u[0].toUpperCase();
     notifKnown = parseInt(localStorage.getItem('firfall_notif_known') || '0', 10) || 0;
-    if (!SITE_DOWN) { loadNotifs(false); syncRole(); }
+    if (!SITE_DOWN) { loadNotifs(false); syncRole(); loadMyReports(); }
   } else {
     accountMenu.classList.add('hidden');
     notifPanel.classList.add('hidden');
@@ -150,10 +154,13 @@ async function syncRole() {
     if (localStorage.getItem('firfall_role') !== j.role) {
       localStorage.setItem('firfall_role', j.role);
       const adminNav = document.getElementById('adminNav');
-      if (adminNav) adminNav.classList.toggle('hidden', j.role !== 'admin');
+      const staff = j.role === 'admin' || j.role === 'mod';
+      if (adminNav) { adminNav.classList.toggle('hidden', !staff); adminNav.querySelector('span').textContent = (j.role === 'mod') ? 'Mod Queue' : 'Admin Panel'; }
       const shield = document.getElementById('adminShieldBtn');
-      if (shield) shield.classList.toggle('hidden', j.role !== 'admin');
-      if (j.role === 'admin' && location.hash.startsWith('#/admin')) router();
+      if (shield) shield.classList.toggle('hidden', !staff);
+      // A mod promoted or demoted while sitting on the panel needs a redraw, or
+      // they keep seeing the user table they just lost access to.
+      if (location.hash.startsWith('#/admin')) router();
     }
   } catch { }
 }
@@ -481,7 +488,7 @@ async function renderChannel(name) {
     wireSubBtn(document.getElementById('chSubBtn'), c.username, document.getElementById('chBellBtn'));
     // Add Moderator badge
     const nameEl = document.getElementById('chName');
-    nameEl.innerHTML = c.username + (c.role === 'moderator' ? ' <span class="badge-mod">🔨 Mod</span>' : '');
+    nameEl.innerHTML = c.username + (c.role === 'mod' || c.role === 'admin' ? ' <span class="badge-mod">🔨 Mod</span>' : '');
     // Banner + avatar (custom or defaults)
     const banner = document.getElementById('chBanner');
     if (c.banner) { banner.src = API + c.banner + '?t=' + Date.now(); banner.classList.remove('hidden'); }
@@ -656,7 +663,7 @@ async function renderWatch(id) {
     player.src = API + '/v/' + v.id + q;
     player.playbackRate = 1;
     document.getElementById('speedBtn').textContent = '1x';
-    document.getElementById('wTitle').textContent = v.title + (v.role === 'moderator' ? ' <span class=\"badge-mod\">🔨 Mod</span>' : '');
+    document.getElementById('wTitle').textContent = v.title + (v.owner_role === 'mod' || v.owner_role === 'admin' ? ' <span class="badge-mod">🔨 Mod</span>' : '');
     document.getElementById('wStats').textContent = fmt(v.views || 0) + ' views • ' + timeAgo(v.created_at) + (v.duration ? ' • ' + fmtDur(v.duration) : '');
     const ch = document.getElementById('wChannelLink');
     document.getElementById('wChannel').textContent = '@' + v.owner;
@@ -671,6 +678,12 @@ async function renderWatch(id) {
     } catch {}
     paintReact(reaction || 'none', likes || 0);
     paintSave();
+    const wRep = document.getElementById('wReportBtn');
+    wRep.classList.toggle('hidden', !me() || v.owner === me());
+    wRep.textContent = myReports.has('video:' + v.id) ? 'Reported' : 'Report';
+    wRep.classList.toggle('done', myReports.has('video:' + v.id));
+    wRep.disabled = myReports.has('video:' + v.id);
+    wRep.onclick = () => openReport('video', v.id, v.title);
     const cAv = document.getElementById('cAvatar');
     cAv.textContent = me() ? me()[0].toUpperCase() : '?';
     document.getElementById('wDesc').textContent = v.description || 'No description.';
@@ -772,6 +785,18 @@ async function loadComments(vid) {
       d.querySelector('strong').textContent = '@' + c.user;
       d.querySelector('span').textContent = ' ' + timeAgo(c.created_at);
       d.querySelector('p').textContent = c.text;
+      // No button on your own comment: the server rejects it anyway, and
+      // offering it would just be a dead control.
+      if (me() && c.user !== me()) {
+        const b = document.createElement('button');
+        b.className = 'report-btn';
+        b.textContent = 'Report';
+        b.dataset.k = 'comment'; b.dataset.i = c.id;
+        b.title = 'Report this comment to the moderators';
+        b.onclick = () => openReport('comment', c.id, '@' + c.user + ': "' + c.text.slice(0, 60) + (c.text.length > 60 ? '...' : '') + '"');
+        if (myReports.has('comment:' + c.id)) { b.textContent = 'Reported'; b.classList.add('done'); b.disabled = true; }
+        d.appendChild(b);
+      }
       list.appendChild(d);
     });
   } catch { list.innerHTML = '<p class="modal-sub">Could not load comments.</p>'; }
@@ -791,6 +816,80 @@ document.getElementById('cSend').onclick = async () => {
     input.value = ''; loadComments(currentVideo.id);
   } catch { err.textContent = 'Service unreachable.'; }
 };
+
+// ---- Reporting ----
+// One dialog serves both comments and videos. Reports are deduplicated per
+// target per reporter on the server, so the client only has to avoid offering
+// the button twice for the same thing.
+const REPORT_WHY = [
+  ['spam', 'Spam'], ['harassment', 'Harassment'], ['hate', 'Hate speech'],
+  ['sexual', 'Sexual'], ['violence', 'Violence'], ['scam', 'Scam'], ['other', 'Other']
+];
+let reportTarget = null;
+let reportWhy = 'other';
+const myReports = new Set();
+async function loadMyReports() {
+  if (!token()) return;
+  try {
+    const r = await fetch(API + '/api/reports/mine', { headers: { Authorization: 'Bearer ' + token() } });
+    if (!r.ok) return;
+    const j = await r.json();
+    (j.reported || []).forEach(s => myReports.add(s.split(':').slice(0, 2).join(':')));
+  } catch { }
+}
+function openReport(kind, id, label) {
+  if (!me()) { alert('Sign in to report.'); return; }
+  const key = kind + ':' + id;
+  if (myReports.has(key)) { alert('You already reported this. Moderators have it.'); return; }
+  reportTarget = { kind, id };
+  reportWhy = 'other';
+  document.getElementById('reportTitle').textContent = kind === 'video' ? 'Report video' : 'Report comment';
+  document.getElementById('reportTarget').textContent = label || '';
+  document.getElementById('reportDetail').value = '';
+  const msg = document.getElementById('reportMsg');
+  msg.textContent = ''; msg.className = 'auth-err';
+  const box = document.getElementById('reportReasons');
+  box.innerHTML = '';
+  REPORT_WHY.forEach(([val, text]) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'report-chip' + (val === 'other' ? ' on' : ''); b.textContent = text;
+    b.onclick = () => {
+      reportWhy = val;
+      [...box.children].forEach(c => c.classList.remove('on'));
+      b.classList.add('on');
+    };
+    box.appendChild(b);
+  });
+  document.getElementById('reportModal').classList.remove('hidden');
+}
+document.getElementById('reportX').onclick = () => document.getElementById('reportModal').classList.add('hidden');
+document.getElementById('reportModal').onclick = (e) => {
+  if (e.target.id === 'reportModal') e.currentTarget.classList.add('hidden');
+};
+document.getElementById('reportSend').onclick = async () => {
+  if (!reportTarget) return;
+  const msg = document.getElementById('reportMsg');
+  const btn = document.getElementById('reportSend');
+  btn.disabled = true; msg.textContent = 'Sending...'; msg.className = 'auth-err';
+  try {
+    const r = await fetch(API + '/api/report', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+      body: JSON.stringify({ kind: reportTarget.kind, id: reportTarget.id, reason: reportWhy, detail: document.getElementById('reportDetail').value })
+    });
+    const j = await r.json().catch(() => ({}));
+    btn.disabled = false;
+    if (!r.ok) { msg.textContent = j.error || 'Could not send that report.'; return; }
+    myReports.add(reportTarget.kind + ':' + reportTarget.id);
+    msg.textContent = 'Sent. Thank you.'; msg.className = 'auth-err ok';
+    setTimeout(() => document.getElementById('reportModal').classList.add('hidden'), 700);
+    markReported(reportTarget.kind, reportTarget.id);
+  } catch { btn.disabled = false; msg.textContent = 'Service unreachable.'; }
+};
+function markReported(kind, id) {
+  document.querySelectorAll('.report-btn[data-k="' + kind + '"][data-i="' + id + '"]').forEach(b => {
+    b.textContent = 'Reported'; b.classList.add('done'); b.disabled = true;
+  });
+}
 
 // ---- Library views: subs / history / later ----
 function renderList(title, items, empty) {
@@ -822,14 +921,21 @@ function renderLater() {
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 async function renderAdmin() {
-  if (!isAdmin()) { renderList('Admin Panel', [], 'You do not have admin access.'); return; }
+  if (!isStaff()) { renderList('Admin Panel', [], 'You do not have staff access.'); return; }
   show(listView); markNav('admin');
   const sh = document.getElementById('adminShieldBtn');
   if (sh) sh.classList.add('on');
   const box = document.getElementById('listGrid');
   const title = document.getElementById('listTitle');
-  title.textContent = 'Admin Panel';
+  title.textContent = isMod() && !isAdmin() ? 'Mod Queue' : 'Admin Panel';
   box.className = 'admin-host';
+  // A mod gets the report queue only. The user table can change roles and lift
+  // bans, so it stays behind the admin check on both sides.
+  if (isMod() && !isAdmin()) {
+    box.innerHTML = '<p class="modal-sub">Loading reports…</p>';
+    box.appendChild(await staffReportQueue());
+    return;
+  }
   box.innerHTML = '<p class="modal-sub">Loading users…</p>';
   let users = [];
   try {
@@ -888,6 +994,96 @@ async function renderAdmin() {
   wrap.appendChild(table);
   box.appendChild(wrap);
   box.appendChild(await adminAppealsInbox());
+  box.appendChild(await staffReportQueue());
+}
+
+// The report queue. Each row carries the reported content and its author inline
+// so a moderator can judge without opening anything, and every action resolves
+// the report as well as acting on it, so nothing gets silently half-handled.
+async function staffReportQueue() {
+  const sec = document.createElement('div');
+  sec.className = 'staff-queue';
+  let list = [];
+  try {
+    const r = await fetch(API + '/api/staff/reports', { headers: { 'Authorization': 'Bearer ' + token() } });
+    const j = await r.json();
+    if (r.ok) list = j.reports || [];
+  } catch { }
+  const open = list.filter(r => r.status === 'open').length;
+  const h = document.createElement('h3');
+  h.className = 'staff-queue-h';
+  h.textContent = 'Reports' + (open ? ' (' + open + ' waiting)' : '');
+  sec.appendChild(h);
+  if (!list.length) {
+    const p = document.createElement('p');
+    p.className = 'modal-sub';
+    p.textContent = 'No reports. Users can flag comments and videos with the Report button.';
+    sec.appendChild(p);
+    return sec;
+  }
+  const whyLabel = t => ({ spam: 'Spam', harassment: 'Harassment', hate: 'Hate speech', sexual: 'Sexual', violence: 'Violence', scam: 'Scam', other: 'Other' }[t] || t);
+  const reload = () => renderAdmin();
+  list.forEach(r => {
+    const card = document.createElement('div');
+    card.className = 'rcard' + (r.status === 'open' ? ' open' : '');
+    const top = document.createElement('div');
+    top.className = 'rcard-top';
+    top.innerHTML = '<span class="rcard-kind">' + esc(r.target_kind) + '</span>' +
+      '<span class="rcard-why">' + esc(whyLabel(r.reason)) + '</span>' +
+      '<span>by <span class="rcard-who">@' + esc(r.reporter) + '</span></span>' +
+      '<span class="rcard-when">' + esc(timeAgo(r.created_at)) + '</span>' +
+      (r.status === 'open' ? '' : '<span class="rcard-res">' + esc(r.status) + (r.resolution ? ' — ' + esc(r.resolution) : '') + '</span>');
+    card.appendChild(top);
+    if (r.subject && r.subject.gone) {
+      const g = document.createElement('p');
+      g.className = 'rcard-gone';
+      g.textContent = 'The reported content is already gone.';
+      card.appendChild(g);
+    } else if (r.subject) {
+      const s = document.createElement('p');
+      s.className = 'rcard-subject';
+      s.textContent = r.subject.text;
+      card.appendChild(s);
+      const c = document.createElement('p');
+      c.className = 'rcard-ctx';
+      c.textContent = '@' + r.subject.user + (r.context && r.context.video ? ' on "' + r.context.video + '"' : '');
+      card.appendChild(c);
+    }
+    if (r.detail) {
+      const d = document.createElement('p');
+      d.className = 'rcard-detail';
+      d.textContent = 'Reporter said: ' + r.detail;
+      card.appendChild(d);
+    }
+    if (r.status === 'open') {
+      const act = document.createElement('div');
+      act.className = 'rcard-actions';
+      const go = async (action, network) => {
+        let msg = null;
+        if (action === 'remove') msg = 'Remove this ' + r.target_kind + ' permanently?';
+        if (action === 'ban') msg = 'Ban @' + (r.subject && r.subject.user || 'this user') + '?\n\nThey will see the ban screen on their next sign-in.';
+        if (network) msg = 'Ban @' + (r.subject && r.subject.user || 'this user') + ' and their entire network?\n\nEveryone on that connection is locked out. You may lock yourself out too.';
+        if (msg && !confirm(msg)) return;
+        try {
+          const res = await fetch(API + '/api/staff/report', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+            body: JSON.stringify({ id: r.id, action, network: !!network })
+          });
+          const jj = await res.json().catch(() => ({}));
+          if (!res.ok) { alert(jj.error || 'Failed.'); return; }
+          reload();
+        } catch { alert('Service unreachable.'); }
+      };
+      const mk = (label, cls, fn) => { const b = document.createElement('button'); b.className = 'btn-mini ' + cls; b.textContent = label; b.onclick = fn; act.appendChild(b); };
+      mk('Dismiss', '', () => go('dismiss'));
+      mk('Remove ' + r.target_kind, 'danger', () => go('remove'));
+      mk('Ban author', 'danger', () => go('ban', false));
+      mk('Ban network', 'danger', () => go('ban', true));
+      card.appendChild(act);
+    }
+    sec.appendChild(card);
+  });
+  return sec;
 }
 
 // Appeals land here because there is no Discord to send them to. Approving one
@@ -1021,7 +1217,7 @@ function upSetVis(v) {
 }
 document.getElementById('adminShieldBtn').onclick = () => {
   accountMenu.classList.add('hidden');
-  if (!isAdmin()) { alert('Admin access only.'); return; }
+  if (!isStaff()) { alert('Staff access only.'); return; }
   location.hash = '#/admin';
 };
 document.getElementById('createBtn').onclick = () => {
