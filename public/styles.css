@@ -295,10 +295,20 @@ body:not(.site-down) #downOverlay{display:none}
    work and keeps each clip aligned to the window. */
 #shorts{position:fixed;inset:0;z-index:120;background:#000;display:none}
 #shorts.on{display:block}
-.shorts-track{height:100%;display:flex;align-items:center;justify-content:center;
+/* No justify-content here. Each slide is already a full-width page and centres
+   the 9:16 stage inside itself, so centring the track as well put the content
+   wider than the container - and flex overflow to the LEFT of a scroll
+   container is unreachable, so the strip started half a slide in and showed
+   two clips side by side. */
+.shorts-track{height:100%;display:flex;align-items:center;
   overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
 .shorts-track::-webkit-scrollbar{display:none}
-.short{flex:0 0 auto;height:100%;scroll-snap-align:center;scroll-snap-stop:always;
+/* Each slide is one full-width page of the strip, not a box sized to its
+   content. Sizing to content let a 9:16 stage on a 1080p screen come out
+   ~600px wide, so two of them fitted side by side and the "one clip at a
+   time" panel showed two. The stage stays 9:16 and is centred inside the
+   page, which leaves black either side - exactly what Shorts does. */
+.short{flex:0 0 100%;height:100%;scroll-snap-align:center;scroll-snap-stop:always;
   display:flex;align-items:center;justify-content:center;position:relative}
 .short-stage{position:relative;height:100%;aspect-ratio:9/16;background:#000;overflow:hidden}
 .short-stage video{width:100%;height:100%;object-fit:contain;background:#000;display:block}

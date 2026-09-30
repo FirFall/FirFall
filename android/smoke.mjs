@@ -179,6 +179,14 @@ setTimeout(function(){
         rec("stageRatio", getComputedStyle(st).getPropertyValue("aspect-ratio"));
         rec("objectFit", getComputedStyle(st.querySelector("video")).objectFit);
         rec("muteLabel", document.getElementById("shortMute").children.length > 0 ? "yes" : "no");
+        // One clip per page: the second slide must start at or past the edge of
+        // the track. Sizing slides to their content put two 9:16 stages side by
+        // side on a desktop, which is the bug this guards against.
+        var first = tr.querySelector(".short"), second = tr.querySelectorAll(".short")[1];
+        rec("sideBySide", (first && second && second.offsetLeft < tr.clientWidth - 1) ? "yes" : "no");
+        var stW = first ? Math.round(first.querySelector(".short-stage").getBoundingClientRect().width) : 0;
+        var trW = tr.clientWidth;
+        rec("stageNarrower", stW > 0 && stW < trW ? "yes" : "no");
         closeShorts();
         rec("shortsClosed", sh.classList.contains("on") ? "no" : "yes");
         rec("leftBehind", tr.children.length);
@@ -390,6 +398,7 @@ server.listen(PORT, async () => {
       if (r.stageRatio) r.stageRatio = r.stageRatio.replace(/\s+/g, "");
       const want = { shortsOpen: "yes", slides: "2", railButtons: "4", snapX: "yes",
         stageRatio: "9/16", objectFit: "contain", muteLabel: "yes", shortsClosed: "yes", leftBehind: "0",
+        sideBySide: "no", stageNarrower: "yes",
         simultaneous: "1", commentPanel: "yes", commentUI: "yes", signinUI: "yes",
         navEmbers: "yes", embersRoute: "#/embers" };
       for (const [k, v] of Object.entries(want)) {
