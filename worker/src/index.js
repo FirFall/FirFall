@@ -176,13 +176,13 @@ let deletionReady = null;
    does not survive a string sort). `size` is only shown on the download page,
    so being slightly stale is harmless. */
 const APP_RELEASE = {
-  version: "1.1",
-  versionCode: 2,
+  version: "1.2",
+  versionCode: 3,
   url: "https://firfall.b8golddude.workers.dev/FirFall.apk",
   page: "https://firfall.b8golddude.workers.dev/download",
   size: 194097,
   published: "2026-09-30",
-  notes: "Adds the in-app update check and the APK download on the website."
+  notes: "Fixes switching cameras, which said another app was using the camera."
 };
 
 function ensureDeletionRequests(env) {

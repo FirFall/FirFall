@@ -383,6 +383,129 @@ setTimeout(function(){
 }, 2000);
 </script>`;
 
+/* Switching cameras failed on every real phone with "an app is using camera".
+   The cause is a timing fact that no amount of reading the code reveals: after
+   track.stop() the device is still open for a moment, and a getUserMedia issued
+   in that window comes back NotReadableError. So this drives the flip against a
+   fake getUserMedia that behaves the way Android does - it refuses the first two
+   requests after the switch, then hands the camera over.
+
+   What is checked is that the app waited and retried the SAME rung, rather than
+   treating "busy" as "this rung is wrong" and walking down the ladder. Walking
+   the ladder ends at a different wrong answer: "No camera available", on a
+   phone whose camera was never broken. The recorded constraint per call is
+   what proves which of the two happened. */
+const CAM_DRIVE = `<script>
+(function(){
+  var calls = [];
+  // Nothing is holding the camera before the first open, so that request goes
+  // straight through. Busy only ever appears AFTER a release - that is the
+  // whole phenomenon being reproduced.
+  var busyLeft = 0;
+  function fakeStream(facing, id){
+    return {
+      getVideoTracks: function(){
+        return [{ getSettings: function(){ return { facingMode: facing, deviceId: id }; },
+                  stop: function(){}, readyState: "live" }];
+      },
+      getTracks: function(){ return this.getVideoTracks(); }
+    };
+  }
+  function facingOf(cons){
+    var v = cons && cons.video;
+    if (typeof v === "boolean") return "any";
+    var fm = v && v.facingMode;
+    if (!fm) return "none";
+    if (fm.exact) return "exact:" + fm.exact;
+    if (fm.ideal) return "ideal:" + fm.ideal;
+    return "none";
+  }
+  navigator.mediaDevices.getUserMedia = function(cons){
+    calls.push(facingOf(cons));
+    if (busyLeft > 0) {
+      busyLeft--;
+      var e = new Error("device busy");
+      e.name = "NotReadableError";
+      return Promise.reject(e);
+    }
+    var want = (cons && cons.video && cons.video.facingMode &&
+                (cons.video.facingMode.exact || cons.video.facingMode.ideal)) || "";
+    return Promise.resolve(fakeStream(want === "user" ? "user" : "environment",
+                                      "dev-" + calls.length));
+  };
+  // The ladder must not be able to fail into a sheet: if it does, camFail()
+  // opens one and we want that visible as a failure, not swallowed.
+  window.__camFail = "";
+  var realFail = camFail;
+  window.camFail = function(reason){ window.__camFail = reason; };
+
+  var box = document.createElement("div");
+  box.id = "driveOut"; box.style.display = "none";
+  document.body.appendChild(box);
+  function rec(k, v){ box.textContent += k + "=" + v + ";"; }
+
+  // srcObject is a typed property: Chrome throws a TypeError if it is handed
+  // anything other than a real MediaStream. That throw happens inside the
+  // ladder's own .then, so its .catch catches it and reads it as a device
+  // failure - which made the fake drive every rung and report "No camera
+  // available" while the code under test was behaving perfectly. Replacing it
+  // with a plain writable property means the fake stream can be assigned, and
+  // what the camera preview looks like is irrelevant here.
+  var vEl = document.getElementById("camVideo");
+  if (vEl) Object.defineProperty(vEl, "srcObject", { value: null, writable: true, configurable: true });
+
+  // Open on the back camera, exactly as recording an ember does.
+  camFacing = "environment";
+  startCam(camFacing);
+  setTimeout(function(){
+    try{
+      rec("openCalls", calls.length);
+      rec("openStream", camStream ? "yes" : "no");
+      rec("openFacing", window.camFacingOf(camStream) || "NONE");
+
+      // Now flip, with the device still closing from the release above.
+      busyLeft = 2;
+      calls = [];
+      document.getElementById("camSwitch").click();
+      // Generous: the release wait plus two growing retries is well over 2s of
+      // real time, and virtual time makes it cheap.
+      setTimeout(function(){
+        try{
+          rec("flipCalls", calls.length);
+          rec("flipStream", camStream ? "yes" : "no");
+          rec("flipFacing", window.camFacingOf(camStream) || "NONE");
+          rec("camFail", window.__camFail || "none");
+          // The whole point: every call during the flip asks for the same
+          // camera, so "busy" was retried rather than walked past.
+          rec("flipSameRung", new Set(calls).size === 1 ? "yes" : "no");
+          rec("flipWanted", calls[0] || "none");
+          // A second flip straight after the first must not leave two ladders
+          // competing for one device.
+          busyLeft = 0;
+          calls = [];
+          document.getElementById("camSwitch").click();
+          document.getElementById("camSwitch").click();
+          setTimeout(function(){
+            try{
+              rec("doubleFlipStream", camStream ? "yes" : "no");
+              rec("doubleFlipCalls", calls.length);
+              rec("doubleFlipFail", window.__camFail || "none");
+              // Flipping mid-take must refuse rather than yank the tracks out
+              // from under a live recorder and post a truncated clip.
+              var before = calls.length;
+              window.camRec = { state: "recording", stop: function(){ window.camRec = null; } };
+              document.getElementById("camSwitch").click();
+              rec("recordingRefused", calls.length === before ? "yes" : "no");
+              window.camRec = null;
+            }catch(e){ rec("doubleError", e.message); }
+          }, 3000);
+        }catch(e){ rec("flipError", e.message); }
+      }, 4000);
+    }catch(e){ rec("openError", e.message); }
+  }, 1500);
+})();
+</script>`;
+
 function prepare() {
   rmSync(OUT, { recursive: true, force: true });
   mkdirSync(OUT, { recursive: true });
@@ -402,6 +525,7 @@ function prepare() {
     // The same page again, with a driver appended. Both live under /mobile/ so
     // the relative logo src resolves exactly as it does in the browser.
     if (page === "mobile/index.html") writeFileSync(join(OUT, "mobile", "drive.html"), html.replace("</body>", DRIVE + "</body>"));
+    if (page === "mobile/index.html") writeFileSync(join(OUT, "mobile", "camera.html"), html.replace("</body>", CAM_DRIVE + "</body>"));
     // Same page, but pretending to be the app: one copy one version behind, one
     // copy already current. The stub goes in right after the trap so it exists
     // before the page's script runs.
@@ -682,6 +806,32 @@ server.listen(PORT, async () => {
       }
       console.log(`  ${failed ? "FAIL" : "ok  "}  drive  embers button routes (tab=${r.curTab}, vertical=${r.feedVertical}), logo loaded (${r.logoSrc})`);
     }
+  }
+
+  // The camera flip, against a device that is still closing from the release.
+  const cam = await load("/mobile/camera.html");
+  const cm = cam.dom && /<div id="driveOut"[^>]*>([\s\S]*?)<\/div>/i.exec(cam.dom);
+  if (!cm) { failed = true; console.log("  FAIL  camera  the camera driver never reported"); }
+  else {
+    const r = {};
+    for (const kv of cm[1].split(";")) { const i = kv.indexOf("="); if (i > 0) r[kv.slice(0, i)] = kv.slice(i + 1); }
+    const want = {
+      // Opening must not be delayed by the release wait - there is nothing to
+      // release, so the first call goes straight through.
+      openCalls: "1", openStream: "yes", openFacing: "environment",
+      // The flip: the device refuses twice, the app waits and retries the same
+      // rung, and ends up on the front camera with a stream.
+      flipCalls: "3", flipStream: "yes", flipFacing: "user",
+      flipSameRung: "yes", flipWanted: "exact:user",
+      camFail: "none",
+      doubleFlipStream: "yes", doubleFlipFail: "none",
+      recordingRefused: "yes"
+    };
+    for (const [k, v] of Object.entries(want)) {
+      if (r[k] !== v) { failed = true; console.log(`  FAIL  camera  ${k} was "${r[k]}", expected "${v}"`); }
+    }
+    for (const k of ["openError", "flipError", "doubleError"]) if (r[k]) { failed = true; console.log(`  FAIL  camera  threw: ${r[k]}`); }
+    console.log(`  ${failed ? "FAIL" : "ok  "}  camera  flip waits for the release and retries the same rung (${r.flipCalls} calls, still on "${r.flipFacing}")`);
   }
 
   // The update gate, driven both ways round.

@@ -2351,6 +2351,27 @@ var CAM_FLIP_TRIES = [
 /* The device the camera is currently on, so a flip can be checked by identity
    as well as by facingMode - some devices report one but not the other. */
 var camDeviceId = null;
+/* How long to wait after releasing the camera before asking for it again.
+   Android does not hand the device back the instant track.stop() returns: the
+   framework still has it open for a moment afterwards, and a getUserMedia
+   issued in that window comes back NotReadableError - which the user sees as
+   "an app is using camera". Every reopen that follows a release waits this long
+   first. This is the whole reason flipping the camera used to fail. */
+var CAM_RELEASE_MS = 500;
+/* A camera that reports itself busy is usually one that is still closing, not
+   one genuinely taken by another app, so NotReadableError is retried on the
+   SAME rung a few times with a growing gap before the ladder moves down. Without
+   this a camera that was merely mid-release burned a rung and the ladder ran
+   out, reporting "No camera available" on a phone whose camera works fine -
+   the same tap produced two different wrong answers. */
+var CAM_BUSY_RETRIES = 3;
+/* Guards against two ladders running at once. Tapping flip twice, or flipping
+   while the first attempt is still walking its rungs, used to leave two
+   getUserMedia calls competing for the same device; one wins it and the other
+   resolves NotReadableError, which is the message this whole bug is about and
+   just as unfixable from the UI. Every attempt carries the generation it was
+   started in and stands down if it is no longer the current one. */
+var camGen = 0;
 /* Did we actually get the camera we asked for? Reports facingMode when the
    device tells us, falls back to "is this a different device", and returns true
    when the device says nothing at all - there is no way to tell, and refusing
@@ -2373,10 +2394,28 @@ function camFacingOf(s){
    know it, so the toast can never contradict the picture. */
 function startCam(facing, flipping, announce){
   var prev = camFacing, wasOpen = !!camStream;
+  var gen = ++camGen;                       // any older ladder is now stale
+  // The release has to settle before the next request. Skipping this wait is
+  // what produced "an app is using camera" on every flip: the previous tracks
+  // were stopped one statement earlier and the device had not closed yet.
+  var settle = wasOpen ? CAM_RELEASE_MS : 0;
   stopCamStream();
   var tries = flipping ? CAM_FLIP_TRIES : CAM_TRIES;
   var i = 0;
+  // Retries spent on the rung we are currently on. This is a plain counter and
+  // not a property of the rung, because each call to a rung function builds a
+  // fresh constraints object: hanging the count off it reset the counter on
+  // every retry and looped on one rung for ever.
+  var busyAt = 0;
+  // A generation that has been overtaken is not allowed to keep asking for the
+  // camera. Without this, two fast flips leave both ladders retrying and the
+  // user gets one "busy" message for a camera that is working.
+  function live(){ return gen === camGen; }
+  function dead(s){
+    if (s && s.getTracks) { try { s.getTracks().forEach(function(t){ t.stop(); }); } catch(e){} }
+  }
   function attempt(){
+    if (!live()) return;
     if (i >= tries.length) {
       // Nothing on the ladder produced the camera we asked for.
       if (flipping) {
@@ -2389,11 +2428,13 @@ function startCam(facing, flipping, announce){
     }
     var rung = tries[i++](facing);
     var cons = rung.cons, anyRung = rung.any;
+    busyAt = 0;                                  // a new rung starts fresh
     navigator.mediaDevices.getUserMedia(cons).then(function(s){
+      if (!live()) { dead(s); return; }
       if (!anyRung && !camMatches(s, facing)) {
         // Handed the wrong camera. Drop it on the floor and try the next rung
         // rather than showing it and calling it a successful flip.
-        try { s.getTracks().forEach(function(t){ t.stop(); }); } catch(e){}
+        dead(s);
         attempt();
         return;
       }
@@ -2407,7 +2448,7 @@ function startCam(facing, flipping, announce){
       // camera button that looked broken. Report it the same way as any other
       // camera failure instead.
       if (!v) {
-        try { s.getTracks().forEach(function(t){ t.stop(); }); } catch(e){}
+        dead(s);
         camFail("nocam");
         return;
       }
@@ -2417,7 +2458,18 @@ function startCam(facing, flipping, announce){
       v.play().catch(function(){});
       if (announce) toast((camFacingOf(s) || facing) === "user" ? "Front camera" : "Back camera");
     }).catch(function(e){
+      if (!live()) return;
       var name = (e && e.name) || "";
+      // Busy, and worth another go on the rung we just tried: the device may
+      // still have been closing. Each retry waits longer than the last, so a
+      // camera held by something else still ends up reported as busy rather
+      // than retried forever.
+      if ((name === "NotReadableError" || name === "TrackStartError") && busyAt < CAM_BUSY_RETRIES) {
+        busyAt++;
+        i--;                                    // same rung, not the next one
+        setTimeout(attempt, CAM_RELEASE_MS * busyAt);
+        return;
+      }
       // A device that cannot satisfy the request at all: try the next one.
       if (i < tries.length && name !== "NotAllowedError" && name !== "SecurityError") { attempt(); return; }
       if (name === "NotAllowedError" || name === "SecurityError") camFail("denied");
@@ -2425,7 +2477,8 @@ function startCam(facing, flipping, announce){
       else camFail("nocam");
     });
   }
-  attempt();
+  if (settle) setTimeout(attempt, settle);
+  else attempt();
 }
 /* Why the camera did not open, said plainly, with the way out. */
 function camFail(reason){
@@ -2477,6 +2530,10 @@ function stopCamRecording(){
 }
 $("camClose").onclick = closeCamera;
 $("camSwitch").onclick = function(){
+  // Flipping mid-take would call stopCamStream() with a live MediaRecorder
+  // attached, which ends the recorder's tracks out from under it and posts a
+  // truncated, unplayable clip. Say so rather than losing the recording.
+  if (camRec) { toast("Finish the clip before switching cameras"); return; }
   var want = camFacing === "user" ? "environment" : "user";
   camFacing = want;
   // startCam announces only once it knows which camera it really got, so this
