@@ -416,6 +416,16 @@ var index_default = {
           // through exactly the same validation, quota and moderation scan as
           // any other upload; the only difference is which feed they appear in.
           const kind = body.kind === "ember" ? "ember" : "video";
+          // Embers are short by definition. The client already stops the
+          // recording at EMBER_MAX_SECONDS and refuses longer picks, but the
+          // duration is typed by the client, so it is re-checked here: an
+          // ordinary video pretending to be an ember would otherwise show up
+          // stretched in the vertical feed. Real durations can round a hair
+          // over the limit, hence the small tolerance.
+          const EMBER_MAX_SECONDS = 60;
+          const dur = Math.max(0, Math.min(36e3, parseFloat(duration) || 0));
+          if (kind === "ember" && dur > EMBER_MAX_SECONDS + 1.5)
+            return json(400, { error: "Embers are " + EMBER_MAX_SECONDS + " seconds or less. Trim the clip and try again." });
           const t = String(title || "").trim(), d = String(description || "").trim();
           if (!VIDEO_MIMES.includes(mime)) return json(400, { error: "Only MP4/WebM/MOV/MKV." });
           const ext = (String(filename || "").split(".").pop() || "").toLowerCase();
@@ -438,7 +448,6 @@ var index_default = {
           if (used + size > STORAGE_QUOTA_BYTES) return json(400, { error: "Site storage full (free tier). Try a smaller file." });
           const id = crypto.randomUUID().slice(0, 12);
           const key = "v/" + id + "." + ext;
-          const dur = Math.max(0, Math.min(36e3, parseFloat(duration) || 0));
           const vis = ["public", "unlisted", "private"].includes(visibility) ? visibility : "public";
           const simple = size <= CHUNK_BYTES;
           let fileId = "PENDING-SMALL";

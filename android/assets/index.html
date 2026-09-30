@@ -323,6 +323,51 @@ input,textarea{font:inherit}
   color:var(--txt);padding:13px;font-size:16px;outline:0}
 .field input:focus{border-color:var(--blue)}
 .sheet-alt{text-align:center;font-size:14px;margin-top:14px;color:var(--dim)}
+/* ---------- embers: record + upload ---------- */
+/* Full-screen camera overlay. Sits above everything including the top bar so
+   the recording UI owns the whole display, the way a camera app does. */
+#camWrap{position:fixed;inset:0;z-index:80;background:#000;display:none}
+#camWrap.on{display:block}
+#camVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+/* Mirrored while recording the front camera, matching what the previewer
+   expects; flipped back for playback so text in the scene is not reversed. */
+#camVideo.mirror{transform:scaleX(-1)}
+.cam-top{position:absolute;top:calc(var(--safeTop) + 10px);left:0;right:0;display:flex;
+  align-items:center;justify-content:space-between;padding:0 12px;z-index:2}
+.cam-top button{width:40px;height:40px;border-radius:50%;background:rgba(0,0,0,.5);
+  color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center}
+#camTimer{position:absolute;top:calc(var(--safeTop) + 16px);left:50%;transform:translateX(-50%);
+  background:rgba(0,0,0,.55);color:#fff;font-weight:700;font-size:13px;
+  padding:4px 12px;border-radius:14px;z-index:2;display:none;align-items:center;gap:7px}
+#camTimer.on{display:flex}
+#camTimer .dot{width:8px;height:8px;border-radius:50%;background:#ff4b4b;
+  animation:recblink 1.1s ease-in-out infinite}
+@keyframes recblink{0%,100%{opacity:1}50%{opacity:.25}}
+#camBar{position:absolute;bottom:calc(var(--nav) + var(--safeBot) + 18px);left:0;right:0;
+  display:flex;flex-direction:column;align-items:center;gap:12px;z-index:2}
+#camHint{color:#fff;font-size:12.5px;opacity:.85;text-shadow:0 1px 4px rgba(0,0,0,.8)}
+#camRec{width:72px;height:72px;border-radius:50%;border:4px solid #fff;background:rgba(255,255,255,.25);
+  position:relative;transition:background .15s}
+#camRec.rec{background:#ff4b4b;border-color:rgba(255,255,255,.9);
+  animation:recpulse 1.1s ease-in-out infinite}
+@keyframes recpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+#camSwitch{width:44px;height:44px;border-radius:50%;background:rgba(0,0,0,.5);color:#fff;
+  font-size:19px;display:flex;align-items:center;justify-content:center}
+#camPick{color:#fff;font-size:13px;font-weight:600;padding:8px}
+/* Frozen last frame + play/pause review controls after recording stops. */
+#camReview{position:absolute;inset:0;display:none;background:#000;z-index:3}
+#camReview.on{display:block}
+#camReview video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.cam-actions{position:absolute;bottom:calc(var(--nav) + var(--safeBot) + 18px);left:0;right:0;
+  display:flex;justify-content:center;gap:14px;z-index:2}
+.cam-actions button{flex:0 0 auto;min-width:110px;padding:11px 18px;border-radius:22px;
+  font-weight:700;font-size:14px;background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.25)}
+.cam-actions .go{background:var(--red);border-color:var(--red)}
+/* Upload progress inside the sheet. The bar mirrors the desktop fire gradient. */
+#upProgWrap{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.up-bar{height:6px;background:#333;border-radius:4px;overflow:hidden}
+.up-fill{height:100%;width:0%;background:linear-gradient(90deg,#ffb800,#ff6a00,#ff2d00);transition:width .2s}
+#upState{color:var(--dim);font-size:13px}
 .sheet-alt button{color:var(--blue);font-weight:700}
 
 /* ---------- ban screen ---------- */
@@ -395,6 +440,9 @@ input,textarea{font:inherit}
   <button class="nitem on" data-tab="home">
     <svg viewBox="0 0 24 24"><path d="M4 21V9l8-6 8 6v12h-6v-7h-4v7H4z"/></svg><span class="lbl">Home</span>
   </button>
+  <button class="nitem" data-tab="embers">
+    <svg viewBox="0 0 24 24" style="width:26px;height:26px"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 10c-2.21 0-4-1.79-4-4 0-1.2.53-2.27 1.36-2.98l1.53 1.53A2 2 0 0 0 12 10c1.1 0 2 .9 2 2 0 .46-.16.88-.43 1.22l1.53 1.53A4 4 0 0 0 12 14z"/></svg><span class="lbl">Embers</span>
+  </button>
   <button class="nitem" data-tab="create">
     <svg viewBox="0 0 24 24" style="width:26px;height:26px"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 10c-2.21 0-4-1.79-4-4 0-1.2.53-2.27 1.36-2.98l1.53 1.53A2 2 0 0 0 12 10c1.1 0 2 .9 2 2 0 .46-.16.88-.43 1.22l1.53 1.53A4 4 0 0 0 12 14z"/></svg><span class="lbl">Create</span>
   </button>
@@ -415,6 +463,34 @@ input,textarea{font:inherit}
   <div class="sheet-h"></div>
   <div id="sheetBody"></div>
 </div>
+
+<!-- Ember camera: hidden until "Record an ember" is chosen. getUserMedia writes
+     the preview into it; the timer, review and upload steps are driven from JS.
+     It sits outside <main> so it can cover the whole app like a camera app. -->
+<div id="camWrap">
+  <video id="camVideo" autoplay playsinline muted></video>
+  <div class="cam-top">
+    <button id="camClose" aria-label="Close camera">✕</button>
+    <span></span>
+  </div>
+  <div id="camTimer"><span class="dot"></span><span id="camTimerTxt">0:00 / 0:60</span></div>
+  <div id="camReview">
+    <video id="reviewVideo" playsinline loop></video>
+    <div class="cam-actions">
+      <button id="camRetake">Retake</button>
+      <button id="camPost" class="go">Post ember</button>
+    </div>
+  </div>
+  <div id="camBar">
+    <span id="camHint">Embers are vertical clips, 60 seconds or less</span>
+    <div style="display:flex;align-items:center;gap:18px">
+      <button id="camPick">From gallery</button>
+      <button id="camRec" aria-label="Record"></button>
+      <button id="camSwitch" aria-label="Switch camera">⟳</button>
+    </div>
+  </div>
+</div>
+<input type="file" id="emberFile" accept="video/mp4,video/webm,video/quicktime,video/x-matroska" class="hidden">
 
 <script>
 "use strict";
@@ -951,7 +1027,22 @@ function go(tab, force){
   if (tab !== "watch" && player) { player.pause(); player.removeAttribute("src"); player = null; }
 
   if (tab === "home")      return loadHome();
+  if (tab === "embers")    return buildEmbers();
   if (tab === "subs")      return loadSubs();
+  if (tab === "you")       return loadYou();
+  if (tab === "library")   return loadLibrary();
+  if (tab === "search")    return doSearch(searchQ);
+  if (tab === "channel")   return loadChannel(curChannel);
+  if (tab === "watch")     return loadWatch(curVideo);
+  if (tab === "notifs")    return loadNotifs();
+  if (tab === "create")    return createNote();
+  if (tab === "you")       return loadYou();
+  if (tab === "library")   return loadLibrary();
+  if (tab === "search")    return doSearch(searchQ);
+  if (tab === "channel")   return loadChannel(curChannel);
+  if (tab === "watch")     return loadWatch(curVideo);
+  if (tab === "notifs")    return loadNotifs();
+  if (tab === "create")    return createNote();
   if (tab === "you")       return loadYou();
   if (tab === "library")   return loadLibrary();
   if (tab === "search")    return doSearch(searchQ);
@@ -966,6 +1057,7 @@ document.querySelectorAll(".nitem").forEach(function(n){
 });
 function tab(t){
   if (t === "create") { createNote(); return; }
+  if (t === "embers") { curChannel = null; curVideo = null; go("embers", true); paintChips(); return; }
   curChannel = null; curVideo = null; go(t, true);
   paintChips();
 }
@@ -991,15 +1083,30 @@ function paintChips(){
     row.appendChild(b);
   });
 }
-function skeletons(n){
-  var one = '<div class="sk-card"><div class="sk sk-thumb"></div><div class="sk-meta">' +
-    '<div class="sk sk-av"></div><div class="sk-lines"><div class="sk sk-l1"></div>' +
-    '<div class="sk sk-l2"></div></div></div></div>';
-  $("feed").innerHTML = new Array(n || 5).join(one);
+/* =====================================================================
+   EMBERS
+   ===================================================================== */
+async function buildEmbers(){
+  show("feed"); 
+  $("feed").innerHTML = '<div class="spin" style="padding:80px 0"></div>';
+  try{
+    var j = await api("/api/videos?kind=ember&limit=50");
+    var vs = j.videos || [];
+    if (!vs.length) {
+      $("feed").innerHTML = '<div class="empty" style="padding-top:120px"><div class="big">No embers</div>' +
+        'No vertical clips have been uploaded yet.</div>';
+      return;
+    }
+    renderFeed(vs, "No embers yet.");
+  }catch(e){
+    $("feed").innerHTML = '<div class="empty" style="padding-top:120px">' + esc(e.message||"Could not load embers.") + '</div>';
+  }
 }
 async function loadHome(append){
   show("feed"); paintChips();
-  if (!append) skeletons(5);
+  if (!append) {
+    $("feed").innerHTML = '<div class="spin" style="padding:40px 0"></div>';
+  }
   if (feedLoading) return;
   feedLoading = true;
   try{
@@ -1567,8 +1674,8 @@ function loadYou(){
       '<div class="rs">Review reports from the FirFall website admin panel.</div></div></div>' : '') +
     '<div class="row" data-act="channel"><div class="rtxt"><div class="rt">Your channel</div>' +
       '<div class="rs">@' + esc(me) + '</div></div></div>' +
-    '<div class="row" data-act="create"><div class="rtxt"><div class="rt">Upload a video</div>' +
-      '<div class="rs">Uploads run from the FirFall website.</div></div></div>' +
+    '<div class="row" data-act="create"><div class="rtxt"><div class="rt">Create an ember</div>' +
+      '<div class="rs">Record a vertical clip or upload one up to 60s.</div></div></div>' +
     '<div class="row" data-act="out"><div class="rtxt"><div class="rt">Sign out</div></div></div>' +
     '<div style="padding:24px;text-align:center;color:var(--dim2);font-size:12px">FirFall for Android</div>';
   $("you").querySelector('[data-act="channel"]').onclick = function(){ curChannel = me; go("channel", true); };
@@ -1578,18 +1685,277 @@ function loadYou(){
   if (s) s.onclick = function(){ toast("Open the admin panel on the website to review reports."); };
 }
 function createNote(){
+  // Uploads used to be refused with a note pointing at the website. Now the
+  // phone does the whole thing: record a vertical clip with the camera, or
+  // pick one from the gallery, and it is posted as an ember from here.
   openSheet(
-    '<div id="sheetTitle">Upload a video</div>' +
-    '<div id="sheetSub">FirFall uploads go through the website, where the 250MB limit and the moderation scan are applied. Open it and sign in, then post.</div>' +
-    '<div class="sheet-alt" style="margin-top:6px">firfall.b8golddude.workers.dev</div>' +
-    '<button class="sheet-go" style="margin-top:18px" id="upOk">Got it</button>'
+    '<div id="sheetTitle">Create an ember</div>' +
+    '<div id="sheetSub">Embers are vertical clips, 60 seconds or less, in the 9:16 shape. They appear in the Embers feed and on the website home page.</div>' +
+    '<button class="sheet-go" style="margin-top:16px" id="upRec">🎤 Record with camera</button>' +
+    '<button class="sheet-alt" style="margin-top:10px;width:100%" id="upPick">Choose a clip from this phone</button>' +
+    '<div id="upProgWrap" style="display:none"><div class="up-bar"><div class="up-fill" id="upFill"></div></div>' +
+    '<div id="upState">Preparing…</div></div>' +
+    '<button class="sheet-alt" style="margin-top:14px;width:100%" id="upCancel">Cancel</button>'
   );
-  $("upOk").onclick = closeSheet;
+  $("upRec").onclick = function(){ closeSheet(); openCamera(); };
+  $("upPick").onclick = function(){ $("emberFile").value = ""; $("emberFile").click(); };
+  $("upCancel").onclick = closeSheet;
+}
+
+/* =====================================================================
+   EMBERS: record / pick / upload
+   =====================================================================
+   A phone page can do all of this in-band: getUserMedia + MediaRecorder are
+   standard, and the API's chunked upload protocol is just fetch calls. The
+   60 second cap is enforced twice - the recorder stops itself, and the
+   worker re-checks the reported duration, so a long clip cannot slip in by
+   lying about its length. */
+var EMBER_MAX_S = 60;
+var camStream = null, camRec = null, camChunks = [], camTimerIv = null;
+var camFacing = "user", camStart = 0, emberBlob = null, emberMime = "video/mp4";
+var uploading = false;
+
+function openCamera(){
+  if (!me) { authSheet("login"); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === "undefined") {
+    toast("Recording needs a newer browser — use a gallery clip instead");
+    $("emberFile").value = ""; $("emberFile").click();
+    return;
+  }
+  var w = $("camWrap");
+  w.classList.add("on");
+  $("camReview").classList.remove("on");
+  $("camBar").classList.remove("hidden");
+  $("camTimer").classList.remove("on");
+  startCam(camFacing);
+}
+function startCam(facing){
+  stopCamStream();
+  navigator.mediaDevices.getUserMedia({
+    video: { facingMode: facing, width: { ideal: 720 }, height: { ideal: 1280 } },
+    audio: { echoCancellation: true, noiseSuppression: true }
+  }).then(function(s){
+    camStream = s;
+    var v = $("camVideo");
+    v.srcObject = s;
+    v.classList.toggle("mirror", facing === "user");
+  }).catch(function(){
+    toast("Camera unavailable — check the app's permissions");
+    closeCamera();
+  });
+}
+function stopCamStream(){
+  if (camStream) { try { camStream.getTracks().forEach(function(t){ t.stop(); }); } catch(e){} camStream = null; }
+  var v = $("camVideo");
+  if (v) { try { v.pause(); } catch(e){} v.srcObject = null; }
+}
+function closeCamera(){
+  stopCamRecording();
+  stopCamStream();
+  var rv = $("reviewVideo");
+  if (rv) { try { rv.pause(); rv.removeAttribute("src"); } catch(e){} }
+  emberBlob = null;
+  $("camWrap").classList.remove("on");
+}
+function stopCamRecording(){
+  if (camTimerIv) { clearInterval(camTimerIv); camTimerIv = null; }
+  if (camRec && camRec.state !== "inactive") { try { camRec.stop(); } catch(e){} }
+  camRec = null;
+}
+$("camClose").onclick = closeCamera;
+$("camSwitch").onclick = function(){
+  camFacing = camFacing === "user" ? "environment" : "user";
+  startCam(camFacing);
+};
+/* Recording: start on the shutter, auto-stop at 60s or when the duration is
+   reached again by hand, then hand the blob to the review screen. */
+$("camRec").onclick = function(){
+  // Second tap while recording stops early — forced 60s takes are miserable.
+  if (camRec) {
+    stopCamRecording();
+    $("camRec").classList.remove("rec");
+    return;
+  }
+  if (!camStream) { startCam(camFacing); return; }
+  var mimes = ["video/mp4", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
+  var mime = null;
+  for (var i = 0; i < mimes.length; i++) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(mimes[i])) { mime = mimes[i]; break; }
+  }
+  try {
+    camRec = new MediaRecorder(camStream, mime ? { mimeType: mime, videoBitsPerSecond: 2500000 } : undefined);
+  } catch(e) {
+    try { camRec = new MediaRecorder(camStream); } catch(e2) { toast("Could not start recording"); return; }
+  }
+  camChunks = [];
+  camRec.ondataavailable = function(e){ if (e.data && e.data.size) camChunks.push(e.data); };
+  camRec.onstop = function(){
+    var secs = (Date.now() - camStart) / 1000;
+    $("camTimer").classList.remove("on");
+    $("camBar").classList.add("hidden");
+    if (!camChunks.length || secs < 1) { emberBlob = null; toast("Clip too short — hold longer"); $("camBar").classList.remove("hidden"); return; }
+    emberMime = (camRec && camRec.mimeType) || mime || "video/webm";
+    emberBlob = new Blob(camChunks, { type: emberMime.split(";")[0] });
+    camChunks = [];
+    var rv = $("reviewVideo");
+    rv.src = URL.createObjectURL(emberBlob);
+    rv.play().catch(function(){});
+    $("camReview").classList.add("on");
+  };
+  camStart = Date.now();
+  try { camRec.start(250); } catch(e) { toast("Could not start recording"); return; }
+  $("camRec").classList.add("rec");
+  $("camTimer").classList.add("on");
+  camTimerIv = setInterval(function(){
+    var s = Math.min(EMBER_MAX_S, Math.round((Date.now() - camStart) / 1000));
+    $("camTimerTxt").textContent = "0:" + (s < 10 ? "0" : "") + s + " / 0:60";
+    if (s >= EMBER_MAX_S) {
+      stopCamRecording();
+      $("camRec").classList.remove("rec");
+      toast("60 second limit reached");
+    }
+  }, 250);
+};
+$("camRetake").onclick = function(){
+  emberBlob = null;
+  $("camReview").classList.remove("on");
+  $("camBar").classList.remove("hidden");
+  startCam(camFacing);
+};
+/* A gallery pick is a File, not a recording: probe its real length with a
+   throwaway <video> element, because the phone cannot be trusted to name a
+   clip honestly and the worker rejects embers over the cap. */
+$("emberFile").onchange = function(){
+  var f = this.files && this.files[0];
+  if (!f) return;
+  var v = document.createElement("video");
+  v.preload = "metadata";
+  v.onloadedmetadata = function(){
+    var d = v.duration;
+    URL.revokeObjectURL(v.src);
+    if (!isFinite(d)) { toast("Could not read that clip's length"); return; }
+    if (d > EMBER_MAX_S + 1.5) { toast("That clip is " + Math.round(d) + "s — embers are 60s or less"); return; }
+    emberBlob = f;
+    emberMime = f.type || "video/mp4";
+    emberUpload(f.name || "ember", "", d);
+  };
+  v.onerror = function(){ URL.revokeObjectURL(v.src); toast("Could not read that video"); };
+  v.src = URL.createObjectURL(f);
+};
+$("camPost").onclick = function(){
+  if (!emberBlob) return;
+  var secs = Math.min(EMBER_MAX_S, Math.max(1, Math.round((Date.now() - camStart) / 1000)));
+  emberUpload("Ember", "", secs);
+};
+
+/* ---------- the upload itself ----------
+   Same protocol as the website client: /api/uploads/start with kind=ember,
+   then 6MB chunks to /api/uploads/chunk with resume offsets, then
+   /api/uploads/complete with a JPEG thumbnail. Titles default to "Ember";
+   editing comes later, posting fast matters more on a phone. */
+function emberUpload(name, desc, durSecs){
+  if (!me) { authSheet("login"); return; }
+  if (uploading) return;
+  if (!emberBlob) { toast("Record or choose a clip first"); return; }
+  uploading = true;
+  var w = $("camWrap");
+  if (w.classList.contains("on")) { stopCamStream(); }
+  openSheet(
+    '<div id="sheetTitle">Posting ember</div>' +
+    '<div id="sheetSub">Public • 9:16 vertical clip</div>' +
+    '<div id="upProgWrap" class="on"><div class="up-bar"><div class="up-fill" id="upFill"></div></div>' +
+    '<div id="upState">Starting…</div></div>'
+  );
+  var file = emberBlob instanceof File ? emberBlob : new File([emberBlob], "ember.webm", { type: emberBlob.type || "video/webm" });
+  var mime = file.type || emberMime || "video/webm";
+  var okMimes = ["video/mp4", "video/webm", "video/quicktime", "video/x-matroska"];
+  if (okMimes.indexOf(mime) < 0) mime = "video/webm";
+  var ext = { "video/mp4":"mp4", "video/webm":"webm", "video/quicktime":"mov", "video/x-matroska":"mkv" }[mime] || "webm";
+  var prog = function(p, label){ var f = $("upFill"), s = $("upState"); if (f) f.style.width = Math.round(p * 100) + "%"; if (s) s.textContent = label; };
+  var sess = null, chunkSize = 6e6;
+  prog(0.02, "Starting…");
+  api("/api/uploads/start", {
+    method: "POST",
+    body: JSON.stringify({ filename: name + "." + ext, mime: mime, size: file.size, title: "Ember by @" + me,
+      description: "", duration: durSecs, visibility: "public", kind: "ember", scan: "skipped" })
+  }).then(function(j){
+    sess = j.sessionId; chunkSize = j.chunkSize || 6e6;
+    return sendChunks(sess, file, chunkSize, prog);
+  }).then(function(){
+    prog(0.9, "Finishing…");
+    return emberThumb(file).then(function(thumbBlob){
+      var fd = new FormData();
+      fd.append("sessionId", sess);
+      if (thumbBlob) fd.append("thumb", thumbBlob, "thumb.jpg");
+      return fetch(API + "/api/uploads/complete", {
+        method: "POST", headers: { "Authorization": "Bearer " + token() }, body: fd
+      }).then(function(r){ return r.json().then(function(jj){ return { status: r.status, j: jj }; }); });
+    });
+  }).then(function(x){
+    uploading = false;
+    if (x.status === 202) { closeSheet(); emberBlob = null; closeCamera(); toast("Ember held for review"); return; }
+    if (!x.status.toString || x.status !== 200) throw new Error(x.j.error || "Upload failed (" + x.status + ")");
+    closeSheet(); emberBlob = null; closeCamera();
+    toast("Ember posted! It is live in the Embers feed.");
+    tab("embers");
+  }).catch(function(e){
+    uploading = false;
+    closeSheet();
+    closeCamera();
+    toast(e.message || "Upload failed — try again");
+  });
+}
+function sendChunks(sess, file, chunkSize, prog){
+  var off = 0;
+  function step(){
+    if (off >= file.size) return Promise.resolve();
+    var end = Math.min(file.size, off + chunkSize);
+    var fd = new FormData();
+    fd.append("sessionId", sess);
+    fd.append("off", String(off));
+    fd.append("chunk", file.slice(off, end), "chunk");
+    return fetch(API + "/api/uploads/chunk", {
+      method: "POST", headers: { "Authorization": "Bearer " + token() }, body: fd
+    }).then(function(r){ return r.json().then(function(j){ return { status: r.status, j: j }; }); }).then(function(x){
+      if (x.status !== 200) throw new Error(x.j.error || "Chunk failed");
+      off = x.j.uploaded;            // the server's counter is authoritative
+      prog(0.05 + 0.8 * (off / file.size), "Uploading " + Math.round(off / file.size * 100) + "%");
+      return step();
+    });
+  }
+  return step();
+}
+/* Embers play vertical, so the thumbnail is drawn at 9:16 regardless of the
+   clip's real shape. A missing thumbnail only costs the shelf its picture. */
+function emberThumb(file){
+  return new Promise(function(res){
+    var v = document.createElement("video");
+    v.muted = true; v.playsInline = true; v.preload = "metadata";
+    var url = URL.createObjectURL(file);
+    v.src = url;
+    var done = false;
+    function grab(){
+      if (done) return; done = true;
+      try {
+        var c = document.createElement("canvas");
+        c.width = 450; c.height = 800;
+        var cover = Math.max(c.width / v.videoWidth || 1, c.height / v.videoHeight || 1);
+        var dw = v.videoWidth * cover, dh = v.videoHeight * cover;
+        c.getContext("2d").drawImage(v, (c.width - dw) / 2, (c.height - dh) / 2, dw, dh);
+        URL.revokeObjectURL(url);
+        c.toBlob(function(b){ res(b || null); }, "image/jpeg", 0.8);
+      } catch(e) { URL.revokeObjectURL(url); res(null); }
+    }
+    v.onloadeddata = function(){ setTimeout(grab, 300); };
+    v.onerror = function(){ URL.revokeObjectURL(url); res(null); };
+    setTimeout(function(){ grab(); }, 4000);
+  });
 }
 
 /* =====================================================================
    SEARCH
    ===================================================================== */
+
 /* The old handler called $("qIn").focus(), but the input's id is searchInput.
    $() returns null for a missing id and .focus() on null throws, which killed
    the handler before the guarded fallback below it ran. The search bar slid in

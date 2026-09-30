@@ -4,6 +4,7 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
@@ -13,6 +14,7 @@ import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.webkit.ConsoleMessage;
 import android.webkit.CookieManager;
+import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -43,6 +45,10 @@ public class MainActivity extends Activity {
     private FrameLayout root;
     private View fullScreenView;
     private WebChromeClient.CustomViewCallback customViewCallback;
+
+    /** Pending web file-chooser callback from the ember gallery picker. */
+    private ValueCallback<Uri[]> fileChooserCallback;
+    private static final int FILE_CHOOSER_REQUEST = 1001;
 
     /** Anything not on our own origin opens in the user's real browser. */
     private static final String[] OWN_HOSTS = {
@@ -122,6 +128,57 @@ public class MainActivity extends Activity {
                 exitFullScreen();
             }
 
+            /**
+             * Ember recording uses getUserMedia from the page. Without this
+             * override the WebView denies the request silently and the camera
+             * screen closes with "Camera unavailable". The app-level runtime
+             * permissions are requested in onCreate; granting here hands the
+             * devices to the page the moment it asks for them.
+             */
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        try {
+                            request.grant(request.getResources());
+                        } catch (Exception e) {
+                            request.deny();
+                        }
+                    }
+                });
+            }
+
+            /**
+             * The "From gallery" ember picker is a hidden <input type=file>.
+             * A WebView shows nothing at all for it unless the shell forwards
+             * to the system document picker, so this is the other half of
+             * uploading a clip you already recorded.
+             */
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback,
+                                             FileChooserParams params) {
+                if (fileChooserCallback != null) {
+                    fileChooserCallback.onReceiveValue(null);
+                }
+                fileChooserCallback = callback;
+                try {
+                    Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                    i.addCategory(Intent.CATEGORY_OPENABLE);
+                    i.setType("video/*");
+                    String[] types = params.getAcceptTypes();
+                    if (types != null && types.length > 0 && types[0] != null && types[0].length() > 0) {
+                        i.setType(types[0]);
+                    }
+                    startActivityForResult(
+                        Intent.createChooser(i, "Choose a clip"), FILE_CHOOSER_REQUEST);
+                } catch (ActivityNotFoundException e) {
+                    fileChooserCallback = null;
+                    Toast.makeText(MainActivity.this, "No app can pick a video.", Toast.LENGTH_SHORT).show();
+                    return false;
+                }
+                return true;
+            }
+
             @Override
             public boolean onConsoleMessage(ConsoleMessage m) {
                 // Anything the page logs is worth having in logcat when
@@ -149,6 +206,41 @@ public class MainActivity extends Activity {
         }
 
         web.loadUrl("file:///android_asset/index.html");
+
+        // Camera + microphone for ember recording. Asked for once up front
+        // rather than at first use: WebView fires the page's getUserMedia
+        // request immediately when the camera screen opens, and a permission
+        // dialog stacked on top of it is a confusing place to explain why.
+        // A denial is not fatal - the sheet still offers the gallery picker.
+        requestCamPerms();
+    }
+
+    private void requestCamPerms() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+        String[] wanted = new String[]{
+            "android.permission.CAMERA", "android.permission.RECORD_AUDIO"
+        };
+        boolean missing = false;
+        for (String p : wanted) {
+            if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) missing = true;
+        }
+        if (missing) {
+            try { requestPermissions(wanted, 2002); } catch (Exception e) { }
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == FILE_CHOOSER_REQUEST && fileChooserCallback != null) {
+            Uri[] result = null;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                result = new Uri[]{ data.getData() };
+            }
+            fileChooserCallback.onReceiveValue(result);
+            fileChooserCallback = null;
+            return;
+        }
+        super.onActivityResult(requestCode, resultCode, data);
     }
 
     /** True when the URL belongs to the app; false means "open externally". */

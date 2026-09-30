@@ -98,12 +98,33 @@ token: the form asks for their password to prove the account is theirs, and the
 `403` carries the token they need. Someone banned at the sign-in sheet already
 has one and skips that step.
 
+## Embers: recording and uploading
+
+The Create tab opens an in-app flow, no trip to the website needed:
+
+- **Record with camera** — `getUserMedia` + `MediaRecorder` from the page,
+  made possible by the shell's `onPermissionRequest` override. Recording
+  stops itself at 60 seconds, or earlier on a second tap of the shutter.
+  There is a review screen (Retake / Post ember) before anything uploads.
+- **From gallery** — a hidden `<input type=file>` forwarded to the system
+  document picker by `onShowFileChooser`. The clip's real duration is probed
+  with a throwaway `<video>` element and anything over 60s is refused.
+
+Both paths run the same upload as the website client: `/api/uploads/start`
+with `kind=ember`, 6 MB chunks with resume offsets, then `/api/uploads/complete`
+with a JPEG thumbnail drawn onto a 9:16 canvas. The worker re-checks the
+reported duration server-side, so the 60 second cap holds even if a client
+lies.
+
+Front and back cameras are supported; the front preview is mirrored while
+framing and un-mirrored in review. If camera permission is denied the record
+option says so and the gallery picker still works.
+
 ## What the app does not do
 
-Uploads go through the website. The 250 MB limit and the multi-layer
-moderation scan live there, and duplicating them in a phone app would mean two
-upload paths to keep in step and two places for a moderation miss to hide. The
-Create button says so rather than pretending otherwise.
+Full-length video uploads still go through the website, where the 250 MB
+limit and the moderation scan apply to the big files. Embers are capped at
+60 seconds precisely so a phone can handle them end to end.
 
 Watch history is stored on the device. The API has no history endpoint, and
 adding a server table for it was not worth it.
