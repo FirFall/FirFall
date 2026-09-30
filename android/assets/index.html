@@ -251,6 +251,14 @@ input,textarea{font:inherit}
 /* Replies sit one level in, under a rule, so a thread is readable at a glance
    without turning into an ever-deeper staircase. */
 .comment.reply{margin:10px 0 0 10px;padding-left:10px;border-left:2px solid #2f2f2f}
+/* Bottom-of-page links. Quiet on purpose - they are here to be findable, not
+   to be read over the feed. */
+.mfoot{display:flex;flex-direction:column;gap:10px;align-items:center;
+  padding:26px 16px 18px;margin-top:8px;border-top:1px solid var(--line)}
+.mfoot a{color:var(--dim2);font-size:13px;text-decoration:none}
+.mfoot a:active{color:var(--txt)}
+.fvlinks{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.fvlinks a{color:var(--blue);font-size:14.5px;font-weight:600;text-decoration:none}
 /* A reply thread, folded behind its count the way YouTube folds it. */
 .thread{display:none}
 .thread.open{display:block}
@@ -2092,13 +2100,25 @@ function loadLibrary(){
 /* =====================================================================
    YOU
    ===================================================================== */
+/* The guidelines and the privacy policy, at the bottom of the views people
+   actually scroll to the end of. Plain relative links so they resolve inside
+   the Android app from file:// as well as on the website. */
+function legalFoot(){
+  return '<div class="mfoot">' +
+    '<a href="guidelines.html">Community Guidelines</a>' +
+    '<a href="privacy.html">Privacy Policy</a>' +
+    '<a href="https://github.com/FirFall/FirFall">Source code</a>' +
+  '</div>';
+}
+
 function loadYou(){
   show("you");
   if (!me) {
     $("you").innerHTML = '<div class="empty"><div class="big">Sign in</div>' +
       'Sign in to comment, like, subscribe and upload.<br>' +
       '<button class="act" style="margin-top:14px" id="youSignin">Sign in</button>' +
-      '<div style="margin-top:10px"><button class="act" id="youReg">Create an account</button></div></div>';
+      '<div style="margin-top:10px"><button class="act" id="youReg">Create an account</button></div></div>' +
+      legalFoot();
     $("youSignin").onclick = function(){ authSheet("login"); };
     $("youReg").onclick = function(){ authSheet("register"); };
     return;
@@ -2114,7 +2134,7 @@ function loadYou(){
     '<div class="row" data-act="create"><div class="rtxt"><div class="rt">Create an ember</div>' +
       '<div class="rs">Record a vertical clip or upload one up to 60s.</div></div></div>' +
     '<div class="row" data-act="out"><div class="rtxt"><div class="rt">Sign out</div></div></div>' +
-    '<div style="padding:24px;text-align:center;color:var(--dim2);font-size:12px">FirFall for Android</div>';
+    legalFoot() + '<div style="padding:6px 12px 24px;text-align:center;color:var(--dim2);font-size:12px">FirFall for Android</div>';
   $("you").querySelector('[data-act="channel"]').onclick = function(){ curChannel = me; go("channel", true); };
   $("you").querySelector('[data-act="create"]').onclick = createNote;
   $("you").querySelector('[data-act="out"]').onclick = signOut;
@@ -3232,6 +3252,34 @@ window.FirFall = {
                             v.addEventListener("pause", function(){ on = false; sync(); }); }
   }, 1000);
 })();
+/* ---- first visit ----
+   The guidelines and the privacy policy are worth reading before somebody's
+   first comment, not after it. Shown once per phone: both buttons dismiss it
+   for good, and the account view keeps the links available forever, so "Read
+   later" still has somewhere to go. */
+(function firstVisitNotice(){
+  var KEY = "ff_guidelines_ack";
+  try { if (localStorage.getItem(KEY)) return; } catch(e){}
+  setTimeout(function(){
+    openSheet(
+      '<div id="sheetTitle">Welcome to FirFall</div>' +
+      '<div id="sheetSub">FirFall is a small, self-hosted video site run by volunteers. Two things worth reading before you post anything.</div>' +
+      '<div class="fvlinks">' +
+        '<a href="guidelines.html">Community Guidelines</a>' +
+        '<a href="privacy.html">Privacy Policy</a>' +
+      '</div>' +
+      '<button class="sheet-go" style="margin-top:18px" id="fvOk">Got it</button>' +
+      '<button class="sheet-alt" style="margin-top:10px;width:100%" id="fvLater">Read later</button>'
+    );
+    function done(){
+      try { localStorage.setItem(KEY, String(Date.now())); } catch(e){}
+      closeSheet();
+    }
+    $("fvOk").onclick = done;
+    $("fvLater").onclick = done;
+  }, 1200);
+})();
+
 </script>
 </body>
 </html>

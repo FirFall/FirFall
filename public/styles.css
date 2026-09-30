@@ -396,6 +396,22 @@ body:not(.site-down) #downOverlay{display:none}
 .reply-box .auth-go{padding:8px 18px;font-size:13.5px;width:auto}
 .reply-box .ghost-btn{padding:8px 14px;font-size:13.5px}
 
+/* ---- footer + first-visit notice ----
+   The guidelines and the privacy policy have to be reachable from every page,
+   so the footer is outside the app shell rather than inside a view. It is
+   deliberately quiet: it is not competing with the content above it. */
+.site-foot{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;
+  padding:22px 16px 34px;border-top:1px solid #1f1f1f;margin-top:8px}
+.site-foot a{color:#717171;font-size:13px;text-decoration:none}
+.site-foot a:hover{color:#f1f1f1}
+.fv-box{max-width:520px;line-height:1.6}
+.fv-head{font-size:18px;font-weight:700;margin-bottom:10px}
+.fv-box p{color:#ddd;font-size:14.5px;margin:0 0 12px}
+.fv-list{margin:0 0 18px;padding-left:20px}
+.fv-list li{color:#ddd;font-size:14.5px;margin:8px 0}
+.fv-acts{display:flex;gap:10px;justify-content:flex-end}
+.fv-acts button{padding:9px 18px;font-size:14px}
+
 /* ---- FirFall Studio ----
    Deliberately its own visual language: the site is a YouTube pastiche, and
    the creator side should not pretend to be YouTube Studio. FirFall's orange

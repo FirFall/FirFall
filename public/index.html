@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="/logo-192.png?v=20">
 <meta property="og:title" content="FirFall">
 <meta property="og:image" content="/logo-512.png?v=20">
-<link rel="stylesheet" href="styles.css?v=33" />
+<link rel="stylesheet" href="styles.css?v=34" />
 </head>
 <body>
 <div id="downOverlay" role="alertdialog" aria-modal="true" aria-labelledby="downTitle">
@@ -286,6 +286,15 @@
   </main>
 </div>
 
+<!-- Sits below the app so it is the last thing on the page whichever view is
+     open. Plain links to real pages rather than routes: these have to work from
+     inside the Android app too, where only the shell is bundled. -->
+<footer class="site-foot">
+  <a href="guidelines.html">Community Guidelines</a>
+  <a href="privacy.html">Privacy Policy</a>
+  <a href="https://github.com/FirFall/FirFall">Source code</a>
+</footer>
+
 <div id="uploadModal" class="modal hidden">
   <div class="modal-box studio-dlg">
     <div class="st-head">
@@ -403,7 +412,28 @@
   <div class="shorts-hint">&#8592; &#8594; or scroll to move between clips &middot; Esc to close</div>
 </div>
 
+<!-- Shown once, to somebody who has never opened FirFall before, so the rules
+     and the data policy are read before the first comment rather than after. -->
+<div id="firstVisit" class="modal hidden">
+  <div class="modal-box fv-box">
+    <div class="fv-head"><strong>Welcome to FirFall</strong></div>
+    <p>FirFall is a small, self-hosted video site run by volunteers. Two things
+    worth reading before you post anything:</p>
+    <ul class="fv-list">
+      <li><a href="guidelines.html" target="_blank" rel="noopener">Community Guidelines</a>
+        - what is allowed, what the filters catch on their own, and how to report or appeal.</li>
+      <li><a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a>
+        - what is stored (no ads, no trackers, and no readable copy of your IP
+        address), and how to have your account deleted.</li>
+    </ul>
+    <div class="fv-acts">
+      <button class="ghost-btn" id="fvLater">Read later</button>
+      <button class="auth-go" id="fvOk">Got it</button>
+    </div>
+  </div>
+</div>
+
 <script>window.FIRFALL_API = "https://firfall-auth.b8golddude.workers.dev";</script>
-<script src="app.js?v=33"></script>
+<script src="app.js?v=34"></script>
 </body>
 </html>

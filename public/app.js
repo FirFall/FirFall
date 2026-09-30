@@ -2715,3 +2715,24 @@ function captureThumb(file) {
 window.addEventListener('hashchange', router);
 refreshAuthUI();
 if (!SITE_DOWN) router();
+
+/* ---- first visit ----
+   The guidelines and the privacy policy are worth reading before somebody's
+   first comment, not after it. Shown exactly once per browser: both buttons
+   dismiss it for good, and the footer keeps the links available forever, so
+   "Read later" still has somewhere to go. */
+(function firstVisitNotice() {
+  const KEY = 'ff_guidelines_ack';
+  try { if (localStorage.getItem(KEY)) return; } catch (e) { /* private mode */ }
+  const box = document.getElementById('firstVisit');
+  if (!box) return;
+  const close = () => {
+    box.classList.add('hidden');
+    try { localStorage.setItem(KEY, String(Date.now())); } catch (e) { }
+  };
+  const ok = document.getElementById('fvOk'), later = document.getElementById('fvLater');
+  if (ok) ok.onclick = close;
+  if (later) later.onclick = close;
+  // A beat after boot, so it does not land on top of the first paint of the feed.
+  setTimeout(() => box.classList.remove('hidden'), 700);
+})();

@@ -64,6 +64,11 @@ check("assets/index.html present", byName.has("assets/index.html"));
 // means assets/logo.png. If it is not bundled the app silently falls back to the
 // SVG flame on every launch - the bug this check exists to stop repeating.
 check("assets/logo.png present", byName.has("assets/logo.png"));
+// The footer links to these by relative path. Inside the app that resolves to
+// file:///android_asset/guidelines.html, so if they are not bundled the links
+// open nothing at all and the failure is invisible until somebody taps them.
+check("assets/guidelines.html present", byName.has("assets/guidelines.html"));
+check("assets/privacy.html present", byName.has("assets/privacy.html"));
 // AndroidManifest.xml first, then the resources, then the dex, which is the
 // order aapt2 produces and the order the installer expects.
 check("AndroidManifest.xml is the first entry", entries[0].name === "AndroidManifest.xml",
