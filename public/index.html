@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="/logo-192.png?v=20">
 <meta property="og:title" content="FirFall">
 <meta property="og:image" content="/logo-512.png?v=20">
-<link rel="stylesheet" href="styles.css?v=28" />
+<link rel="stylesheet" href="styles.css?v=30" />
 </head>
 <body>
 <div id="downOverlay" role="alertdialog" aria-modal="true" aria-labelledby="downTitle">
@@ -219,6 +219,14 @@
          <button id="chSubBtn" class="sub-btn">Subscribe</button>
        </span>
      </div>
+     <!-- The bio used to live only behind the About tab, so a channel looked
+        like it had no description at all unless you went looking for it. It is
+        the first thing a visitor reads, so it sits under the header: clamped
+        to three lines, with a toggle for anything longer. -->
+    <div id="chBioWrap" class="ch-bio-wrap hidden">
+      <p id="chBio" class="ch-bio"></p>
+      <button id="chBioMore" class="ch-bio-more hidden">...more</button>
+    </div>
      <!-- Editing lives in FirFall Studio now. The banner, picture and
         description buttons used to sit here too, and the row of five was more
         clutter than it was worth on a page people mostly visit to watch. One
@@ -396,6 +404,6 @@
 </div>
 
 <script>window.FIRFALL_API = "https://firfall-auth.b8golddude.workers.dev";</script>
-<script src="app.js?v=29"></script>
+<script src="app.js?v=30"></script>
 </body>
 </html>

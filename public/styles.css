@@ -233,6 +233,15 @@ body:not(.site-down) #downOverlay{display:none}
 .ch-avatar-img{width:72px;height:72px;border-radius:50%;object-fit:cover;flex-shrink:0}
 .ch-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
 .ch-ownbar{display:flex;gap:8px;padding:0 4px 12px}
+/* The channel bio, under the header. Clamped to three lines so a wall of text
+   cannot push the tabs off the screen; "...more" reveals the rest in place
+   rather than sending anyone to another tab. */
+.ch-bio-wrap{max-width:900px;padding:0 4px 12px}
+.ch-bio{margin:0;color:#aaa;font-size:14px;line-height:1.5;white-space:pre-wrap;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.ch-bio-wrap.open .ch-bio{display:block;-webkit-line-clamp:unset;overflow:visible}
+.ch-bio-more{background:none;border:0;padding:4px 0 0;color:#aaa;font-size:13px;font-weight:600;cursor:pointer}
+.ch-bio-more:hover{color:#fff}
 .ch-sort{display:flex;gap:8px;padding:0 4px 12px}
 .ch-sort button{background:#272727;color:#fff;border:0;border-radius:16px;padding:8px 14px;font-size:13px;cursor:pointer}
 .ch-sort button.on{background:#fff;color:#111}

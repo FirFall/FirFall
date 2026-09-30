@@ -831,6 +831,23 @@ async function renderChannel(name) {
     else { avImg.classList.add('hidden'); avFb.classList.remove('hidden'); avFb.textContent = c.username[0].toUpperCase(); }
     document.getElementById('chOwnBar').classList.toggle('hidden', !own);
     meta.textContent = '@' + c.username + ' • ' + fmt(c.subscribers) + ' subscribers • ' + c.videos + ' videos';
+    // The bio, on the profile itself. It used to sit only behind the About tab,
+    // so a channel with a good description looked like it had none unless you
+    // clicked to find out. The About tab keeps the full text too - this is the
+    // preview, and that is where a long one is read in full.
+    const bioWrap = document.getElementById('chBioWrap'), bioEl = document.getElementById('chBio');
+    bioEl.textContent = c.about || '';
+    bioWrap.classList.toggle('hidden', !c.about);
+    // Re-clamp every time: moving between two channels with long bios would
+    // otherwise leave the second one expanded because the first one was.
+    bioWrap.classList.remove('open');
+    document.getElementById('chBioMore').textContent = '...more';
+    // The "...more" link only earns its place when the text is actually being
+    // cut off, and that is only knowable once it has been laid out.
+    requestAnimationFrame(() => {
+      const clipped = bioEl.scrollHeight > bioEl.clientHeight + 1;
+      document.getElementById('chBioMore').classList.toggle('hidden', !clipped);
+    });
     document.getElementById('chAbout').textContent = c.about || 'This channel has no description yet.';
     document.getElementById('chStats').textContent = fmt(c.views) + ' total views • joined ' + new Date(c.joined).toLocaleDateString();
     // kind=video explicitly: the API treats a missing kind as "both", so without
@@ -847,6 +864,13 @@ async function renderChannel(name) {
     list.forEach(v => tab.appendChild(card(v)));
   } catch { tab.innerHTML = '<h2>Could not load channel.</h2>'; }
 }
+// Wired once rather than per render: the handler only flips a class, so there
+// is nothing in it that depends on which channel is open.
+document.getElementById('chBioMore').onclick = function () {
+  const wrap = document.getElementById('chBioWrap');
+  const open = wrap.classList.toggle('open');
+  this.textContent = open ? 'Show less' : '...more';
+};
 document.querySelectorAll('#chSort button').forEach(b => {
   b.onclick = () => {
     document.querySelectorAll('#chSort button').forEach(x => x.classList.remove('on'));
