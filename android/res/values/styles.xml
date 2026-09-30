@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      A plain black theme with no action bar. The WebView supplies all of the
+      chrome, so an ActionBar would only add a strip of dead space above it,
+      and a light theme would flash white before the page paints.
+    -->
+    <style name="FirFallTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/firfall_bg</item>
+        <item name="android:colorBackground">@color/firfall_bg</item>
+        <item name="android:statusBarColor">@color/firfall_bg</item>
+        <item name="android:navigationBarColor">@color/firfall_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

@@ -2,6 +2,10 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "firfall",
   "compatibility_date": "2026-09-01",
+  // Workers static assets do not take per-path response headers in config;
+  // anything other than the fields below is rejected as an unknown key, and
+  // the upload fails. The web app is versioned with a ?v= query in
+  // index.html instead, which is what keeps it fresh.
   "assets": {
     "directory": "./public"
   }

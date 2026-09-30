@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- FirFall red, matching the desktop site and the ban screen. -->
+    <color name="firfall_red">#FF0000</color>
+    <color name="firfall_bg">#0F0F0F</color>
+    <color name="ic_launcher_background">#0F0F0F</color>
+</resources>

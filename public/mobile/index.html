@@ -1,0 +1,1282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0f0f0f">
+<title>FirFall</title>
+<style>
+/* FirFall for Android - a YouTube-app-shaped shell over the real FirFall API.
+   Colours follow the YouTube dark theme so the app reads as familiar, but no
+   YouTube CSS, fonts or images are copied: every rule here is hand written and
+   every pixel of artwork is drawn or pulled from FirFall itself. */
+:root{
+  --bg:#0f0f0f; --bg2:#1c1c1c; --bg3:#272727; --line:#303030;
+  --txt:#f1f1f1; --dim:#aaa; --dim2:#717171;
+  --red:#ff0000; --redDim:#c4302b; --redSoft:#ff8f86;
+  --blue:#3ea6ff;
+  --safeTop:env(safe-area-inset-top,0px); --safeBot:env(safe-area-inset-bottom,0px);
+  --nav:56px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%}
+body{
+  background:var(--bg); color:var(--txt); overflow:hidden;
+  font-family:Roboto,"Helvetica Neue",Arial,system-ui,sans-serif;
+  font-size:14px; line-height:1.4; -webkit-font-smoothing:antialiased;
+}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+input,textarea{font:inherit}
+.hidden{display:none !important}
+.scroll{position:absolute;inset:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.scroll.below{padding-top:calc(58px + var(--safeTop))}
+.scroll.above{padding-bottom:calc(var(--nav) + var(--safeBot))}
+::-webkit-scrollbar{width:0;height:0}
+
+/* ---------- top app bar ---------- */
+#topbar{
+  position:fixed;top:0;left:0;right:0;height:calc(58px + var(--safeTop));
+  padding:var(--safeTop) 6px 0; display:flex;align-items:center;gap:4px;
+  background:var(--bg); z-index:40; border-bottom:1px solid transparent;
+}
+#topbar.stuck{border-bottom-color:var(--line)}
+.brand{display:flex;align-items:center;gap:6px;padding:0 8px;height:100%}
+.brand-mark{width:30px;height:21px;border-radius:6px;background:var(--red);
+  display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.brand-mark::after{content:"";width:0;height:0;margin-left:2px;
+  border-left:8px solid #fff;border-top:5px solid transparent;border-bottom:5px solid transparent}
+.brand-name{font-size:19px;font-weight:800;letter-spacing:-.6px}
+.icon-btn{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;flex:0 0 auto;position:relative}
+.icon-btn:active{background:var(--bg3)}
+.icon-btn svg{width:24px;height:24px;fill:var(--txt)}
+#avatarBtn{width:34px;height:34px;background:#3f3f3f;color:#fff;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;margin:0 4px}
+#avatarBtn.me{background:var(--red)}
+
+/* ---------- search ---------- */
+#searchWrap{position:fixed;top:0;left:0;right:0;height:calc(58px + var(--safeTop));
+  padding:var(--safeTop) 8px 0;background:var(--bg);z-index:45;display:flex;
+  align-items:center;gap:8px;transform:translateY(-110%);transition:transform .18s}
+#searchWrap.on{transform:translateY(0)}
+.search-field{flex:1;display:flex;align-items:center;background:var(--bg3);
+  border-radius:20px;padding:0 4px 0 16px;height:40px}
+.search-field input{flex:1;background:none;border:0;outline:0;color:var(--txt);font-size:16px;min-width:0}
+.search-field svg{width:22px;height:22px;fill:var(--dim)}
+#searchGo{padding:8px 10px;font-weight:700;font-size:14px;color:var(--blue);border-radius:20px}
+
+/* ---------- chips ---------- */
+#chips{position:fixed;left:0;right:0;top:calc(58px + var(--safeTop));z-index:39;
+  display:flex;gap:8px;padding:8px 12px;background:var(--bg);overflow-x:auto;
+  border-bottom:1px solid transparent;transition:border-color .15s}
+#chips.stuck{border-bottom-color:var(--line)}
+#chips.stuck.hide{display:none}
+.chip{flex:0 0 auto;padding:6px 12px;border-radius:8px;background:var(--bg3);
+  color:var(--txt);font-size:14px;font-weight:600;white-space:nowrap}
+.chip.on{background:#f1f1f1;color:#0f0f0f}
+
+/* ---------- video card ---------- */
+.vcard{display:block;width:100%;text-align:left;padding:0 0 14px}
+.thumb{position:relative;width:100%;aspect-ratio:16/9;background:#1f1f1f;overflow:hidden}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#232323,#141414)}
+.thumb .ph span{font-size:40px;font-weight:800;color:#2e2e2e}
+.dur{position:absolute;right:6px;bottom:6px;background:rgba(0,0,0,.8);color:#fff;
+  font-size:12px;font-weight:600;padding:1px 4px;border-radius:4px;letter-spacing:.3px}
+.vmeta{display:flex;gap:12px;padding:12px 12px 0}
+.vav{width:36px;height:36px;border-radius:50%;background:#3f3f3f;color:#fff;
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex:0 0 auto}
+.vtext{min-width:0;flex:1}
+.vtitle{font-size:15px;font-weight:600;line-height:1.35;display:-webkit-box;
+  -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+.vsub{font-size:13px;color:var(--dim);margin-top:3px;display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.dot{width:3px;height:3px;border-radius:50%;background:var(--dim2);flex:0 0 auto}
+
+/* ---------- bottom nav ---------- */
+#nav{position:fixed;left:0;right:0;bottom:0;height:calc(var(--nav) + var(--safeBot));
+  padding-bottom:var(--safeBot);background:var(--bg);border-top:1px solid var(--line);
+  display:flex;z-index:50}
+.nitem{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:3px;color:var(--dim);font-size:10px;font-weight:600;letter-spacing:.2px}
+.nitem svg{width:24px;height:24px;fill:currentColor}
+.nitem.on{color:var(--txt)}
+.nitem.on svg{fill:var(--txt)}
+.nitem .lbl{white-space:nowrap}
+
+/* ---------- watch ---------- */
+#playerBox{position:relative;width:100%;background:#000;aspect-ratio:16/9}
+#playerBox video{width:100%;height:100%;display:block;background:#000}
+#pfab{position:absolute;right:8px;top:8px;background:rgba(0,0,0,.6);border-radius:6px;
+  padding:4px 8px;font-size:11px;font-weight:700;color:#fff}
+.watch-body{padding:12px 12px 24px}
+.wtitle{font-size:18px;font-weight:700;line-height:1.3;margin-bottom:12px;word-break:break-word}
+.wchan{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.wchan .vav{width:40px;height:40px;font-size:16px}
+.wcname{font-weight:600;font-size:15px}
+.wcsub{font-size:12px;color:var(--dim);margin-top:1px}
+.sub-btn{background:#f1f1f1;color:#0f0f0f;font-weight:700;font-size:14px;
+  padding:9px 18px;border-radius:20px;flex:0 0 auto}
+.sub-btn.on{background:var(--bg3);color:var(--txt)}
+.wacts{display:flex;gap:8px;overflow-x:auto;padding-bottom:14px;
+  border-bottom:1px solid var(--line);margin-bottom:14px}
+.act{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:20px;
+  background:var(--bg3);font-size:13px;font-weight:600;white-space:nowrap;flex:0 0 auto}
+.act:active{background:#3a3a3a}
+.act svg{width:18px;height:18px;fill:currentColor}
+.act.on{background:#fff;color:#0f0f0f}
+.act.flag{border:1px solid var(--redDim);color:var(--redSoft)}
+.desc{background:var(--bg2);border-radius:12px;padding:12px;font-size:14px;
+  line-height:1.5;white-space:pre-wrap;word-break:break-word;margin-bottom:20px}
+.desc .dmeta{font-weight:700;margin-bottom:6px;font-size:13px}
+.sect-h{font-size:16px;font-weight:700;margin:0 0 14px}
+.comment{display:flex;gap:12px;padding:0 0 16px}
+.comment .cav{width:32px;height:32px;font-size:13px;flex:0 0 auto}
+.cbody{min-width:0;flex:1}
+.cwho{font-size:13px;font-weight:600;margin-bottom:2px}
+.cwho .badge-mod{background:var(--red);color:#fff;font-size:10px;font-weight:700;
+  padding:1px 4px;border-radius:3px;margin-left:5px}
+.ctime{font-size:12px;color:var(--dim);margin-left:8px;font-weight:400}
+.ctext{font-size:14px;line-height:1.4;word-break:break-word;white-space:pre-wrap}
+.cfoot{display:flex;align-items:center;gap:10px;margin-top:6px}
+.cfoot button{font-size:12px;font-weight:600;color:var(--dim)}
+.cfoot .replied{color:var(--dim2);font-size:12px}
+.cadd{display:flex;gap:8px;align-items:flex-start;margin-bottom:24px}
+.cadd .cav{width:32px;height:32px;font-size:13px}
+.cadd textarea{flex:1;background:none;border:0;outline:0;color:var(--txt);resize:none;
+  font-size:14px;line-height:1.4;min-height:22px;max-height:120px;padding:4px 0}
+.cadd .cbtn{color:var(--dim);font-size:14px;font-weight:700;padding:4px 6px;flex:0 0 auto}
+.cadd .cbtn.go{color:var(--blue)}
+
+/* ---------- shorts ---------- */
+#shorts{position:absolute;inset:0;background:#000;overflow-y:scroll;scroll-snap-type:y mandatory;
+  z-index:30;padding-bottom:calc(var(--nav) + var(--safeBot))}
+.short{position:relative;height:calc(100vh - var(--nav) - var(--safeBot));scroll-snap-align:start;
+  display:flex;align-items:center;justify-content:center;background:#000}
+.short video{width:100%;height:100%;object-fit:contain}
+.short .overlay{position:absolute;left:0;right:0;bottom:0;padding:16px 68px 20px 14px;
+  background:linear-gradient(transparent,rgba(0,0,0,.75))}
+.short .st{font-size:15px;font-weight:600;line-height:1.35;margin-bottom:6px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.short .ss{font-size:13px;color:#ddd}
+.short .rail{position:absolute;right:8px;bottom:20px;display:flex;flex-direction:column;
+  gap:18px;align-items:center}
+.short .rail button{display:flex;flex-direction:column;align-items:center;gap:3px;
+  color:#fff;font-size:11px;font-weight:600}
+.short .rail svg{width:26px;height:26px;fill:#fff;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+
+/* ---------- channel ---------- */
+#chBanner{width:100%;aspect-ratio:6/1;background:linear-gradient(135deg,#2a2a2a,#151515);position:relative}
+#chHead{padding:12px 16px 16px;display:flex;gap:14px;align-items:center}
+#chAvatar{width:64px;height:64px;border-radius:50%;background:#3f3f3f;color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;flex:0 0 auto}
+#chName{font-size:19px;font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+#chStats{font-size:13px;color:var(--dim);margin-top:3px}
+
+/* ---------- library / you ---------- */
+.row{display:flex;gap:14px;padding:8px 12px;align-items:center;width:100%;text-align:left}
+.row .rthumb{width:132px;aspect-ratio:16/9;border-radius:8px;overflow:hidden;flex:0 0 auto;background:#1f1f1f;position:relative}
+.row .rthumb img{width:100%;height:100%;object-fit:cover}
+.row .rtxt{min-width:0;flex:1}
+.row .rt{font-size:14px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+.row .rs{font-size:12px;color:var(--dim);margin-top:4px}
+.group-h{font-size:15px;font-weight:700;padding:18px 12px 6px;display:flex;
+  align-items:center;justify-content:space-between}
+.linkish{color:var(--blue);font-size:13px;font-weight:600}
+
+/* ---------- empty / loading ---------- */
+.empty{padding:56px 24px;text-align:center;color:var(--dim);font-size:14px;line-height:1.6}
+.empty .big{font-size:44px;margin-bottom:12px;opacity:.5}
+#toast{position:fixed;left:50%;bottom:calc(var(--nav) + var(--safeBot) + 20px);
+  transform:translate(-50%,14px);background:#e5e5e5;color:#0f0f0f;padding:11px 18px;
+  border-radius:8px;font-size:14px;font-weight:600;z-index:90;opacity:0;
+  transition:opacity .2s,transform .2s;pointer-events:none;max-width:86vw;text-align:center}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+.spin{width:34px;height:34px;border:3px solid var(--bg3);border-top-color:var(--txt);
+  border-radius:50%;animation:sp .8s linear infinite;margin:0 auto}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* ---------- sheets (report / sign in) ---------- */
+#scrim{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:80;opacity:0;
+  pointer-events:none;transition:opacity .18s}
+#scrim.on{opacity:1;pointer-events:auto}
+#sheet{position:fixed;left:0;right:0;bottom:0;background:var(--bg2);z-index:81;
+  border-radius:16px 16px 0 0;padding:8px 16px calc(20px + var(--safeBot));
+  transform:translateY(102%);transition:transform .2s;max-height:86vh;overflow-y:auto}
+#sheet.on{transform:translateY(0)}
+.sheet-h{width:38px;height:4px;border-radius:2px;background:#4a4a4a;margin:0 auto 14px}
+#sheetTitle{font-size:17px;font-weight:700;margin-bottom:4px}
+#sheetSub{font-size:13px;color:var(--dim);margin-bottom:14px;line-height:1.45}
+.why{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.why button{padding:8px 14px;border-radius:18px;background:var(--bg3);font-size:14px;font-weight:600}
+.why button.on{background:var(--txt);color:#0f0f0f}
+#sheetTa{width:100%;background:var(--bg3);border:1px solid var(--line);border-radius:10px;
+  color:var(--txt);padding:12px;font-size:14px;resize:none;outline:0;min-height:74px;
+  font-family:inherit;margin-bottom:14px}
+#sheetTa:focus{border-color:var(--blue)}
+.sheet-go{width:100%;background:var(--red);color:#fff;font-weight:700;font-size:15px;
+  padding:13px;border-radius:24px}
+.sheet-go:disabled{opacity:.5}
+.sheet-msg{font-size:13px;margin-top:10px;text-align:center;min-height:18px}
+.sheet-msg.ok{color:#7cc79b}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;font-weight:700;color:var(--dim);
+  text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
+.field input{width:100%;background:var(--bg3);border:1px solid var(--line);border-radius:10px;
+  color:var(--txt);padding:13px;font-size:16px;outline:0}
+.field input:focus{border-color:var(--blue)}
+.sheet-alt{text-align:center;font-size:14px;margin-top:14px;color:var(--dim)}
+.sheet-alt button{color:var(--blue);font-weight:700}
+
+/* ---------- ban screen ---------- */
+#ban{position:fixed;inset:0;background:#1a1a1a;z-index:200;display:flex;
+  align-items:center;justify-content:center;padding:24px;overflow-y:auto}
+#ban .bx{max-width:420px;width:100%;background:#202020;border:2px solid var(--redDim);
+  border-radius:6px;padding:26px 22px;text-align:center}
+#ban h1{color:var(--red);font-size:26px;letter-spacing:3px;margin:0 0 6px;font-weight:800}
+#ban .sub{color:#bbb;font-size:12px;letter-spacing:1px;text-transform:uppercase;margin-bottom:20px}
+#ban table{width:100%;border-collapse:collapse;margin-bottom:18px;font-size:13px;text-align:left}
+#ban td{padding:9px 0;border-bottom:1px solid #333;color:#ccc;vertical-align:top}
+#ban td:first-child{color:#888;width:38%;text-transform:uppercase;font-size:11px;
+  letter-spacing:.6px;padding-right:10px}
+#ban p{color:#aaa;font-size:13px;line-height:1.6;margin:0 0 18px}
+#ban .bg2{background:#2a2a2a;color:#fff;font-weight:700;font-size:15px;
+  padding:13px;border-radius:4px;width:100%}
+#ban .bgl{margin-top:12px;color:#888;font-size:12px;text-decoration:underline}
+</style>
+</head>
+<body>
+
+<div id="ban" class="hidden"></div>
+
+<header id="topbar">
+  <button class="brand" id="brandBtn">
+    <span class="brand-mark"></span><span class="brand-name">FirFall</span>
+  </button>
+  <div style="flex:1"></div>
+  <button class="icon-btn" id="searchBtn" aria-label="Search">
+    <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+  </button>
+  <button class="icon-btn" id="notifBtn" aria-label="Notifications">
+    <svg viewBox="0 0 24 24"><path d="M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4a1.5 1.5 0 0 0-3 0v.68C7.64 5.36 6 7.92 6 11v5l-1.7 1.7a1 1 0 0 0 .7 1.7h14a1 1 0 0 0 .7-1.7L18 16z"/></svg>
+    <span id="notifDot" class="hidden" style="position:absolute;top:7px;right:7px;width:8px;height:8px;background:var(--red);border-radius:50%"></span>
+  </button>
+  <button id="avatarBtn" aria-label="Account">?</button>
+</header>
+
+<div id="searchWrap">
+  <button class="icon-btn" id="searchBack" aria-label="Back">
+    <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+  </button>
+  <div class="search-field">
+    <input id="searchInput" placeholder="Search FirFall" autocomplete="off" enterkeyhint="search">
+    <button id="searchClear" aria-label="Clear">
+      <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg>
+    </button>
+  </div>
+  <button id="searchGo">Search</button>
+</div>
+
+<div id="chips" class="hidden"></div>
+
+<main class="scroll below above" id="main">
+  <div id="feed" class="hidden"></div>
+  <div id="watch" class="hidden"></div>
+  <div id="channel" class="hidden"></div>
+  <div id="library" class="hidden"></div>
+  <div id="search" class="hidden"></div>
+  <div id="you" class="hidden"></div>
+  <div id="notifs" class="hidden"></div>
+</main>
+
+<div id="shorts" class="hidden"></div>
+
+<nav id="nav">
+  <button class="nitem on" data-tab="home">
+    <svg viewBox="0 0 24 24"><path d="M4 21V9l8-6 8 6v12h-6v-7h-4v7H4z"/></svg><span class="lbl">Home</span>
+  </button>
+  <button class="nitem" data-tab="shorts">
+    <svg viewBox="0 0 24 24"><path d="M10 14.65v-5.3L15 12l-5 2.65zm7.77-4.33-1.2-.5L18 9.06c1.84-.96 2.53-3.23 1.56-5.06s-3.24-2.53-5.07-1.56L6 6.94c-1.28.68-2.07 2.04-2 3.49.07 1.42.93 2.67 2.22 3.25.03.01 1.2.5 1.2.5L6 14.93c-1.83.97-2.53 3.24-1.56 5.07.97 1.83 3.24 2.53 5.07 1.56l8.5-4.5c1.29-.68 2.06-2.04 1.99-3.49-.07-1.42-.94-2.68-2.23-3.25z"/></svg><span class="lbl">Shorts</span>
+  </button>
+  <button class="nitem" data-tab="create">
+    <svg viewBox="0 0 24 24" style="width:26px;height:26px"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 10c-2.21 0-4-1.79-4-4 0-1.2.53-2.27 1.36-2.98l1.53 1.53A2 2 0 0 0 12 10c1.1 0 2 .9 2 2 0 .46-.16.88-.43 1.22l1.53 1.53A4 4 0 0 0 12 14z"/></svg><span class="lbl">Create</span>
+  </button>
+  <button class="nitem" data-tab="subs">
+    <svg viewBox="0 0 24 24"><path d="M10 18v-6l5 3-5 3zm7-15H7v1h10V3zm3 3H4v1h16V6zm2 3H2v12h20V9zM3 10h18v10H3V10z"/></svg><span class="lbl">Subscriptions</span>
+  </button>
+  <button class="nitem" data-tab="you">
+    <svg viewBox="0 0 24 24"><path d="M11 7.2V10H8.8l-2.4 2.4 2.4 2.4H11v2.8l5-4-5-4zm-5 9.8h12v2H6v-2z"/><circle cx="12" cy="12" r="10"/></svg><span class="lbl">You</span>
+  </button>
+</nav>
+
+<div id="toast"></div>
+<div id="scrim"></div>
+<div id="sheet">
+  <div class="sheet-h"></div>
+  <div id="sheetBody"></div>
+</div>
+
+<script>
+"use strict";
+/* =====================================================================
+   FirFall for Android
+   Talks to the same FirFall API the website uses. No sample content, no
+   placeholder channels: if the API has nothing, the screen says so.
+   ===================================================================== */
+var API = "https://firfall-auth.b8golddude.workers.dev";
+var K_TOKEN="ff_token", K_USER="ff_user", K_ROLE="ff_role", K_MYREP="ff_myrep";
+
+var me = null, myRole = "user";
+var curTab = "home", curVideo = null, curChannel = null;
+var feedFilter = "all", searchQ = "", shortsBuilt = false;
+var subState = {}, myReports = {};
+var player = null;
+
+function $(id){ return document.getElementById(id); }
+function token(){ try{ return localStorage.getItem(K_TOKEN); }catch(e){ return null; } }
+function isAdmin(){ return myRole === "admin"; }
+function isStaff(){ return myRole === "admin" || myRole === "mod"; }
+
+/* ---------- helpers ---------- */
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function fmt(n){
+  n = Number(n)||0;
+  if (n >= 1e9) return (n/1e9).toFixed(n<1e10?1:0).replace(/\.0$/,"")+"B views";
+  if (n >= 1e6) return (n/1e6).toFixed(n<1e7?1:0).replace(/\.0$/,"")+"M views";
+  if (n >= 1e3) return (n/1e3).toFixed(n<1e4?1:0).replace(/\.0$/,"")+"K views";
+  return n + (n===1?" view":" views");
+}
+/* A bare count with no unit, for places like the like button. fmt() appends
+   " view"/" views", and stripping that with a replace() silently failed on the
+   singular form, which is how the button ended up reading "1 view". */
+function num(n){
+  n = Number(n)||0;
+  if (n >= 1e9) return (n/1e9).toFixed(n<1e10?1:0).replace(/\.0$/,"")+"B";
+  if (n >= 1e6) return (n/1e6).toFixed(n<1e7?1:0).replace(/\.0$/,"")+"M";
+  if (n >= 1e3) return (n/1e3).toFixed(n<1e4?1:0).replace(/\.0$/,"")+"K";
+  return String(n);
+}
+function ago(iso){
+  if (!iso) return "";
+  var t = new Date(iso).getTime();
+  if (!t || isNaN(t)) return "";
+  var s = Math.max(0,(Date.now()-t)/1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.floor(s/60)+" minute"+(s<120?"":"s")+" ago";
+  if (s < 86400){ var m=Math.floor(s/60); return m+" minute"+(m===1?"":"s")+" ago"; }
+  if (s < 172800) return "1 day ago";
+  if (s < 2592000){ var d=Math.floor(s/86400); return d+" day"+(d===1?"":"s")+" ago"; }
+  if (s < 31536000){ var mo=Math.floor(s/2592000); return mo+" month"+(mo===1?"":"s")+" ago"; }
+  var y=Math.floor(s/31536000); return y+" year"+(y===1?"":"s")+" ago";
+}
+function dur(sec){
+  sec = Math.floor(Number(sec)||0);
+  if (!sec) return "";
+  var h=Math.floor(sec/3600), m=Math.floor(sec%3600/60), s=sec%60;
+  return (h?h+":":"" ) + (h? String(m).padStart(2,"0") : m) + ":" + String(s).padStart(2,"0");
+}
+function toast(msg){
+  var t = $("toast"); t.textContent = msg; t.classList.add("on");
+  clearTimeout(t._h); t._h = setTimeout(function(){ t.classList.remove("on"); }, 2200);
+}
+function initials(n){ return String(n||"?").charAt(0).toUpperCase(); }
+
+/* ---------- network ---------- */
+function api(path, opts){
+  opts = opts || {};
+  var h = { "Content-Type": "application/json" };
+  if (token()) h.Authorization = "Bearer " + token();
+  return fetch(API + path, {
+    method: opts.method || "GET", headers: h,
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  }).then(function(r){
+    return r.json().catch(function(){ return {}; }).then(function(j){
+      if (!r.ok) {
+        var e = new Error(j.error || ("Request failed (" + r.status + ")"));
+        e.status = r.status; e.body = j; throw e;
+      }
+      return j;
+    });
+  });
+}
+function mediaUrl(kind, id){
+  var u = API + (kind === "v" ? "/v/" : "/t/") + encodeURIComponent(id);
+  if (token()) u += "?token=" + encodeURIComponent(token());
+  return u;
+}
+
+/* ---------- session ---------- */
+function setSession(j){
+  me = j.username; myRole = j.role || "user";
+  try{
+    localStorage.setItem(K_USER, me); localStorage.setItem(K_ROLE, myRole);
+    if (j.token) localStorage.setItem(K_TOKEN, j.token);
+  }catch(e){}
+  paintAvatar(); loadMyReports();
+}
+function clearSession(){
+  me = null; myRole = "user";
+  try{ localStorage.removeItem(K_USER); localStorage.removeItem(K_ROLE); localStorage.removeItem(K_TOKEN); }catch(e){}
+  paintAvatar();
+}
+function paintAvatar(){
+  var b = $("avatarBtn");
+  b.textContent = me ? initials(me) : "?";
+  b.className = me ? "me" : "";
+  $("notifBtn").classList.toggle("hidden", !me);
+  $("notifDot").classList.add("hidden");
+}
+
+/* =====================================================================
+   BAN SCREEN
+   A ban is a dead end, not a toast. This covers the app and says what
+   happened, who did it and when, then offers the appeal form inline.
+
+   The appeal token is only ever minted on a *rejected* login, and
+   /api/me does not return one. So a person who was signed in when they
+   were banned has no token: the form asks for their password, proves it,
+   and the 403 carries the token they need. Someone who was just banned at
+   the sign-in sheet already has one, so the field is skipped for them.
+   ===================================================================== */
+function showBan(ban, tokenFromLogin){
+  var b = $("ban");
+  var needPw = !tokenFromLogin;
+
+  function send(){
+    var ta = $("appealTa"), pw = $("appealPw"), msg = $("appealMsg"), btn = $("appealSend");
+    var text = (ta.value || "").trim();
+    if (text.length < 10) { msg.textContent = "Please write at least 10 characters."; msg.className = "sheet-msg"; return; }
+    if (needPw && (!pw || pw.value.length < 4)) { msg.textContent = "Enter your password so we can verify the account."; msg.className = "sheet-msg"; return; }
+    btn.disabled = true; msg.textContent = "Sending..."; msg.className = "sheet-msg";
+    // Re-login deliberately: the password is checked first, so a wrong guess
+    // cannot be used to probe whether someone is banned.
+    fetch(API + "/api/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: ban.username, password: needPw ? pw.value : "" })
+    })
+      .then(function(r){ return r.json().then(function(j){ return { status: r.status, j: j }; }); })
+      .then(function(x){
+        if (x.status === 401) throw new Error("That password is not right.");
+        var tok = x.j.appealToken || tokenFromLogin;
+        if (!tok) throw new Error(x.j.error || "Could not start an appeal. Try again in a moment.");
+        return api("/api/appeal", { method: "POST", body: { appealToken: tok, message: text } });
+      })
+      .then(function(){
+        msg.textContent = "Appeal sent. A moderator will review it.";
+        msg.className = "sheet-msg ok"; btn.disabled = true; ta.value = ""; ta.disabled = true;
+        if (pw) { pw.value = ""; pw.disabled = true; }
+      })
+      .catch(function(e){
+        msg.textContent = e.message || "Could not send that appeal.";
+        msg.className = "sheet-msg"; btn.disabled = false;
+      });
+  }
+
+  b.innerHTML =
+    '<div class="bx">' +
+      '<h1>BANNED</h1>' +
+      '<div class="sub">FirFall account review</div>' +
+      '<table>' +
+        '<tr><td>Account</td><td>@' + esc(ban.username||"?") + '</td></tr>' +
+        '<tr><td>Reason</td><td>' + esc(ban.reason||"Not stated") + '</td></tr>' +
+        '<tr><td>Reviewed by</td><td>' + esc(ban.bannedBy||"FirFall moderators") + '</td></tr>' +
+        '<tr><td>Date</td><td>' + esc(ban.bannedAt ? new Date(ban.bannedAt).toUTCString() : "Not stated") + '</td></tr>' +
+      '</table>' +
+      '<p>This account was reviewed and banned by FirFall moderators. If you believe this is a mistake, appeal below and a moderator will look at it.</p>' +
+      (needPw ? '<input id="appealPw" type="password" placeholder="Your password" autocomplete="current-password" ' +
+        'style="width:100%;background:#2a2a2a;border:1px solid #444;border-radius:6px;color:#fff;padding:10px;font:inherit;font-size:14px;margin-bottom:10px">' : '') +
+      '<textarea id="appealTa" rows="3" maxlength="1000" placeholder="Tell the moderators what happened (at least 10 characters)" ' +
+        'style="width:100%;background:#2a2a2a;border:1px solid #444;border-radius:6px;color:#fff;padding:10px;font:inherit;font-size:14px;margin-bottom:10px"></textarea>' +
+      '<div id="appealMsg" class="sheet-msg"></div>' +
+      '<button id="appealSend" class="bg2" style="margin-top:10px">Send appeal</button>' +
+      '<button class="bgl" id="banSignOut">Sign out</button>' +
+    '</div>';
+  b.classList.remove("hidden");
+  $("appealSend").onclick = send;
+  $("banSignOut").onclick = signOut;
+}
+function hideBan(){ $("ban").classList.add("hidden"); }
+function signOut(){
+  clearSession(); hideBan(); closeSheet();
+  go("home"); toast("Signed out");
+}
+
+/* =====================================================================
+   SHEET (bottom sheet used for report, sign in, upload note)
+   ===================================================================== */
+function openSheet(html){
+  $("sheetBody").innerHTML = html;
+  $("scrim").classList.add("on"); $("sheet").classList.add("on");
+  $("main").style.pointerEvents = "none";
+}
+function closeSheet(){
+  $("scrim").classList.remove("on"); $("sheet").classList.remove("on");
+  $("main").style.pointerEvents = "";
+}
+$("scrim").onclick = closeSheet;
+
+/* ---------- auth sheet ---------- */
+function authSheet(mode){
+  var reg = mode === "register";
+  openSheet(
+    '<div id="sheetTitle">' + (reg?"Create account":"Sign in") + '</div>' +
+    '<div id="sheetSub">' + (reg ? "Pick a name. It becomes your channel." : "Welcome back to FirFall.") + '</div>' +
+    '<div class="field"><label>Username</label><input id="auUser" autocapitalize="none" autocomplete="username"></div>' +
+    '<div class="field"><label>Password</label><input id="auPass" type="password" autocomplete="' + (reg?"new-password":"current-password") + '"></div>' +
+    '<div class="sheet-msg" id="auMsg"></div>' +
+    '<button class="sheet-go" id="auGo">' + (reg?"Create":"Sign in") + '</button>' +
+    '<div class="sheet-alt">' + (reg ? "Have an account?" : "New to FirFall?") +
+      ' <button id="auSwap">' + (reg ? "Sign in" : "Create one") + '</button></div>'
+  );
+  function submit(){
+    var u = ($("auUser").value||"").trim().toLowerCase();
+    var p = $("auPass").value||"";
+    var msg = $("auMsg"), btn = $("auGo");
+    if (!/^[a-z0-9_]{3,20}$/.test(u)) { msg.textContent = "Username must be 3-20 characters: a-z, 0-9, underscore."; return; }
+    if (p.length < 4) { msg.textContent = "Password must be at least 4 characters."; return; }
+    btn.disabled = true; msg.textContent = reg ? "Creating..." : "Signing in...";
+    api(reg ? "/api/register" : "/api/login", { method:"POST", body:{ username:u, password:p } })
+      .then(function(j){
+        setSession(j); closeSheet(); toast(reg ? "Welcome to FirFall, @" + j.username : "Signed in as @" + j.username);
+        go(curTab, true);
+      })
+      .catch(function(e){
+        // A ban arrives as a 403 carrying the appeal token. Show the ban screen
+        // instead of a bare error line, and hand the token over so the person
+        // does not have to retype their password to appeal.
+        if (e.status === 403 && e.body && e.body.banned) {
+          closeSheet(); clearSession();
+          showBan({
+            username: e.body.username, reason: e.body.ban && e.body.ban.reason,
+            bannedBy: e.body.ban && e.body.ban.bannedBy, bannedAt: e.body.ban && e.body.ban.bannedAt
+          }, e.body.appealToken);
+          return;
+        }
+        msg.textContent = e.message || "That did not work.";
+        btn.disabled = false;
+      });
+  }
+  $("auGo").onclick = submit;
+  $("auSwap").onclick = function(){ closeSheet(); setTimeout(function(){ authSheet(reg?"login":"register"); }, 180); };
+  $("auPass").onkeydown = function(e){ if (e.key === "Enter") submit(); };
+}
+
+/* ---------- report sheet ---------- */
+var REASONS = [["spam","Spam"],["harassment","Harassment"],["hate","Hate speech"],
+               ["sexual","Sexual"],["violence","Violence"],["scam","Scam"],["other","Other"]];
+function reportSheet(kind, id, label){
+  if (!me) { authSheet("login"); return; }
+  var key = kind + ":" + id;
+  if (myReports[key]) { toast("You already reported this."); return; }
+  var chosen = "other";
+  openSheet(
+    '<div id="sheetTitle">Report ' + (kind==="video"?"video":"comment") + '</div>' +
+    '<div id="sheetSub">' + esc(label||"") + '</div>' +
+    '<div class="why" id="whyRow">' +
+      REASONS.map(function(r){ return '<button data-v="'+r[0]+'"' + (r[0]==="other"?' class="on"':'') + '>'+r[1]+'</button>'; }).join("") +
+    '</div>' +
+    '<textarea id="rpTa" maxlength="500" placeholder="Anything else the moderators should know? (optional)"></textarea>' +
+    '<div class="sheet-msg" id="rpMsg"></div>' +
+    '<button class="sheet-go" id="rpGo">Send report</button>'
+  );
+  Array.prototype.forEach.call($("whyRow").children, function(b){
+    b.onclick = function(){
+      chosen = b.dataset.v;
+      Array.prototype.forEach.call($("whyRow").children, function(x){ x.classList.remove("on"); });
+      b.classList.add("on");
+    };
+  });
+  $("rpGo").onclick = function(){
+    var btn = $("rpGo"), msg = $("rpMsg");
+    btn.disabled = true; msg.textContent = "Sending...";
+    api("/api/report", { method:"POST", body:{ kind:kind, id:id, reason:chosen, detail:$("rpTa").value } })
+      .then(function(){
+        myReports[key] = "open";
+        try{ localStorage.setItem(K_MYREP, JSON.stringify(myReports)); }catch(e){}
+        markReported(kind, id);
+        msg.textContent = "Sent. Thank you."; msg.className = "sheet-msg ok";
+        setTimeout(function(){ closeSheet(); toast("Report sent to the moderators"); }, 900);
+      })
+      .catch(function(e){
+        if (e.status === 409) { myReports[key] = "open"; markReported(kind, id); }
+        msg.textContent = e.message || "Could not send that."; msg.className = "sheet-msg"; btn.disabled = false;
+      });
+  };
+}
+function markReported(kind, id){
+  Array.prototype.forEach.call(document.querySelectorAll('.rbtn[data-k="'+kind+'"][data-i="'+id+'"]'), function(b){
+    b.textContent = "Reported"; b.disabled = true; b.style.opacity = ".45";
+  });
+}
+function loadMyReports(){
+  if (!me) return;
+  api("/api/reports/mine").then(function(j){
+    (j.reported||[]).forEach(function(s){
+      var p = s.split(":"); if (p.length >= 2) myReports[p[0]+":"+p[1]] = p[2];
+    });
+  }).catch(function(){});
+}
+
+/* =====================================================================
+   TAB ROUTER
+   ===================================================================== */
+var TABS = { home:1, shorts:1, subs:1, you:1, channel:1, watch:1, search:1, library:1, notifs:1, create:1 };
+function go(tab, force){
+  if (!TABS[tab]) return;
+  if (curTab === tab && !force) { window.scrollTo(0,0); return; }
+  var wasShorts = curTab === "shorts";
+  curTab = tab;
+  // Shorts takes over the whole viewport, so it hides the scrolling container.
+  // Every other tab has to take it back, or the app goes black after visiting
+  // Shorts and stays there.
+  $("main").classList.remove("hidden");
+  $("shorts").classList.add("hidden");
+  document.querySelectorAll(".nitem").forEach(function(n){
+    n.classList.toggle("on", n.dataset.tab === tab ||
+      (tab==="channel" && false) || (tab==="watch" && false));
+  });
+  $("searchWrap").classList.remove("on");
+  $("chips").classList.toggle("hidden", !(tab==="home"||tab==="subs"||tab==="library"));
+  $("main").scrollTop = 0;
+  ["feed","watch","channel","library","search","you","notifs"].forEach(function(id){ $(id).classList.add("hidden"); });
+  if (wasShorts && player) { player.pause(); player.removeAttribute("src"); player = null; }
+
+  if (tab === "home")      return loadHome();
+  if (tab === "shorts")    return buildShorts();
+  if (tab === "subs")      return loadSubs();
+  if (tab === "you")       return loadYou();
+  if (tab === "library")   return loadLibrary();
+  if (tab === "search")    return doSearch(searchQ);
+  if (tab === "channel")   return loadChannel(curChannel);
+  if (tab === "watch")     return loadWatch(curVideo);
+  if (tab === "notifs")    return loadNotifs();
+  if (tab === "create")    return createNote();
+}
+
+document.querySelectorAll(".nitem").forEach(function(n){
+  n.onclick = function(){ tab(n.dataset.tab); };
+});
+function tab(t){
+  if (t === "create") { createNote(); return; }
+  curChannel = null; curVideo = null; go(t, true);
+  paintChips();
+}
+
+/* =====================================================================
+   HOME
+   ===================================================================== */
+function paintChips(){
+  var row = $("chips"); row.innerHTML = "";
+  var sets = {
+    home: [["all","All"],["subs","Subscriptions"],["recent","Latest"]],
+    subs: [["all","All"],["recent","Latest"]],
+    library:[["all","All"],["subs","Subscriptions"],["liked","Liked"]]
+  };
+  var list = sets[curTab] || [["all","All"]];
+  if (curTab === "home" || curTab === "subs") list = list.filter(function(c){ return !(c[0]==="subs" && !me); });
+  if (curTab === "library" && !me) list = [["all","Sign in to see your library"]];
+  list.forEach(function(c){
+    var b = document.createElement("button");
+    b.className = "chip" + (feedFilter === c[0] ? " on" : "");
+    b.textContent = c[1];
+    b.onclick = function(){ feedFilter = c[0]; paintChips(); go(curTab, true); };
+    row.appendChild(b);
+  });
+}
+async function loadHome(){
+  show("feed"); paintChips();
+  $("feed").innerHTML = '<div class="spin" style="padding:40px 0"></div>';
+  try{
+    var owner = (curTab === "subs" && me) ? await subsFeedOwner() : null;
+    var j = await api("/api/videos" + (owner ? "?owner=" + encodeURIComponent(owner) : ""));
+    var vs = j.videos || [];
+    if (curTab === "subs" && me) {
+      var names = await subChannels();
+      var all = [];
+      for (var i=0;i<names.length;i++){
+        var r = await api("/api/videos?owner=" + encodeURIComponent(names[i]));
+        all = all.concat(r.videos || []);
+      }
+      all.sort(function(a,b){ return new Date(b.created_at) - new Date(a.created_at); });
+      vs = all;
+    }
+    if (curTab === "home" && feedFilter === "recent") {
+      vs = vs.slice().sort(function(a,b){ return new Date(b.created_at) - new Date(a.created_at); });
+    }
+    renderFeed(vs, curTab === "subs" && me
+      ? "You have not subscribed to any channels yet. Tap a channel and press Subscribe."
+      : "No videos yet. Upload one from the FirFall website.");
+  }catch(e){ fail(e); }
+}
+async function subsFeedOwner(){ return null; }
+async function subChannels(){
+  try{ var j = await api("/api/subscriptions"); return (j.subscriptions||[]).map(function(s){ return s.channel; }); }
+  catch(e){ return []; }
+}
+function show(id){
+  ["feed","watch","channel","library","search","you","notifs"].forEach(function(x){ $(x).classList.add("hidden"); });
+  $(id).classList.remove("hidden");
+}
+function fail(e){
+  $("feed").innerHTML = '<div class="empty"><div class="big">!</div>' +
+    esc(e && e.message ? e.message : "Could not reach FirFall.") + '</div>';
+  $("feed").classList.remove("hidden");
+}
+function vcard(v){
+  var d = v.duration ? '<span class="dur">' + dur(v.duration) + '</span>' : "";
+  return '<button class="vcard" data-v="' + esc(v.id) + '">' +
+    '<div class="thumb">' +
+      '<div class="ph"><span>' + esc(initials(v.owner)) + '</span></div>' +
+      '<img loading="lazy" alt="" src="' + esc(mediaUrl("t", v.id)) + '" ' +
+        'onload="this.style.display=\'block\';this.previousElementSibling.style.display=\'none\'" ' +
+        'onerror="this.style.display=\'none\'">' + d +
+    '</div>' +
+    '<div class="vmeta"><div class="vav">' + esc(initials(v.owner)) + '</div><div class="vtext">' +
+      '<div class="vtitle">' + esc(v.title) + '</div>' +
+      '<div class="vsub"><span>@' + esc(v.owner) + '</span><span class="dot"></span>' +
+        '<span>' + esc(fmt(v.views)) + '</span><span class="dot"></span><span>' + esc(ago(v.created_at)) + '</span></div>' +
+    '</div></div></button>';
+}
+function renderFeed(vs, emptyMsg){
+  if (!vs.length) {
+    $("feed").innerHTML = '<div class="empty"><div class="big">' + (emptyMsg||"Nothing here") + '</div></div>';
+    if (emptyMsg && emptyMsg.indexOf("<") === 0) $("feed").querySelector(".big").innerHTML = emptyMsg;
+    return;
+  }
+  $("feed").innerHTML = vs.map(vcard).join("");
+  Array.prototype.forEach.call($("feed").querySelectorAll(".vcard"), function(b){
+    b.onclick = function(){ curVideo = b.dataset.v; go("watch", true); };
+  });
+}
+
+/* =====================================================================
+   WATCH
+   ===================================================================== */
+async function loadWatch(id){
+  show("watch");
+  $("watch").innerHTML = '<div class="spin" style="padding:60px 0"></div>';
+  var v;
+  try{
+    var j = await api("/api/video?id=" + encodeURIComponent(id));
+    v = j.video;
+    window._watch = { likes: j.likes||0, reaction: j.reaction||"none" };
+  }catch(e){
+    $("watch").innerHTML = '<div class="empty"><div class="big">' + esc(e.message||"Video not found") + '</div>' +
+      '<button class="act" style="margin-top:14px" onclick="go(\'home\',true)">Back home</button></div>';
+    return;
+  }
+  api("/api/video/view", { method:"POST", body:{ id: v.id } }).catch(function(){});
+  var w = window._watch;
+  var mine = me && v.owner === me;
+  var sub = subState[v.owner];
+
+  $("watch").innerHTML =
+    '<div id="playerBox"><video id="vp" controls playsinline preload="metadata" ' +
+        'poster="' + esc(mediaUrl("t", v.id)) + '"></video>' +
+      '<div id="pfab" class="hidden">HD</div></div>' +
+    '<div class="watch-body">' +
+      '<div class="wtitle">' + esc(v.title) +
+        (v.owner_role === "mod" || v.owner_role === "admin" ? '<span class="badge-mod" style="background:var(--red);color:#fff;font-size:11px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:8px">MOD</span>' : "") +
+      '</div>' +
+      '<div class="wchan">' +
+        '<button class="vav" data-ch="' + esc(v.owner) + '" style="width:40px;height:40px;font-size:16px">' + esc(initials(v.owner)) + '</button>' +
+        '<div style="min-width:0;flex:1">' +
+          '<div class="wcname" data-ch="' + esc(v.owner) + '">@' + esc(v.owner) + '</div>' +
+          '<div class="wcsub" id="chSub"></div>' +
+        '</div>' +
+        (mine ? '' : '<button class="sub-btn' + (sub&&sub.subscribed?" on":"") + '" id="subBtn">'
+              + (sub&&sub.subscribed?"Subscribed":"Subscribe") + '</button>') +
+      '</div>' +
+      '<div class="wacts">' +
+        '<button class="act' + (w.reaction==="like"?" on":"") + '" id="likeBtn"><svg viewBox="0 0 24 24"><path d="M18.77 11h-4.23l1.52-4.94C16.38 5.03 15.54 4 14.38 4c-.58 0-1.14.24-1.52.65L7 11H3v10h4h1h9.43c1.06 0 1.98-.67 2.19-1.61l1.34-6C21.23 12.15 20.18 11 18.77 11zM7 20H4v-8h3v8zm12.98-6.83-1.34 6c-.1.48-.61.83-1.21.83H8v-8.61l5.6-6.06c.19-.21.48-.33.78-.33.26 0 .5.11.63.3.11.15.15.33.09.51l-1.52 4.94-.4 1.29H18.77c.79 0 1.57.28 2.04.83.28.32.4.72.17 1.26z"/></svg>' + (w.likes?num(w.likes):"Like") + '</button>' +
+        '<button class="act' + (w.reaction==="dislike"?" on":"") + '" id="dislikeBtn"><svg viewBox="0 0 24 24"><path d="M5.23 13h4.23l-1.52 4.94C7.62 18.97 8.46 20 9.62 20c.58 0 1.14-.24 1.52-.65L17 13h4V3h-4H8.57C7.51 3 6.59 3.67 6.38 4.61l-1.34 6C4.77 11.85 5.82 13 7.23 13zM17 4h3v8h-3V4zM6.02 10.83l1.34-6c.1-.48.61-.83 1.21-.83H16v8.61l-5.6 6.06c-.19.21-.48.33-.78.33-.26 0-.5-.11-.63-.3-.11-.15-.15-.33-.09-.51l1.52-4.94.4-1.29H5.23c-.79 0-1.57-.28-2.04-.83-.28-.32-.4-.72-.17-1.26z"/></svg>Dislike</button>' +
+        '<button class="act rbtn" data-k="video" data-i="' + esc(v.id) + '" id="repBtn">Report</button>' +
+      '</div>' +
+      '<div class="desc" id="descBox">' +
+        '<div class="dmeta">' + esc(fmt(v.views)) + ' &middot; ' + esc(ago(v.created_at)) + (v.duration?" &middot; "+esc(dur(v.duration)):"") + '</div>' +
+        (v.description ? esc(v.description) : "<i>No description</i>") +
+      '</div>' +
+      '<h3 class="sect-h">Comments</h3>' +
+      (me ? '<div class="cadd"><div class="cav vav">' + esc(initials(me)) + '</div>' +
+            '<textarea id="cInput" rows="1" maxlength="500" placeholder="Add a comment..."></textarea>' +
+            '<button class="cbtn" id="cSend">Comment</button></div>'
+          : '<div class="cadd" style="padding-bottom:20px"><button class="act" id="cSignin">Sign in to comment</button></div>') +
+      '<div id="cList"></div>' +
+    '</div>';
+
+  player = $("vp");
+  player.src = mediaUrl("v", v.id);
+  player.addEventListener("loadedmetadata", function(){
+    if (!v.duration && player.duration && isFinite(player.duration)) {
+      var el = $("descBox");
+      if (el) el.querySelector(".dmeta").innerHTML = el.querySelector(".dmeta").innerHTML + " &middot; " + dur(player.duration);
+    }
+  });
+
+  Array.prototype.forEach.call($("watch").querySelectorAll("[data-ch]"), function(el){
+    el.onclick = function(){ curChannel = el.dataset.ch; go("channel", true); };
+  });
+  if (mine) $("chSub").textContent = "Your video";
+  else refreshSub(v.owner);
+
+  var sb = $("subBtn");
+  if (sb) sb.onclick = function(){
+    if (!me) { authSheet("login"); return; }
+    sb.disabled = true;
+    api("/api/subscribe", { method:"POST", body:{ channel: v.owner, action: subState[v.owner].subscribed ? "unsub" : "sub" } })
+      .then(function(j){
+        subState[v.owner] = { subscribed: j.subscribed, subscribers: j.subscribers };
+        sb.textContent = j.subscribed ? "Subscribed" : "Subscribe";
+        sb.classList.toggle("on", !!j.subscribed);
+        $("chSub").textContent = num(j.subscribers||0) + " subscriber" + (j.subscribers===1?"":"s");
+        toast(j.subscribed ? "Subscribed to @" + v.owner : "Unsubscribed");
+      })
+      .catch(function(e){ toast(e.message || "Could not subscribe."); })
+      .then(function(){ sb.disabled = false; });
+  };
+  var lb = $("likeBtn"), db = $("dislikeBtn");
+  function react(kind){
+    if (!me) { authSheet("login"); return; }
+    api("/api/video/react", { method:"POST", body:{ id: v.id, kind: kind } })
+      .then(function(j){
+        w.likes = j.likes; w.reaction = j.reaction;
+        lb.classList.toggle("on", j.reaction === "like");
+        db.classList.toggle("on", j.reaction === "dislike");
+        lb.innerHTML = '<svg viewBox="0 0 24 24"><path d="M18.77 11h-4.23l1.52-4.94C16.38 5.03 15.54 4 14.38 4c-.58 0-1.14.24-1.52.65L7 11H3v10h4h1h9.43c1.06 0 1.98-.67 2.19-1.61l1.34-6C21.23 12.15 20.18 11 18.77 11z"/></svg>' + (j.likes?num(j.likes):"Like");
+      })
+      .catch(function(e){ toast(e.message || "Could not save that."); });
+  }
+  lb.onclick = function(){ react(w.reaction === "like" ? "none" : "like"); };
+  db.onclick = function(){ react(w.reaction === "dislike" ? "none" : "dislike"); };
+  $("repBtn").onclick = function(){
+    if (myReports["video:" + v.id]) { toast("You already reported this."); return; }
+    reportSheet("video", v.id, v.title);
+  };
+  if ($("cSignin")) $("cSignin").onclick = function(){ authSheet("login"); };
+
+  var ta = $("cInput");
+  if (ta) {
+    ta.addEventListener("input", function(){
+      ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
+      $("cSend").classList.toggle("go", ta.value.trim().length > 0);
+    });
+    $("cSend").onclick = function(){
+      var t = ta.value.trim();
+      if (!t) return;
+      api("/api/comments", { method:"POST", body:{ video_id: v.id, text: t } })
+        .then(function(){ ta.value = ""; ta.style.height = "auto"; $("cSend").classList.remove("go");
+                          toast("Comment posted"); loadComments(v.id); })
+        .catch(function(e){ toast(e.message || "Could not post that."); });
+    };
+  }
+  loadComments(v.id);
+}
+function refreshSub(channel){
+  api("/api/substatus?channel=" + encodeURIComponent(channel))
+    .then(function(j){ subState[channel] = j; var el = $("chSub"); if (el) el.textContent = num(j.subscribers||0) + " subscriber" + (j.subscribers===1?"":"s"); })
+    .catch(function(){});
+}
+function loadComments(vid){
+  api("/api/comments?video=" + encodeURIComponent(vid)).then(function(j){
+    var list = $("cList"); if (!list) return;
+    var cs = j.comments || [];
+    if (!cs.length) { list.innerHTML = '<div style="color:var(--dim);font-size:14px">No comments yet.</div>'; return; }
+    list.innerHTML = cs.map(function(c){
+      var mine = me && c.user === me;
+      return '<div class="comment"><div class="cav vav">' + esc(initials(c.user)) + '</div><div class="cbody">' +
+        '<div class="cwho">@' + esc(c.user) + '<span class="ctime">' + esc(ago(c.created_at)) + '</span></div>' +
+        '<div class="ctext">' + esc(c.text) + '</div>' +
+        (mine ? '' : '<div class="cfoot"><button class="rbtn" data-k="comment" data-i="' + c.id + '" style="color:var(--redSoft)">Report</button></div>') +
+        '</div></div>';
+    }).join("");
+    Array.prototype.forEach.call(list.querySelectorAll(".rbtn"), function(b){
+      if (myReports[b.dataset.k + ":" + b.dataset.i]) { b.textContent = "Reported"; b.disabled = true; b.style.opacity = ".45"; return; }
+      b.onclick = function(){
+        var cid = b.dataset.i;
+        var c = cs.filter(function(x){ return String(x.id) === String(cid); })[0];
+        reportSheet("comment", cid, "@" + (c?c.user:"") + ': "' + (c?c.text.slice(0,60):"") + '"');
+      };
+    });
+  }).catch(function(){ var l = $("cList"); if (l) l.innerHTML = '<div style="color:var(--dim);font-size:14px">Comments unavailable.</div>'; });
+}
+
+/* =====================================================================
+   CHANNEL
+   ===================================================================== */
+async function loadChannel(name){
+  if (!name) return;
+  show("channel");
+  $("channel").innerHTML = '<div class="spin" style="padding:60px 0"></div>';
+  try{
+    var j = await api("/api/channel?u=" + encodeURIComponent(name));
+    var c = j.channel;
+    refreshSub(name);
+    $("channel").innerHTML =
+      '<div id="chBanner"></div>' +
+      '<div id="chHead"><div id="chAvatar">' + esc(initials(c.username)) + '</div>' +
+        '<div style="min-width:0;flex:1"><div id="chName">' + esc(c.username) +
+          (c.role === "mod" || c.role === "admin" ? '<span class="badge-mod" style="background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px">MOD</span>' : "") +
+        '</div><div id="chStats">' + esc(fmt(c.views)) + ' &middot; ' + esc(num(c.subscribers) + " subscriber" + (c.subscribers===1?"":"s")) + '</div></div>' +
+        (me === c.username ? '' : '<button class="sub-btn" id="cSubBtn">Subscribe</button>') +
+      '</div>' +
+      (c.about ? '<div style="padding:0 16px 8px;font-size:14px;line-height:1.5;white-space:pre-wrap">' + esc(c.about) + '</div>' : "") +
+      '<h3 class="sect-h" style="padding:12px 12px 8px">Videos</h3><div id="chVids"></div>';
+    var v = await api("/api/videos?owner=" + encodeURIComponent(c.username));
+    var vs = v.videos || [];
+    $("chVids").innerHTML = vs.length ? vs.map(vcard).join("")
+      : '<div class="empty">This channel has no public videos.</div>';
+    Array.prototype.forEach.call($("chVids").querySelectorAll(".vcard"), function(b){
+      b.onclick = function(){ curVideo = b.dataset.v; go("watch", true); };
+    });
+    var sb = $("cSubBtn");
+    if (sb) setTimeout(function(){
+      var s = subState[c.username];
+      if (s) { sb.textContent = s.subscribed ? "Subscribed" : "Subscribe"; sb.classList.toggle("on", !!s.subscribed); }
+      sb.onclick = function(){
+        if (!me) { authSheet("login"); return; }
+        api("/api/subscribe", { method:"POST", body:{ channel: c.username, action: s&&s.subscribed ? "unsub" : "sub" } })
+          .then(function(r){
+            subState[c.username] = { subscribed: r.subscribed, subscribers: r.subscribers };
+            sb.textContent = r.subscribed ? "Subscribed" : "Subscribe";
+            sb.classList.toggle("on", !!r.subscribed);
+            $("chStats").innerHTML = esc(fmt(c.views)) + ' &middot; ' + esc(num(r.subscribers||0) + " subscriber" + (r.subscribers===1?"":"s"));
+            toast(r.subscribed ? "Subscribed" : "Unsubscribed");
+          }).catch(function(e){ toast(e.message || "Could not subscribe."); });
+      };
+    }, 0);
+  }catch(e){
+    $("channel").innerHTML = '<div class="empty"><div class="big">404</div>' + esc(e.message||"Channel not found") + '</div>';
+  }
+}
+
+/* =====================================================================
+   SUBSCRIPTIONS
+   ===================================================================== */
+async function loadSubs(){
+  show("feed"); paintChips();
+  if (!me) {
+    $("feed").innerHTML = '<div class="empty"><div class="big">Sign in</div>' +
+      'Your subscriptions show up here.<br><button class="act" style="margin-top:14px" id="subSignin">Sign in</button></div>';
+    $("subSignin").onclick = function(){ authSheet("login"); };
+    return;
+  }
+  $("feed").innerHTML = '<div class="spin" style="padding:40px 0"></div>';
+  try{
+    var names = await subChannels();
+    if (!names.length) {
+      $("feed").innerHTML = '<div class="empty"><div class="big">No subscriptions</div>' +
+        'Find a channel you like and press Subscribe.</div>';
+      return;
+    }
+    var all = [];
+    for (var i=0;i<names.length;i++){
+      var r = await api("/api/videos?owner=" + encodeURIComponent(names[i]));
+      all = all.concat(r.videos || []);
+    }
+    all.sort(function(a,b){ return new Date(b.created_at) - new Date(a.created_at); });
+    $("feed").innerHTML = '<div class="group-h">Channels</div>' +
+      names.map(function(n){
+        return '<button class="row" data-ch="' + esc(n) + '"><div class="vav">' + esc(initials(n)) + '</div>' +
+               '<div class="rtxt"><div class="rt">@' + esc(n) + '</div></div></button>';
+      }).join("") +
+      '<div class="group-h">Latest from your channels</div>' +
+      (all.length ? all.map(vcard).join("") : '<div class="empty">Nothing new from them yet.</div>');
+    Array.prototype.forEach.call($("feed").querySelectorAll(".vcard"), function(b){
+      b.onclick = function(){ curVideo = b.dataset.v; go("watch", true); };
+    });
+    Array.prototype.forEach.call($("feed").querySelectorAll("[data-ch]"), function(b){
+      b.onclick = function(){ curChannel = b.dataset.ch; go("channel", true); };
+    });
+  }catch(e){ fail(e); }
+}
+
+/* =====================================================================
+   SHORTS - vertical, full-bleed feed of the real public videos
+   ===================================================================== */
+async function buildShorts(){
+  $("main").classList.add("hidden");
+  $("shorts").classList.remove("hidden");
+  document.querySelectorAll(".nitem").forEach(function(n){ n.classList.toggle("on", n.dataset.tab === "shorts"); });
+  $("chips").classList.add("hidden");
+  $("shorts").innerHTML = '<div class="spin" style="padding:80px 0"></div>';
+  try{
+    var j = await api("/api/videos");
+    var vs = j.videos || [];
+    if (!vs.length) {
+      $("shorts").innerHTML = '<div class="empty" style="padding-top:120px"><div class="big">No videos</div>' +
+        'Nothing has been uploaded to FirFall yet.</div>';
+      return;
+    }
+    $("shorts").innerHTML = vs.map(function(v, i){
+      return '<div class="short">' +
+        '<video data-src="' + esc(mediaUrl("v", v.id)) + '" poster="' + esc(mediaUrl("t", v.id)) + '" ' +
+          'playsinline loop muted preload="none"></video>' +
+        '<div class="overlay"><div class="st">' + esc(v.title) + '</div>' +
+          '<div class="ss" data-ch="' + esc(v.owner) + '">@' + esc(v.owner) + ' &middot; ' + esc(fmt(v.views)) + '</div></div>' +
+        '<div class="rail">' +
+          '<button data-like="' + esc(v.id) + '"><svg viewBox="0 0 24 24"><path d="M18.77 11h-4.23l1.52-4.94C16.38 5.03 15.54 4 14.38 4c-.58 0-1.14.24-1.52.65L7 11H3v10h4h1h9.43c1.06 0 1.98-.67 2.19-1.61l1.34-6C21.23 12.15 20.18 11 18.77 11z"/></svg><span>Like</span></button>' +
+          '<button data-ch="' + esc(v.owner) + '"><span class="vav" style="width:30px;height:30px;font-size:13px">' + esc(initials(v.owner)) + '</span><span>Channel</span></button>' +
+          '<button data-rep="' + esc(v.id) + '"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><span>Report</span></button>' +
+        '</div></div>';
+    }).join("");
+    // Only load the source for the clip in view; a phone should not pull
+    // 100MB per tile just to build a list.
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        var el = e.target;
+        if (e.isIntersecting) {
+          if (!el.src) el.src = el.dataset.src;
+          el.play().catch(function(){});
+        } else { el.pause(); }
+      });
+    }, { root: $("shorts"), threshold: 0.6 });
+    Array.prototype.forEach.call($("shorts").querySelectorAll("video"), function(v){ io.observe(v); });
+    Array.prototype.forEach.call($("shorts").querySelectorAll("[data-ch]"), function(b){
+      b.onclick = function(){ curChannel = b.dataset.ch; go("channel", true); };
+    });
+    Array.prototype.forEach.call($("shorts").querySelectorAll("[data-rep]"), function(b){
+      b.onclick = function(){
+        var id = b.dataset.rep;
+        var v = vs.filter(function(x){ return x.id === id; })[0];
+        reportSheet("video", id, v ? v.title : "");
+      };
+    });
+    Array.prototype.forEach.call($("shorts").querySelectorAll("[data-like]"), function(b){
+      b.onclick = function(){
+        if (!me) { authSheet("login"); return; }
+        api("/api/video/react", { method:"POST", body:{ id: b.dataset.like, kind: "like" } })
+          .then(function(){ toast("Liked"); }).catch(function(e){ toast(e.message || "Could not like that."); });
+      };
+    });
+  }catch(e){
+    $("shorts").innerHTML = '<div class="empty" style="padding-top:120px">' + esc(e.message||"Could not load videos.") + '</div>';
+  }
+}
+
+/* =====================================================================
+   LIBRARY
+   ===================================================================== */
+function loadLibrary(){
+  show("library"); paintChips();
+  if (!me) {
+    $("library").innerHTML = '<div class="empty"><div class="big">Sign in</div>' +
+      'Your library is saved to your account.<br><button class="act" style="margin-top:14px" id="libSignin">Sign in</button></div>';
+    $("libSignin").onclick = function(){ authSheet("login"); };
+    return;
+  }
+  $("library").innerHTML = '<div class="spin" style="padding:40px 0"></div>';
+  api("/api/subscriptions").then(function(j){
+    var names = (j.subscriptions||[]).map(function(s){ return s.channel; });
+    var liked = [];
+    $("library").innerHTML =
+      '<div class="group-h">Your channels</div>' +
+      '<div class="row"><div class="vav">' + esc(initials(me)) + '</div>' +
+        '<div class="rtxt"><div class="rt">@' + esc(me) + '</div><div class="rs">Your own channel</div></div></div>' +
+      '<div class="group-h">Subscriptions <span class="linkish">' + names.length + '</span></div>' +
+      (names.length ? names.map(function(n){
+        return '<button class="row" data-ch="' + esc(n) + '"><div class="vav">' + esc(initials(n)) + '</div>' +
+          '<div class="rtxt"><div class="rt">@' + esc(n) + '</div></div></button>'; }).join("")
+        : '<div class="empty" style="padding:24px">No subscriptions yet.</div>') +
+      '<div class="group-h">Watch history</div><div id="histList"></div>';
+    Array.prototype.forEach.call($("library").querySelectorAll("[data-ch]"), function(b){
+      b.onclick = function(){ curChannel = b.dataset.ch; go("channel", true); };
+    });
+    // History is local: the API has no history endpoint, and inventing a server
+    // table for a phone app is not worth it. What you actually played is on you.
+    var hist = [];
+    try{ hist = JSON.parse(localStorage.getItem("ff_hist") || "[]"); }catch(e){}
+    $("histList").innerHTML = hist.length
+      ? hist.map(function(h){
+          return '<button class="row" data-v="' + esc(h.id) + '"><div class="rthumb"><div class="ph" style="display:flex;align-items:center;justify-content:center;height:100%;background:#1f1f1f;color:#3a3a3a;font-weight:800">' + esc(initials(h.owner)) + '</div></div>' +
+            '<div class="rtxt"><div class="rt">' + esc(h.title) + '</div><div class="rs">@' + esc(h.owner) + ' &middot; ' + esc(ago(h.at)) + '</div></div></button>'; }).join("")
+      : '<div class="empty" style="padding:24px">Nothing watched yet on this phone.</div>';
+    Array.prototype.forEach.call($("histList").querySelectorAll("[data-v]"), function(b){
+      b.onclick = function(){ curVideo = b.dataset.v; go("watch", true); };
+    });
+  }).catch(function(e){ $("library").innerHTML = '<div class="empty">' + esc(e.message||"Could not load your library.") + '</div>'; });
+}
+function pushHistory(v){
+  try{
+    var h = JSON.parse(localStorage.getItem("ff_hist") || "[]");
+    h = h.filter(function(x){ return x.id !== v.id; });
+    h.unshift({ id:v.id, title:v.title, owner:v.owner, at:new Date().toISOString() });
+    localStorage.setItem("ff_hist", JSON.stringify(h.slice(0, 30)));
+  }catch(e){}
+}
+
+/* =====================================================================
+   YOU
+   ===================================================================== */
+function loadYou(){
+  show("you");
+  if (!me) {
+    $("you").innerHTML = '<div class="empty"><div class="big">Sign in</div>' +
+      'Sign in to comment, like, subscribe and upload.<br>' +
+      '<button class="act" style="margin-top:14px" id="youSignin">Sign in</button>' +
+      '<div style="margin-top:10px"><button class="act" id="youReg">Create an account</button></div></div>';
+    $("youSignin").onclick = function(){ authSheet("login"); };
+    $("youReg").onclick = function(){ authSheet("register"); };
+    return;
+  }
+  $("you").innerHTML =
+    '<div class="row" style="padding:16px 12px"><div class="vav" style="width:56px;height:56px;font-size:22px">' + esc(initials(me)) + '</div>' +
+      '<div class="rtxt"><div class="rt" style="font-size:18px">@' + esc(me) + '</div>' +
+      '<div class="rs">' + (isAdmin() ? "Administrator" : isStaff() ? "Moderator" : "Member") + '</div></div></div>' +
+    (isStaff() ? '<div class="row" data-act="staff"><div class="rtxt"><div class="rt">Moderation queue</div>' +
+      '<div class="rs">Review reports from the FirFall website admin panel.</div></div></div>' : '') +
+    '<div class="row" data-act="channel"><div class="rtxt"><div class="rt">Your channel</div>' +
+      '<div class="rs">@' + esc(me) + '</div></div></div>' +
+    '<div class="row" data-act="create"><div class="rtxt"><div class="rt">Upload a video</div>' +
+      '<div class="rs">Uploads run from the FirFall website.</div></div></div>' +
+    '<div class="row" data-act="out"><div class="rtxt"><div class="rt">Sign out</div></div></div>' +
+    '<div style="padding:24px;text-align:center;color:var(--dim2);font-size:12px">FirFall for Android</div>';
+  $("you").querySelector('[data-act="channel"]').onclick = function(){ curChannel = me; go("channel", true); };
+  $("you").querySelector('[data-act="create"]').onclick = createNote;
+  $("you").querySelector('[data-act="out"]').onclick = signOut;
+  var s = $("you").querySelector('[data-act="staff"]');
+  if (s) s.onclick = function(){ toast("Open the admin panel on the website to review reports."); };
+}
+function createNote(){
+  openSheet(
+    '<div id="sheetTitle">Upload a video</div>' +
+    '<div id="sheetSub">FirFall uploads go through the website, where the 250MB limit and the moderation scan are applied. Open it and sign in, then post.</div>' +
+    '<div class="sheet-alt" style="margin-top:6px">firfall.b8golddude.workers.dev</div>' +
+    '<button class="sheet-go" style="margin-top:18px" id="upOk">Got it</button>'
+  );
+  $("upOk").onclick = closeSheet;
+}
+
+/* =====================================================================
+   SEARCH
+   ===================================================================== */
+$("searchBtn").onclick = function(){
+  $("searchWrap").classList.add("on"); $("qIn").focus();
+  setTimeout(function(){ var i = $("searchInput"); if (i) i.focus(); }, 220);
+};
+$("searchBack").onclick = function(){ $("searchWrap").classList.remove("on"); $("searchInput").blur(); };
+$("searchGo").onclick = function(){ searchQ = $("searchInput").value.trim(); if (searchQ) doSearch(searchQ); };
+$("searchInput").onkeydown = function(e){ if (e.key === "Enter") { searchQ = e.target.value.trim(); if (searchQ) doSearch(searchQ); } };
+$("searchClear").onclick = function(){ $("searchInput").value = ""; $("searchInput").focus(); };
+function doSearch(q){
+  curTab = "search"; searchQ = q || searchQ;
+  $("searchWrap").classList.remove("on");
+  $("chips").classList.add("hidden");
+  $("main").classList.remove("hidden");
+  show("search");
+  $("search").innerHTML = '<div class="spin" style="padding:40px 0"></div>';
+  var all = api("/api/videos").then(function(j){ return j.videos || []; });
+  var chs = api("/api/videos").then(function(){});
+  Promise.all([all]).then(function(res){
+    var vs = res[0] || [];
+    var term = searchQ.toLowerCase();
+    var hitV = vs.filter(function(v){
+      return (v.title||"").toLowerCase().indexOf(term) >= 0 || (v.owner||"").toLowerCase().indexOf(term) >= 0;
+    });
+    var owners = {};
+    vs.forEach(function(v){ owners[v.owner] = (owners[v.owner]||0) + 1; });
+    var hitC = Object.keys(owners).filter(function(n){ return n.toLowerCase().indexOf(term) >= 0; });
+    $("search").innerHTML =
+      '<div class="group-h">Channels</div>' +
+      (hitC.length ? hitC.map(function(n){
+        return '<button class="row" data-ch="' + esc(n) + '"><div class="vav">' + esc(initials(n)) + '</div>' +
+          '<div class="rtxt"><div class="rt">@' + esc(n) + '</div><div class="rs">' + owners[n] + ' video' + (owners[n]===1?"":"s") + '</div></div></button>'; }).join("")
+        : '<div class="empty" style="padding:20px">No channels match.</div>') +
+      '<div class="group-h">Videos</div>' +
+      (hitV.length ? hitV.map(vcard).join("") : '<div class="empty" style="padding:20px">No videos match.</div>');
+    Array.prototype.forEach.call($("search").querySelectorAll(".vcard"), function(b){
+      b.onclick = function(){ curVideo = b.dataset.v; go("watch", true); };
+    });
+    Array.prototype.forEach.call($("search").querySelectorAll("[data-ch]"), function(b){
+      b.onclick = function(){ curChannel = b.dataset.ch; go("channel", true); };
+    });
+  }).catch(function(e){ $("search").innerHTML = '<div class="empty">' + esc(e.message||"Search failed.") + '</div>'; });
+}
+
+/* =====================================================================
+   NOTIFICATIONS
+   ===================================================================== */
+function loadNotifs(){
+  show("notifs");
+  if (!me) { $("notifs").innerHTML = '<div class="empty">Sign in to see notifications.</div>'; return; }
+  $("notifs").innerHTML = '<div class="spin" style="padding:40px 0"></div>';
+  api("/api/notifications").then(function(j){
+    var ns = j.notifications || [];
+    $("notifs").innerHTML = ns.length ? ns.map(function(n){
+      return '<div class="row"><div class="vav">' + esc(initials(n.actor||n.user||"?")) + '</div>' +
+        '<div class="rtxt"><div class="rt">' + esc(n.text||("" + (n.type||"activity"))) + '</div>' +
+        '<div class="rs">' + esc(ago(n.created_at)) + '</div></div></div>'; }).join("")
+      : '<div class="empty"><div class="big">All clear</div>No notifications.</div>';
+    api("/api/notifications/read", { method:"POST", body:{} }).catch(function(){});
+    $("notifDot").classList.add("hidden");
+  }).catch(function(e){ $("notifs").innerHTML = '<div class="empty">' + esc(e.message||"Could not load notifications.") + '</div>'; });
+}
+$("notifBtn").onclick = function(){ go("notifs", true); };
+$("avatarBtn").onclick = function(){ go("you", true); };
+$("brandBtn").onclick = function(){ tab("home"); };
+
+/* ---------- scroll shadows + history ---------- */
+$("main").addEventListener("scroll", function(){
+  var s = $("main").scrollTop > 4;
+  $("topbar").classList.toggle("stuck", s);
+  var c = $("chips");
+  if (!c.classList.contains("hidden")) c.classList.toggle("stuck", s);
+});
+
+/* =====================================================================
+   BOOT
+   ===================================================================== */
+(async function boot(){
+  try{ myReports = JSON.parse(localStorage.getItem(K_MYREP) || "{}") || {}; }catch(e){ myReports = {}; }
+  var t = token(), u = null;
+  try{ u = localStorage.getItem(K_USER); }catch(e){}
+  if (t) {
+    try{
+      var j = await api("/api/me");
+      if (j.banned) { clearSession(); showBan({ username: j.username, reason: j.ban && j.ban.reason, bannedBy: j.ban && j.ban.bannedBy, bannedAt: j.ban && j.ban.bannedAt }, null); return; }
+      me = j.username; myRole = j.role || "user";
+      try{ localStorage.setItem(K_USER, me); localStorage.setItem(K_ROLE, myRole); }catch(e){}
+    }catch(e){ clearSession(); }
+  }
+  paintAvatar();
+  if (me) loadMyReports();
+  go("home", true);
+})();
+
+/* Expose a couple of things for the Android shell. */
+window.FirFall = {
+  go: go, tab: tab, api: api,
+  state: function(){ return { me: me, role: myRole }; },
+
+  /* Called by the Android shell's back button. Returns "exit" only when the
+     app genuinely has nowhere left to go, so Back closes an open sheet or
+     backs out of a channel before it ever backs out of the app. */
+  onBack: function(){
+    if (!$("scrim").classList.contains("on")) { /* sheet not open */ }
+    else { closeSheet(); return "handled"; }
+    if ($("searchWrap").classList.contains("on")) { $("searchWrap").classList.remove("on"); return "handled"; }
+    if (curTab === "watch" || curTab === "channel" || curTab === "search" || curTab === "notifs") {
+      curTab = "home"; go("home", true); paintChips(); return "handled";
+    }
+    if (curTab === "shorts") { go("home", true); paintChips(); return "handled"; }
+    if (feedFilter !== "all") { feedFilter = "all"; go(curTab, true); paintChips(); return "handled"; }
+    if (!$("ban").classList.contains("hidden")) return "exit";
+    return "exit";
+  }
+};
+
+/* Keep the screen awake while a video is actually playing, so the phone does
+   not sleep mid-video. Silently does nothing in a plain browser. */
+(function(){
+  var v = null, on = false;
+  function sync(){ if (window.Android && window.Android.keepAwake) window.Android.keepAwake(on); }
+  setInterval(function(){
+    var p = document.getElementById("vp");
+    if (p !== v) { v = p; if (v) v.addEventListener("play", function(){ on = true; sync(); });
+                            v.addEventListener("pause", function(){ on = false; sync(); }); }
+  }, 1000);
+})();
+</script>
+</body>
+</html>
