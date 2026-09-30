@@ -251,6 +251,10 @@ input,textarea{font:inherit}
 /* Replies sit one level in, under a rule, so a thread is readable at a glance
    without turning into an ever-deeper staircase. */
 .comment.reply{margin:10px 0 0 10px;padding-left:10px;border-left:2px solid #2f2f2f}
+/* A reply thread, folded behind its count the way YouTube folds it. */
+.thread{display:none}
+.thread.open{display:block}
+.rbtn.thtoggle{color:var(--blue);font-weight:700}
 .comment.reply .ctext{font-size:13.5px}
 .crep{color:var(--blue);font-weight:600}
 .rbtn.heart.on{color:#ff5a5a}
@@ -1622,6 +1626,10 @@ function refreshSub(channel){
     .then(function(j){ subState[channel] = j; var el = $("chSub"); if (el) el.textContent = num(j.subscribers||0) + " subscriber" + (j.subscribers===1?"":"s"); })
     .catch(function(){});
 }
+/* Which reply threads are unfolded. Kept outside the render so a thread stays
+   open across a reload of the list - posting a reply re-renders, and without
+   this the thread you are reading would fold shut the moment you hit send. */
+var replyThreadsOpen = {};
 /* target defaults to the watch page's list; the Shorts panel passes its own so
    the same renderer and the same report buttons serve both. */
 function loadComments(vid, target){
@@ -1658,6 +1666,23 @@ function loadComments(vid, target){
       }
       if (!mine) acts += "<button class=\"rbtn\" data-k=\"comment\" data-i=\"" + esc(c.id) + "\" style=\"color:var(--redSoft)\">Report</button>";
       var at = isReply && c.reply_to ? "<span class=\"crep\">@" + esc(c.reply_to) + "</span> " : "";
+      // YouTube's shape: a thread starts folded behind a count, and tapping the
+      // count opens it. Replies read oldest first - the server already returns
+      // them that way - so a conversation runs in the order it happened.
+      // They also belong INSIDE the parent, under its text. They used to be
+      // appended as siblings of the whole comment, which put them below the
+      // avatar line instead of under the thing they were answering.
+      var rs = kids[c.id] || [];
+      var isOpen = !!replyThreadsOpen[c.id];
+      var rlabel = rs.length + (rs.length === 1 ? " reply" : " replies");
+      if (!isReply && rs.length) {
+        acts = "<button class=\"rbtn thtoggle\" data-tg=\"" + esc(c.id) + "\" aria-expanded=\"" +
+          (isOpen ? "true" : "false") + "\">" + (isOpen ? "Hide replies" : rlabel) + "</button>" + acts;
+      }
+      var thread = (!isReply && rs.length)
+        ? "<div class=\"thread" + (isOpen ? " open" : "") + "\">" +
+          rs.map(function(k){ return one(k, true); }).join("") + "</div>"
+        : "";
       // The author's picture, with their initial when they have not set one.
       // Both it and the name open that channel: a comment is the one place a
       // name turns up that is not already a channel the reader has been to.
@@ -1668,14 +1693,24 @@ function loadComments(vid, target){
         "</div><div class=\"cbody\"><div class=\"cwho\"><span class=\"cname\" data-cu=\"" + esc(c.user) + "\">@" + esc(c.user) +
         "</span><span class=\"ctime\">" + esc(ago(c.created_at)) +
         "</span></div><div class=\"ctext\">" + at + esc(c.text) + "</div>" +
-        (acts ? "<div class=\"cfoot\">" + acts + "</div>" : "") + "</div></div>" +
-        ((kids[c.id] || []).map(function(k){ return one(k, true); }).join(""));
+        (acts ? "<div class=\"cfoot\">" + acts + "</div>" : "") + thread + "</div></div>";
     }
     list.innerHTML = (kids.root || []).map(function(c){ return one(c, false); }).join("");
     Array.prototype.forEach.call(list.querySelectorAll("[data-cu]"), function(a){
       a.onclick = function(){ curChannel = a.dataset.cu; go("channel", true); };
     });
     Array.prototype.forEach.call(list.querySelectorAll(".rbtn"), function(b){
+      if (b.dataset.tg) {
+        b.onclick = function(){
+          var box = b.closest(".comment").querySelector(".thread");
+          var open = !replyThreadsOpen[b.dataset.tg];
+          if (open) replyThreadsOpen[b.dataset.tg] = 1; else delete replyThreadsOpen[b.dataset.tg];
+          if (box) box.classList.toggle("open", open);
+          b.textContent = open ? "Hide replies" : (box ? box.querySelectorAll(".comment").length + (box.querySelectorAll(".comment").length === 1 ? " reply" : " replies") : "replies");
+          b.setAttribute("aria-expanded", open ? "true" : "false");
+        };
+        return;
+      }
       if (b.dataset.lk) {
         b.onclick = function(){
           b.disabled = true;
@@ -1741,7 +1776,13 @@ function replySheet(vid, parent, list){
     if (!t) return;
     $("rpSend").disabled = true;
     api("/api/comments", { method:"POST", body:{ video_id: vid, text: t, parent_id: parent.id, reply_to: parent.user } })
-      .then(function(){ closeSheet(); toast("Reply posted"); loadComments(vid, list); })
+      .then(function(){
+        closeSheet();
+        // Open the thread you just replied in - the list is about to re-render.
+        replyThreadsOpen[parent.id] = 1;
+        toast("Reply posted");
+        loadComments(vid, list);
+      })
       .catch(function(e){ $("rpSend").disabled = false; toast(e.message || "Could not post that reply."); });
   };
 }

@@ -370,6 +370,10 @@ body:not(.site-down) #downOverlay{display:none}
 .c-acts button:hover{color:#fff}
 .comment.reply{margin:12px 0 0 20px;padding-left:12px;border-left:2px solid #272727}
 .comment.reply p{font-size:13.5px}
+/* A reply thread, folded behind its count the way YouTube folds it. */
+.thread{display:none}
+.thread.open{display:block}
+.thread-toggle{font-weight:700!important;color:#3ea6ff!important}
 .comment .reply_to{color:#3ea6ff}
 .heart-btn.on{color:#ff5a5a}
 /* The like anyone can give, next to the heart only the uploader can. A filled

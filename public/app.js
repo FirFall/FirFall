@@ -1156,6 +1156,11 @@ document.getElementById('wSaveBtn').onclick = () => {
   paintSave();
 };
 
+// Which reply threads are unfolded. Kept outside the render so a thread stays
+// open across a reload of the list: posting a reply re-renders, and without
+// this the thread you are reading would fold shut the moment you hit send.
+const replyThreadsOpen = new Set();
+
 // target defaults to the watch page's list. The Shorts panel passes its own,
 // so both places share one renderer and one set of report buttons instead of
 // the panel growing a plainer, less capable copy later.
@@ -1285,12 +1290,33 @@ async function loadComments(vid, target) {
         if (myReports.has('comment:' + c.id)) { b.textContent = 'Reported'; b.classList.add('done'); b.disabled = true; }
         row.appendChild(b);
       }
-      if (row.children.length) body.appendChild(row);
-      // Replies stack under the text, not beside the avatar, so the thread
-      // reads as one block.
-      if (!isReply) {
-        (kids[c.id] || []).forEach(k => { body.appendChild(render(k, true)); });
+      // YouTube's shape: a thread starts folded behind a count, and tapping the
+      // count opens it. Replies read oldest first - the server already returns
+      // them that way - so a conversation runs in the order it happened.
+      const rs = kids[c.id] || [];
+      let thread = null;
+      if (!isReply && rs.length) {
+        const label = () => rs.length + (rs.length === 1 ? ' reply' : ' replies');
+        const tg = document.createElement('button');
+        const open = replyThreadsOpen.has(c.id);
+        tg.className = 'thread-toggle';
+        tg.textContent = open ? 'Hide replies' : label();
+        tg.setAttribute('aria-expanded', open ? 'true' : 'false');
+        row.appendChild(tg);
+        thread = document.createElement('div');
+        thread.className = 'thread' + (open ? ' open' : '');
+        rs.forEach(k => { thread.appendChild(render(k, true)); });
+        tg.onclick = (e) => {
+          e.stopPropagation();
+          const nowOpen = !replyThreadsOpen.has(c.id);
+          if (nowOpen) replyThreadsOpen.add(c.id); else replyThreadsOpen.delete(c.id);
+          thread.classList.toggle('open', nowOpen);
+          tg.textContent = nowOpen ? 'Hide replies' : label();
+          tg.setAttribute('aria-expanded', nowOpen ? 'true' : 'false');
+        };
       }
+      if (row.children.length) body.appendChild(row);
+      if (thread) body.appendChild(thread);
       av.onclick = nm.onclick = () => { location.hash = '#/channel/' + encodeURIComponent(c.user.toLowerCase()); };
       return d;
     };
@@ -1331,6 +1357,8 @@ function openReplyBox(commentEl, parent, vid, list, isReply) {
       const j = await r.json();
       if (!r.ok) { alert(j.error || 'Could not post that reply.'); btn.disabled = false; return; }
       box.remove();
+      // Open the thread you just replied in - the list is about to re-render.
+      replyThreadsOpen.add(parent.id);
       loadComments(vid, list);
     } catch { alert('Could not post that reply - service unreachable.'); btn.disabled = false; }
   };
