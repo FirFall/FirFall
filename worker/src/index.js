@@ -278,8 +278,13 @@ var index_default = {
     const MAX_VIDEO_BYTES = 25e7;
     const CHUNK_BYTES = 6e6;
     const STORAGE_QUOTA_BYTES = 4.5e9;
-    const VIDEO_MIMES = ["video/mp4", "video/webm", "video/quicktime", "video/x-matroska"];
-    const VIDEO_EXTS = ["mp4", "webm", "mov", "mkv"];
+    // A phone gallery is full of formats a laptop never sees: 3GP from the
+    // stock camera app, M4V and MPEG from older Androids, TS from screen
+    // recorders, AVI and OGV from shareware encoders. Listing only the four
+    // desktop formats meant a legitimate phone upload was refused at the door
+    // with a message about MP4 while the file sat right there in the gallery.
+    const VIDEO_MIMES = ["video/mp4", "video/webm", "video/quicktime", "video/x-matroska", "video/3gpp", "video/x-m4v", "video/mp2t", "video/mpeg", "video/ogg", "video/x-msvideo", "video/x-flv", "video/3gpp2"];
+    const VIDEO_EXTS = ["mp4", "webm", "mov", "mkv", "3gp", "3gpp", "m4v", "ts", "mts", "m2ts", "avi", "ogv", "ogg", "mpg", "mpeg", "flv", "wmv", "3g2"];
     try {
       if (req.method === "GET" && url.pathname === "/api/admin/users") {
         const user = await authedUser();
@@ -427,8 +432,11 @@ var index_default = {
           if (kind === "ember" && dur > EMBER_MAX_SECONDS + 1.5)
             return json(400, { error: "Embers are " + EMBER_MAX_SECONDS + " seconds or less. Trim the clip and try again." });
           const t = String(title || "").trim(), d = String(description || "").trim();
-          if (!VIDEO_MIMES.includes(mime)) return json(400, { error: "Only MP4/WebM/MOV/MKV." });
-          const ext = (String(filename || "").split(".").pop() || "").toLowerCase();
+          if (!VIDEO_MIMES.includes(mime)) return json(400, { error: "That file is not a video this site accepts (" + mime + "). Try MP4, WebM, MOV, MKV, 3GP, M4V, TS, AVI or OGV." });
+          // The extension is what the storage key and the content type are
+          // built from, so it is taken from the file itself when it has one.
+          const named = (String(filename || "").split(".").pop() || "").toLowerCase();
+          const ext = VIDEO_EXTS.includes(named) ? named : (mime === "video/mp2t" ? "ts" : mime === "video/3gpp" ? "3gp" : mime === "video/x-m4v" ? "m4v" : mime === "video/ogg" ? "ogv" : mime === "video/x-msvideo" ? "avi" : mime === "video/mpeg" ? "mpg" : mime === "video/x-flv" ? "flv" : "mp4");
           if (!VIDEO_EXTS.includes(ext)) return json(400, { error: "Bad file extension." });
           if (!size || size <= 0 || size > MAX_VIDEO_BYTES) return json(400, { error: "Max 250MB per upload." });
           if (t.length < 1 || t.length > 100) return json(400, { error: "Title 1-100 chars." });

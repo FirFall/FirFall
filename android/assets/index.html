@@ -368,6 +368,16 @@ input,textarea{font:inherit}
 .up-bar{height:6px;background:#333;border-radius:4px;overflow:hidden}
 .up-fill{height:100%;width:0%;background:linear-gradient(90deg,#ffb800,#ff6a00,#ff2d00);transition:width .2s}
 #upState{color:var(--dim);font-size:13px}
+/* The library has no bottom-nav button any more, so Subscriptions ends with a
+   short list of the two things people actually go back for: what they watched
+   and what they saved. */
+.lib-quick{display:flex;gap:10px;padding:0 12px 12px}
+.lq{flex:1 1 0;min-width:0;text-align:left;background:#1f1f1f;border:1px solid #303030;
+  border-radius:10px;padding:12px 12px;cursor:pointer;transition:border-color .15s,background .15s}
+.lq:hover{background:#282828;border-color:#4d4d4d}
+.lq:active{background:#2f2f2f}
+.lq-t{display:block;color:#f1f1f1;font-size:14px;font-weight:600}
+.lq-c{display:block;margin-top:3px;color:var(--dim2);font-size:12px}
 .sheet-alt button{color:var(--blue);font-weight:700}
 
 /* ---------- ban screen ---------- */
@@ -449,9 +459,6 @@ input,textarea{font:inherit}
   <button class="nitem" data-tab="subs">
     <svg viewBox="0 0 24 24"><path d="M10 18v-6l5 3-5 3zm7-15H7v1h10V3zm3 3H4v1h16V6zm2 3H2v12h20V9zM3 10h18v10H3V10z"/></svg><span class="lbl">Subscriptions</span>
   </button>
-  <button class="nitem" data-tab="library">
-    <svg viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"/></svg><span class="lbl">Library</span>
-  </button>
   <button class="nitem" data-tab="you">
     <svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5z"/></svg><span class="lbl">You</span>
   </button>
@@ -490,7 +497,7 @@ input,textarea{font:inherit}
     </div>
   </div>
 </div>
-<input type="file" id="emberFile" accept="video/mp4,video/webm,video/quicktime,video/x-matroska" class="hidden">
+<input type="file" id="emberFile" accept="video/*" class="hidden">
 
 <script>
 "use strict";
@@ -1006,7 +1013,7 @@ function overflowMenu(kind, id, anchor, label){
 var TABS = { home:1, subs:1, you:1, channel:1, watch:1, search:1, library:1, notifs:1, create:1 };
 /* Which bottom-nav item stays lit while you are inside a pushed screen. YouTube
    keeps the origin tab highlighted when you open a video or a channel from it. */
-var NAV_OWNER = { watch:null, channel:null, search:null, notifs:null, create:null };
+var NAV_OWNER = { watch:null, channel:null, search:null, notifs:null, create:null, library:null };
 var navOrigin = "home";
 function go(tab, force){
   if (!TABS[tab]) return;
@@ -1494,6 +1501,42 @@ async function loadChannel(name){
 /* =====================================================================
    SUBSCRIPTIONS
    ===================================================================== */
+/* The bottom nav lost its Library button, so Subscriptions is where the
+   library lives now: the channels you follow at the top, and a "Your library"
+   block underneath with chips for History, Watch later and Liked. The library
+   screen itself is unchanged, only its front door moved. */
+var SUB_LIB_TABS = [
+  ["recent", "History"],
+  ["later",  "Watch later"],
+  ["liked",  "Liked"],
+  ["mine",   "Your videos"]
+];
+function subLibBlock(){
+  var hist = load(K_HIST, []).length, later = load(K_LATER, []).length;
+  return '<div class="group-h">Your library</div>' +
+    '<div class="lib-bar" style="padding:0 12px 8px">' +
+      SUB_LIB_TABS.map(function(t){
+        return '<button data-lf="' + t[0] + '">' + t[1] + '</button>';
+      }).join("") +
+    '</div>' +
+    '<div class="lib-quick">' +
+      '<button class="lq" data-lf="recent"><span class="lq-t">Watch history</span>' +
+        '<span class="lq-c">' + (hist ? hist + (hist === 1 ? " video" : " videos") : "Empty") + '</span></button>' +
+      '<button class="lq" data-lf="later"><span class="lq-t">Watch later</span>' +
+        '<span class="lq-c">' + (later ? later + (later === 1 ? " video" : " videos") : "Empty") + '</span></button>' +
+    '</div>';
+}
+function wireSubLib(){
+  Array.prototype.forEach.call($("feed").querySelectorAll("[data-lf]"), function(b){
+    b.onclick = function(){
+      // The library is a screen in its own right, reached from here. It keeps
+      // its own back behaviour, so Back returns to Subscriptions, not Home.
+      libFilter = b.dataset.lf;
+      navOrigin = "subs";
+      go("library", true);
+    };
+  });
+}
 async function loadSubs(){
   show("feed"); paintChips();
   if (!me) {
@@ -1505,30 +1548,34 @@ async function loadSubs(){
   $("feed").innerHTML = '<div class="spin" style="padding:40px 0"></div>';
   try{
     var names = await subChannels();
-    if (!names.length) {
-      $("feed").innerHTML = '<div class="empty"><div class="big">No subscriptions</div>' +
+    var head = names.length
+      ? '<div class="group-h">Channels</div>' +
+        names.map(function(n){
+          return '<button class="row" data-ch="' + esc(n) + '"><div class="vav">' + esc(initials(n)) + '</div>' +
+                 '<div class="rtxt"><div class="rt">@' + esc(n) + '</div></div></button>';
+        }).join("")
+      : '<div class="empty" style="padding:32px 24px"><div class="big">No subscriptions</div>' +
         'Find a channel you like and press Subscribe.</div>';
-      return;
-    }
+    // With no channels there is nothing to list, but the library is still
+    // reachable, so it is not gated behind having followed someone.
     var all = [];
     for (var i=0;i<names.length;i++){
       var r = await api("/api/videos?owner=" + encodeURIComponent(names[i]));
       all = all.concat(r.videos || []);
     }
     all.sort(function(a,b){ return new Date(b.created_at) - new Date(a.created_at); });
-    $("feed").innerHTML = '<div class="group-h">Channels</div>' +
-      names.map(function(n){
-        return '<button class="row" data-ch="' + esc(n) + '"><div class="vav">' + esc(initials(n)) + '</div>' +
-               '<div class="rtxt"><div class="rt">@' + esc(n) + '</div></div></button>';
-      }).join("") +
-      '<div class="group-h">Latest from your channels</div>' +
-      (all.length ? all.map(vcard).join("") : '<div class="empty">Nothing new from them yet.</div>');
+    $("feed").innerHTML = head +
+      (all.length
+        ? '<div class="group-h">Latest from your channels</div>' + all.map(vcard).join("")
+        : "") +
+      subLibBlock();
     Array.prototype.forEach.call($("feed").querySelectorAll(".vcard"), function(b){
       b.onclick = function(){ curVideo = b.dataset.v; go("watch", true); };
     });
     Array.prototype.forEach.call($("feed").querySelectorAll("[data-ch]"), function(b){
       b.onclick = function(){ curChannel = b.dataset.ch; go("channel", true); };
     });
+    wireSubLib();
   }catch(e){ fail(e); }
 }
 
@@ -1542,8 +1589,7 @@ var LIB_TABS = [
   ["recent",  "History"],
   ["later",   "Watch later"],
   ["liked",   "Liked videos"],
-  ["mine",    "Your videos"],
-  ["subs",    "Subscriptions"]
+  ["mine",    "Your videos"]
 ];
 function libBar(active){
   return '<div class="lib-hero">Your Library</div><div class="lib-bar">' +
@@ -1608,20 +1654,6 @@ function loadLibrary(){
       });
       paint(items.length ? libRows(items) : libEmpty("Nothing saved yet. Tap Save on any video."));
     }).catch(function(e){ paint(libEmpty(e.message || "Could not load that.")); });
-    return;
-  }
-  if (libFilter === "subs") {
-    api("/api/subscriptions").then(function(j){
-      var names = (j.subscriptions || []).map(function(s){ return s.channel; });
-      if (!names.length) return paint(libEmpty("You have not subscribed to anyone yet."));
-      paint('<div id="libBody2">' + names.map(function(n){
-        return '<button class="row" data-ch="' + esc(n) + '"><div class="vav">' + esc(initials(n)) + '</div>' +
-          '<div class="rtxt"><div class="rt">@' + esc(n) + '</div></div></button>';
-      }).join("") + '</div>');
-      Array.prototype.forEach.call($("library").querySelectorAll("[data-ch]"), function(b){
-        b.onclick = function(){ curChannel = b.dataset.ch; go("channel", true); };
-      });
-    }).catch(function(e){ paint(libEmpty(e.message || "Could not load your subscriptions.")); });
     return;
   }
   if (libFilter === "mine") {
@@ -1718,8 +1750,9 @@ var uploading = false;
 function openCamera(){
   if (!me) { authSheet("login"); return; }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === "undefined") {
-    toast("Recording needs a newer browser — use a gallery clip instead");
-    $("emberFile").value = ""; $("emberFile").click();
+    // No recorder: the camera would work but nothing could be encoded, so go
+    // straight to the gallery path rather than opening a dead-end screen.
+    camFail("unsupported");
     return;
   }
   var w = $("camWrap");
@@ -1729,20 +1762,73 @@ function openCamera(){
   $("camTimer").classList.remove("on");
   startCam(camFacing);
 }
+/* The first getUserMedia call asks for exactly what we want: portrait 720x1280
+   from the chosen camera with the mic. Phones are not obliging, and a device
+   with no front camera, no mic or a camera busy in another app rejects that
+   outright with OverconstrainedError / NotFoundError / NotReadableError. The
+   old code caught all of that in one handler and said "check the app's
+   permissions", which is both wrong and unactionable. So the request is retried
+   with progressively looser constraints, and only a genuine NotAllowedError
+   (the user said no) is reported as a permissions problem. */
+var CAM_TRIES = [
+  function(f){ return { video: { facingMode: { ideal: f }, width: { ideal: 720 }, height: { ideal: 1280 } },
+                        audio: { echoCancellation: true, noiseSuppression: true } }; },
+  function(f){ return { video: { facingMode: { ideal: f } }, audio: true }; },
+  function(f){ return { video: true, audio: true }; },
+  function(){ return { video: true }; }
+];
 function startCam(facing){
   stopCamStream();
-  navigator.mediaDevices.getUserMedia({
-    video: { facingMode: facing, width: { ideal: 720 }, height: { ideal: 1280 } },
-    audio: { echoCancellation: true, noiseSuppression: true }
-  }).then(function(s){
-    camStream = s;
-    var v = $("camVideo");
-    v.srcObject = s;
-    v.classList.toggle("mirror", facing === "user");
-  }).catch(function(){
-    toast("Camera unavailable — check the app's permissions");
-    closeCamera();
-  });
+  var i = 0;
+  function attempt(){
+    if (i >= CAM_TRIES.length) { camFail("nocam"); return; }
+    var cons = CAM_TRIES[i++](facing);
+    navigator.mediaDevices.getUserMedia(cons).then(function(s){
+      camStream = s;
+      var v = $("camVideo");
+      v.srcObject = s;
+      v.classList.toggle("mirror", facing === "user");
+      v.play().catch(function(){});
+    }).catch(function(e){
+      var name = (e && e.name) || "";
+      // A device that cannot satisfy the request at all: try the next one.
+      if (i < CAM_TRIES.length && name !== "NotAllowedError" && name !== "SecurityError") { attempt(); return; }
+      if (name === "NotAllowedError" || name === "SecurityError") camFail("denied");
+      else if (name === "NotReadableError" || name === "TrackStartError") camFail("busy");
+      else camFail("nocam");
+    });
+  }
+  attempt();
+}
+/* Why the camera did not open, said plainly, with the way out. */
+function camFail(reason){
+  var titles = {
+    denied: "Camera permission needed",
+    nocam: "No camera available",
+    busy: "Camera is busy",
+    unsupported: "Recording not supported here"
+  };
+  var bodies = {
+    denied: window.Android && window.Android.hasCamPerms && !window.Android.hasCamPerms()
+      ? "FirFall was not allowed to use the camera. Open Android Settings, allow Camera and Microphone for FirFall, then try again."
+      : "Recording needs your permission to use the camera and microphone.",
+    nocam: "This device reported no usable camera. You can still post an ember from your gallery.",
+    busy: "Another app is using the camera. Close it and try again.",
+    unsupported: "This browser cannot record video. You can still post an ember from your gallery."
+  };
+  closeCamera();
+  openSheet(
+    '<div id="sheetTitle">' + (titles[reason] || "Camera unavailable") + '</div>' +
+    '<div id="sheetSub">' + (bodies[reason] || "") + '</div>' +
+    '<button class="sheet-go" style="margin-top:16px" id="camRetry">Try again</button>' +
+    (window.Android && window.Android.openAppSettings ? '<button class="sheet-alt" style="margin-top:10px;width:100%" id="camSet">Open Android settings</button>' : '') +
+    '<button class="sheet-alt" style="margin-top:10px;width:100%" id="camGal">Choose a clip instead</button>' +
+    '<button class="sheet-alt" style="margin-top:10px;width:100%" id="camCancel">Cancel</button>'
+  );
+  $("camRetry").onclick = function(){ closeSheet(); openCamera(); };
+  if ($("camSet")) $("camSet").onclick = function(){ try { window.Android.openAppSettings(); } catch(e){} closeSheet(); };
+  $("camGal").onclick = function(){ closeSheet(); $("emberFile").value = ""; $("emberFile").click(); };
+  $("camCancel").onclick = closeSheet;
 }
 function stopCamStream(){
   if (camStream) { try { camStream.getTracks().forEach(function(t){ t.stop(); }); } catch(e){} camStream = null; }
@@ -1766,6 +1852,7 @@ $("camClose").onclick = closeCamera;
 $("camSwitch").onclick = function(){
   camFacing = camFacing === "user" ? "environment" : "user";
   startCam(camFacing);
+  toast(camFacing === "user" ? "Front camera" : "Back camera");
 };
 /* Recording: start on the shutter, auto-stop at 60s or when the duration is
    reached again by hand, then hand the blob to the review screen. */
@@ -1828,20 +1915,54 @@ $("camRetake").onclick = function(){
 $("emberFile").onchange = function(){
   var f = this.files && this.files[0];
   if (!f) return;
-  var v = document.createElement("video");
-  v.preload = "metadata";
-  v.onloadedmetadata = function(){
-    var d = v.duration;
-    URL.revokeObjectURL(v.src);
-    if (!isFinite(d)) { toast("Could not read that clip's length"); return; }
+  probeDuration(URL.createObjectURL(f), function(d){
+    if (!isFinite(d) || d <= 0) { toast("Could not read that clip's length"); return; }
     if (d > EMBER_MAX_S + 1.5) { toast("That clip is " + Math.round(d) + "s — embers are 60s or less"); return; }
     emberBlob = f;
-    emberMime = f.type || "video/mp4";
     emberUpload(f.name || "ember", "", d);
-  };
-  v.onerror = function(){ URL.revokeObjectURL(v.src); toast("Could not read that video"); };
-  v.src = URL.createObjectURL(f);
+  });
 };
+/* Most phone clips (MediaRecorder webm, 3GP, some MP4s) report a duration of
+   Infinity until forced to resolve it: seeking past the end makes the element
+   read the real header value. Without this every recording made by the app
+   itself was rejected as "could not read that clip's length". */
+function probeDuration(url, cb){
+  var v = document.createElement("video");
+  v.preload = "metadata";
+  var settled = false;
+  function finish(d){ if (settled) return; settled = true; cb(d); }
+  function good(){ return isFinite(v.duration) && v.duration > 0; }
+  v.onloadedmetadata = function(){
+    if (good()) { finish(v.duration); return; }
+    try { v.currentTime = 1e101; } catch(e){}
+  };
+  v.ondurationchange = function(){ if (good()) finish(v.duration); };
+  v.ontimeupdate = function(){ if (good()) finish(v.duration); };
+  v.onerror = function(){ finish(NaN); };
+  setTimeout(function(){ finish(good() ? v.duration : NaN); }, 8000);
+  v.src = url;
+  // The object URL exists only to read metadata; the File itself is uploaded,
+  // so it is released as soon as the duration is known.
+  setTimeout(function(){ try { URL.revokeObjectURL(url); } catch(e){} }, 20000);
+}
+/* Phones hand back a content:// URI whose File.type is often empty or a
+   made-up value, so the extension is the reliable signal and the mime is
+   derived from it. */
+var EXT_MIME = {
+  mp4: "video/mp4", m4v: "video/mp4", mov: "video/quicktime", qt: "video/quicktime",
+  webm: "video/webm", mkv: "video/x-matroska", "3gp": "video/3gpp", "3gpp": "video/3gpp",
+  "3g2": "video/3gpp2", ts: "video/mp2t", mts: "video/mp2t", m2ts: "video/mp2t",
+  avi: "video/x-msvideo", ogv: "video/ogg", ogg: "video/ogg",
+  mpg: "video/mpeg", mpeg: "video/mpeg", flv: "video/x-flv", wmv: "video/x-ms-wmv"
+};
+function videoTypeOf(file, fallback){
+  var name = String(file.name || "").toLowerCase();
+  var ext = (name.split(".").pop() || "").split("?")[0];
+  if (EXT_MIME[ext]) return EXT_MIME[ext];
+  var t = String(file.type || "").toLowerCase();
+  if (t.indexOf("video/") === 0) return t;
+  return fallback || "video/mp4";
+}
 $("camPost").onclick = function(){
   if (!emberBlob) return;
   var secs = Math.min(EMBER_MAX_S, Math.max(1, Math.round((Date.now() - camStart) / 1000)));
@@ -1867,17 +1988,23 @@ function emberUpload(name, desc, durSecs){
     '<div id="upState">Starting…</div></div>'
   );
   var file = emberBlob instanceof File ? emberBlob : new File([emberBlob], "ember.webm", { type: emberBlob.type || "video/webm" });
-  var mime = file.type || emberMime || "video/webm";
-  var okMimes = ["video/mp4", "video/webm", "video/quicktime", "video/x-matroska"];
-  if (okMimes.indexOf(mime) < 0) mime = "video/webm";
-  var ext = { "video/mp4":"mp4", "video/webm":"webm", "video/quicktime":"mov", "video/x-matroska":"mkv" }[mime] || "webm";
+  var mime = videoTypeOf(file, emberMime || "video/mp4");
+  var MIME_EXT = { "video/mp4":"mp4", "video/quicktime":"mov", "video/x-matroska":"mkv", "video/3gpp":"3gp",
+    "video/3gpp2":"3g2", "video/mp2t":"ts", "video/ogg":"ogv", "video/x-msvideo":"avi", "video/mpeg":"mpg",
+    "video/x-flv":"flv", "video/x-ms-wmv":"wmv" };
+  var ext = MIME_EXT[mime] || "webm";
+  // Keep the original name when it already carries an extension; "clip.mp4"
+  // must not become "clip.mp4.webm" on the way to storage.
+  var given = String(name || "");
+  var hasExt = EXT_MIME[(given.toLowerCase().split(".").pop() || "")];
+  var filename = hasExt ? given : (given + "." + ext);
   var prog = function(p, label){ var f = $("upFill"), s = $("upState"); if (f) f.style.width = Math.round(p * 100) + "%"; if (s) s.textContent = label; };
   var sess = null, chunkSize = 6e6;
   prog(0.02, "Starting…");
   api("/api/uploads/start", {
     method: "POST",
-    body: JSON.stringify({ filename: name + "." + ext, mime: mime, size: file.size, title: "Ember by @" + me,
-      description: "", duration: durSecs, visibility: "public", kind: "ember", scan: "skipped" })
+    body: { filename: filename, mime: mime, size: file.size, title: "Ember by @" + me,
+      description: "", duration: durSecs, visibility: "public", kind: "ember", scan: "skipped" }
   }).then(function(j){
     sess = j.sessionId; chunkSize = j.chunkSize || 6e6;
     return sendChunks(sess, file, chunkSize, prog);
@@ -2171,8 +2298,18 @@ $("main").addEventListener("scroll", function(){
   // The logo is the hand-made artwork, served from the site rather than inlined.
   // The APK already loads everything else from there, so shipping a second copy
   // inside the package would only add weight and a chance of the two drifting.
-  $("brandMark").innerHTML = '<img src="/mobile/logo.png?v=21" alt="FirFall" width="33" height="22" ' +
-    'onerror="this.parentNode.innerHTML=\'' + svgFromPoints(FLAME, "#ff0000") + '\'">';
+  // The logo image with a JavaScript fallback, assigned as a property. This
+  // used to be an onerror="..." attribute in a string of markup, which cannot
+  // work: the SVG fallback has double quotes in it, so the attribute ended
+  // early and the browser compiled the truncated handler as JavaScript. That
+  // is a SyntaxError the moment the image fails to load - which it always does
+  // in the APK, where /mobile/logo.png does not exist under file://.
+  var mark = $("brandMark");
+  if (mark) {
+    mark.innerHTML = '<img src="/mobile/logo.png?v=21" alt="FirFall" width="33" height="22">';
+    var logoImg = mark.querySelector("img");
+    if (logoImg) logoImg.onerror = function(){ mark.innerHTML = svgFromPoints(FLAME, "#ff0000"); };
+  }
   var t = token(), u = null;
   try{ u = localStorage.getItem(K_USER); }catch(e){}
   if (t) {

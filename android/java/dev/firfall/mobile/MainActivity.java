@@ -50,6 +50,14 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileChooserCallback;
     private static final int FILE_CHOOSER_REQUEST = 1001;
 
+    /**
+     * A page-level getUserMedia request parked while Android asks the user for
+     * the camera/mic. Asking at startup instead was unreliable: the dialog
+     * could be dismissed before anyone knew what it was for, and a denial then
+     * made every later attempt fail with no way back except Settings.
+     */
+    private android.webkit.PermissionRequest pendingWebPermission;
+
     /** Anything not on our own origin opens in the user's real browser. */
     private static final String[] OWN_HOSTS = {
         "file://", "dev.firfall.mobile", "firfall.b8golddude.workers.dev",
@@ -131,17 +139,32 @@ public class MainActivity extends Activity {
             /**
              * Ember recording uses getUserMedia from the page. Without this
              * override the WebView denies the request silently and the camera
-             * screen closes with "Camera unavailable". The app-level runtime
-             * permissions are requested in onCreate; granting here hands the
-             * devices to the page the moment it asks for them.
+             * screen closes with "Camera unavailable". If the app does not hold
+             * the runtime permission yet, the request is parked, Android asks
+             * the user, and the answer is delivered when the dialog closes -
+             * so the camera prompt is answered once, at the moment the camera
+             * is actually being used.
              */
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
                 runOnUiThread(new Runnable() {
                     public void run() {
+                        if (hasCamPerm()) {
+                            try { request.grant(request.getResources()); }
+                            catch (Exception e) { request.deny(); }
+                            return;
+                        }
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+                            request.deny();
+                            return;
+                        }
+                        pendingWebPermission = request;
                         try {
-                            request.grant(request.getResources());
+                            requestPermissions(new String[]{
+                                "android.permission.CAMERA", "android.permission.RECORD_AUDIO"
+                            }, 2002);
                         } catch (Exception e) {
+                            pendingWebPermission = null;
                             request.deny();
                         }
                     }
@@ -206,27 +229,25 @@ public class MainActivity extends Activity {
         }
 
         web.loadUrl("file:///android_asset/index.html");
-
-        // Camera + microphone for ember recording. Asked for once up front
-        // rather than at first use: WebView fires the page's getUserMedia
-        // request immediately when the camera screen opens, and a permission
-        // dialog stacked on top of it is a confusing place to explain why.
-        // A denial is not fatal - the sheet still offers the gallery picker.
-        requestCamPerms();
     }
 
-    private void requestCamPerms() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
-        String[] wanted = new String[]{
-            "android.permission.CAMERA", "android.permission.RECORD_AUDIO"
-        };
-        boolean missing = false;
-        for (String p : wanted) {
-            if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) missing = true;
+    private boolean hasCamPerm() {
+        return checkSelfPermission("android.permission.CAMERA") == PackageManager.PERMISSION_GRANTED;
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != 2002 || pendingWebPermission == null) return;
+        // The page asked for the camera, the user just answered, so the answer
+        // is handed straight back to the request that is waiting on it.
+        if (hasCamPerm()) {
+            try { pendingWebPermission.grant(pendingWebPermission.getResources()); }
+            catch (Exception e) { pendingWebPermission.deny(); }
+        } else {
+            pendingWebPermission.deny();
         }
-        if (missing) {
-            try { requestPermissions(wanted, 2002); } catch (Exception e) { }
-        }
+        pendingWebPermission = null;
     }
 
     @Override
@@ -323,6 +344,35 @@ public class MainActivity extends Activity {
             runOnUiThread(new Runnable() {
                 public void run() {
                     Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
+        /**
+         * Lets the page tell "the user said no" apart from "this device has no
+         * camera", which are very different problems with very different fixes.
+         */
+        @JavascriptInterface
+        public boolean hasCamPerms() {
+            return hasCamPerm();
+        }
+
+        /**
+         * After a permanent denial Android stops showing the dialog, so the
+         * only route left is the app's page in Settings.
+         */
+        @JavascriptInterface
+        public void openAppSettings() {
+            runOnUiThread(new Runnable() {
+                public void run() {
+                    try {
+                        Intent i = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.fromParts("package", getPackageName(), null));
+                        i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(i);
+                    } catch (Exception e) {
+                        Toast.makeText(MainActivity.this, "Open Settings > Apps > FirFall", Toast.LENGTH_LONG).show();
+                    }
                 }
             });
         }

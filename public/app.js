@@ -1291,6 +1291,23 @@ function router() {
 // ---- Studio-style upload: file → details → elements → checks → visibility ----
 const uploadModal = document.getElementById('uploadModal');
 const UP_STEPS = ['details', 'elements', 'checks', 'visibility'];
+// A file dragged in from a phone, a messaging app or an odd filesystem can
+// arrive with an empty or wrong type, and the server keys the storage name and
+// content type off it. The extension is the reliable signal, so it wins over
+// the browser's guess and only falls back to the reported type.
+const VIDEO_EXT_MIME = {
+  mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', qt: 'video/quicktime',
+  webm: 'video/webm', mkv: 'video/x-matroska', '3gp': 'video/3gpp', '3gpp': 'video/3gpp',
+  '3g2': 'video/3gpp2', ts: 'video/mp2t', mts: 'video/mp2t', m2ts: 'video/mp2t',
+  avi: 'video/x-msvideo', ogv: 'video/ogg', ogg: 'video/ogg',
+  mpg: 'video/mpeg', mpeg: 'video/mpeg', flv: 'video/x-flv', wmv: 'video/x-ms-wmv'
+};
+function videoMimeOf(file) {
+  const ext = (String(file.name || '').toLowerCase().split('.').pop() || '');
+  if (VIDEO_EXT_MIME[ext]) return VIDEO_EXT_MIME[ext];
+  const t = String(file.type || '').toLowerCase();
+  return t.indexOf('video/') === 0 ? t : 'video/mp4';
+}
 let upStage = -1; // -1 = file picker
 let upVisibility = 'private';
 let upStaged = null; // {file, thumb, duration, scan}
@@ -1423,11 +1440,12 @@ async function publishStaged() {
   const status = (t) => { document.getElementById('upStatus').textContent = t; document.getElementById('upFootStatus').textContent = t; };
   status('Starting upload session…');
   let start;
+  const sendMime = videoMimeOf(upStaged.file);
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const r = await fetch(API + '/api/uploads/start', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
-        body: JSON.stringify({ filename: upStaged.file.name, mime: upStaged.file.type, size: upStaged.file.size,
+        body: JSON.stringify({ filename: upStaged.file.name, mime: sendMime, size: upStaged.file.size,
           title, description: desc, duration: upStaged.duration, visibility: upVisibility, scan: upStaged.scan })
       });
       start = await r.json().catch(() => ({}));

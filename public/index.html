@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="/logo-192.png?v=20">
 <meta property="og:title" content="FirFall">
 <meta property="og:image" content="/logo-512.png?v=20">
-<link rel="stylesheet" href="styles.css?v=20" />
+<link rel="stylesheet" href="styles.css?v=21" />
 </head>
 <body>
 <div id="downOverlay" role="alertdialog" aria-modal="true" aria-labelledby="downTitle">
@@ -270,10 +270,10 @@
       <div class="st-main">
         <div id="upStepFile" class="up-step">
           <label id="dropZone" class="dropzone">
-            <input id="upFile" type="file" accept="video/mp4,video/webm,video/quicktime,video/x-matroska" class="file-hidden" />
+            <input id="upFile" type="file" accept="video/*" class="file-hidden" />
             <div class="dz-icon">⇪</div>
             <p><strong>Select a file</strong> or drag and drop it here</p>
-            <p class="modal-sub">MP4 / WebM / MOV / MKV • max 250MB</p>
+            <p class="modal-sub">MP4 / WebM / MOV / MKV / 3GP / M4V / TS / AVI • max 250MB</p>
           </label>
           <p id="upErrFile" class="auth-err"></p>
         </div>
@@ -353,6 +353,6 @@
 </div>
 
 <script>window.FIRFALL_API = "https://firfall-auth.b8golddude.workers.dev";</script>
-<script src="app.js?v=20"></script>
+<script src="app.js?v=21"></script>
 </body>
 </html>
