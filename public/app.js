@@ -488,7 +488,15 @@ async function renderChannel(name) {
     wireSubBtn(document.getElementById('chSubBtn'), c.username, document.getElementById('chBellBtn'));
     // Add Moderator badge
     const nameEl = document.getElementById('chName');
-    nameEl.innerHTML = c.username + (c.role === 'mod' || c.role === 'admin' ? ' <span class="badge-mod">🔨 Mod</span>' : '');
+    // Same reason as the watch page: build the badge as a node. The username is
+    // set as text, so it is never parsed as markup.
+    nameEl.textContent = c.username;
+    if (c.role === 'mod' || c.role === 'admin') {
+      const cBadge = document.createElement('span');
+      cBadge.className = 'badge-mod';
+      cBadge.textContent = '🔨 Mod';
+      nameEl.appendChild(cBadge);
+    }
     // Banner + avatar (custom or defaults)
     const banner = document.getElementById('chBanner');
     if (c.banner) { banner.src = API + c.banner + '?t=' + Date.now(); banner.classList.remove('hidden'); }
@@ -663,7 +671,18 @@ async function renderWatch(id) {
     player.src = API + '/v/' + v.id + q;
     player.playbackRate = 1;
     document.getElementById('speedBtn').textContent = '1x';
-    document.getElementById('wTitle').textContent = v.title + (v.owner_role === 'mod' || v.owner_role === 'admin' ? ' <span class="badge-mod">🔨 Mod</span>' : '');
+    // The badge is appended as a node rather than concatenated into the title.
+    // Assigning an HTML string to textContent prints the tags literally, which is
+    // how this read "mcdonalds obby <span class=...>" on screen. The title itself
+    // still goes in as text, so a title containing markup is never parsed.
+    const wTitleEl = document.getElementById('wTitle');
+    wTitleEl.textContent = v.title;
+    if (v.owner_role === 'mod' || v.owner_role === 'admin') {
+      const badge = document.createElement('span');
+      badge.className = 'badge-mod';
+      badge.textContent = '🔨 Mod';
+      wTitleEl.appendChild(badge);
+    }
     document.getElementById('wStats').textContent = fmt(v.views || 0) + ' views • ' + timeAgo(v.created_at) + (v.duration ? ' • ' + fmtDur(v.duration) : '');
     const ch = document.getElementById('wChannelLink');
     document.getElementById('wChannel').textContent = '@' + v.owner;
