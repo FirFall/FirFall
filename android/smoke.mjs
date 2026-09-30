@@ -227,10 +227,12 @@ setTimeout(function(){
                 rec("cardVideos", document.getElementById("fsGoVideos") ? "yes" : "no");
                 rec("navStudio", document.querySelector('[data-nav="studio"]') ? "yes" : "no");
                 studioCustomise();
-                rec("btnBannerChange", document.getElementById("fsBannerChange") ? "yes" : "no");
-                rec("btnPictureChange", document.getElementById("fsPicChange") ? "yes" : "no");
                 rec("aboutField", document.getElementById("fsAbout") ? "yes" : "no");
                 rec("btnAboutSave", document.getElementById("fsAboutSave") ? "yes" : "no");
+                // Change/Save/Remove are painted per image; with nothing staged
+                // only Change (and Remove when something is set) should exist.
+                rec("bannerChangeBtn", document.querySelector('#fsBannerBtns [data-a="change"]') ? "yes" : "no");
+                rec("pictureChangeBtn", document.querySelector('#fsPicBtns [data-a="change"]') ? "yes" : "no");
                 studioVideos();
                 rec("kindTabs", document.querySelectorAll("#fsBody [data-kind]").length);
                 rec("visibilityFilter", document.getElementById("fsFilter") ? "yes" : "no");
@@ -238,6 +240,15 @@ setTimeout(function(){
                 rec("anRange", document.getElementById("fsDays") ? "yes" : "no");
                 rec("anChart", document.getElementById("anChart") ? "yes" : "no");
                 rec("anRetention", document.getElementById("anRet") ? "yes" : "no");
+                // Channel art is cropped, not just replaced: both images are
+                // shown with object-fit:cover, so without a cropper the browser
+                // decides what to keep and keeps the middle.
+                rec("cropperDefined", typeof openCropper === "function" ? "yes" : "no");
+                rec("bannerAspect", (ART_SPEC && ART_SPEC.banner && ART_SPEC.banner.aspect) || 0);
+                rec("avatarAspect", (ART_SPEC && ART_SPEC.avatar && ART_SPEC.avatar.aspect) || 0);
+                rec("btnOpenStudio", document.querySelector('a[href="#/studio"].pill-btn') ? "yes" : "no");
+                rec("chRemoveBanner", document.getElementById("chBannerRemove") ? "yes" : "no");
+                rec("chRemovePicture", document.getElementById("chAvatarRemove") ? "yes" : "no");
               }catch(e){ rec("studioLateError", e.message); }
             }, 800);
           }catch(e){ rec("studioError", e.message); }
@@ -482,9 +493,11 @@ server.listen(PORT, async () => {
         sideBySide: "no", stageNarrower: "yes",
         studioView: "yes", studioBrand: "FirFall Studio", studioFlame: "yes",
         entryCards: "3", cardCustomise: "yes", cardVideos: "yes", navStudio: "yes",
-        btnBannerChange: "yes", btnPictureChange: "yes", aboutField: "yes",
+        aboutField: "yes",
         btnAboutSave: "yes", kindTabs: "2", visibilityFilter: "yes",
         anRange: "yes", anChart: "yes", anRetention: "yes",
+        cropperDefined: "yes", bannerAspect: "6", avatarAspect: "1",
+        btnOpenStudio: "yes", chRemoveBanner: "yes", chRemovePicture: "yes",
         simultaneous: "1", commentPanel: "yes", commentUI: "yes", signinUI: "yes",
         navEmbers: "yes", embersRoute: "#/embers" };
       for (const [k, v] of Object.entries(want)) {

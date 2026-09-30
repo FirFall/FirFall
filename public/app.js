@@ -824,6 +824,10 @@ async function renderChannel(name) {
     if (c.avatar) { avImg.src = API + c.avatar + '?t=' + Date.now(); avImg.classList.remove('hidden'); avFb.classList.add('hidden'); }
     else { avImg.classList.add('hidden'); avFb.classList.remove('hidden'); avFb.textContent = c.username[0].toUpperCase(); }
     document.getElementById('chOwnBar').classList.toggle('hidden', !own);
+    // Remove only appears when there is something to remove - a button that is
+    // always there and does nothing is worse than no button.
+    document.getElementById('chBannerRemove').classList.toggle('hidden', !c.banner);
+    document.getElementById('chAvatarRemove').classList.toggle('hidden', !c.avatar);
     meta.textContent = '@' + c.username + ' • ' + fmt(c.subscribers) + ' subscribers • ' + c.videos + ' videos';
     document.getElementById('chAbout').textContent = c.about || 'This channel has no description yet.';
     document.getElementById('chStats').textContent = fmt(c.views) + ' total views • joined ' + new Date(c.joined).toLocaleDateString();
@@ -859,26 +863,29 @@ document.querySelectorAll('[data-chtab]').forEach(t => {
     document.getElementById('chSort').style.display = t.dataset.chtab === 'videos' ? '' : 'none';
   };
 });
-// Own-channel customization (banner / picture / description)
-document.getElementById('chBannerEdit').onclick = () => document.getElementById('chBannerFile').click();
-document.getElementById('chAvatarEdit').onclick = () => document.getElementById('chAvatarFile').click();
-async function uploadChannelArt(kind, file) {
-  const err = document.getElementById('chAboutErr');
-  if (file.size > 5_000_000) { alert('Image must be under 5MB.'); return; }
-  const f = new FormData();
-  f.append(kind, file, kind + '.jpg');
-  try {
-    const r = await fetch(API + '/api/channel/edit', {
-      method: 'POST', headers: { 'Authorization': 'Bearer ' + token() }, body: f
-    });
-    const j = await r.json();
-    if (!r.ok) { alert(j.error || 'Upload failed.'); return; }
-    const m = document.getElementById('chMeta');
-    if (m && m.dataset.owner) renderChannel(m.dataset.owner);
-  } catch { alert('Upload failed — service unreachable.'); }
+// Own-channel customisation (banner / picture / description).
+// These go through the same cropper as FirFall Studio, so the framing you
+// choose here is the framing you get there and on every other client. The old
+// version uploaded the picked file immediately, which meant a mis-click could
+// replace a good banner with a badly-framed one and there was no way back.
+function ownChannelReload() {
+  const m = document.getElementById('chMeta');
+  if (m && m.dataset.owner) renderChannel(m.dataset.owner);
 }
-document.getElementById('chBannerFile').addEventListener('change', (e) => { if (e.target.files[0]) uploadChannelArt('banner', e.target.files[0]); e.target.value = ''; });
-document.getElementById('chAvatarFile').addEventListener('change', (e) => { if (e.target.files[0]) uploadChannelArt('avatar', e.target.files[0]); e.target.value = ''; });
+function channelArtChanged(kind, file) {
+  const err = document.getElementById('chAboutErr');
+  uploadArtFile(kind, file)
+    .then(ownChannelReload)
+    .catch(e => { if (err) { err.textContent = e.message || 'Upload failed.'; } else alert(e.message); });
+}
+function channelArtRemove(kind) {
+  const err = document.getElementById('chAboutErr');
+  confirmRemove(kind, () => removeArtRemote(kind).then(ownChannelReload), e => { if (err) err.textContent = e; });
+}
+document.getElementById('chBannerEdit').onclick = () => pickAndCrop('banner', f => channelArtChanged('banner', f));
+document.getElementById('chAvatarEdit').onclick = () => pickAndCrop('avatar', f => channelArtChanged('avatar', f));
+document.getElementById('chBannerRemove').onclick = () => channelArtRemove('banner');
+document.getElementById('chAvatarRemove').onclick = () => channelArtRemove('avatar');
 document.getElementById('chAboutEdit').onclick = () => {
   document.getElementById('chAboutForm').classList.remove('hidden');
   document.getElementById('chAboutText').value = document.getElementById('chAbout').textContent === 'This channel has no description yet.' ? '' : document.getElementById('chAbout').textContent;
@@ -1399,21 +1406,21 @@ function studioCustomise() {
   const b = fsChannel && fsChannel.banner, a = fsChannel && fsChannel.avatar;
   document.getElementById('fsBody').innerHTML =
     '<div class="fs-art">' +
-      '<div class="fs-art-row"><div class="fs-banner-prev">' +
+      '<div class="fs-art-row"><div class="fs-banner-prev" id="fsBannerPrev">' +
         (b ? '<img src="' + esc(API + b + '?t=' + Date.now()) + '" alt="">' : '') + '</div>' +
         '<div class="fs-art-info"><h3>Banner image</h3>' +
-        '<p>This image appears across the top of your channel. Best results at 2048&times;1152 or wider, 6&nbsp;MB or less.</p>' +
-        '<div class="fs-btns"><button class="fs-btn" id="fsBannerChange">Change</button>' +
-        (b ? '<button class="fs-btn ghost" id="fsBannerRemove">Remove</button>' : '') + '</div></div></div>' +
-      '<div class="fs-art-row"><div class="fs-pic-prev">' +
+        '<p>Shown across the top of your channel. You can crop it to choose what stays visible, ' +
+        'and position it so the important part is not cut off.</p>' +
+        '<div class="fs-btns" id="fsBannerBtns"></div></div></div>' +
+      '<div class="fs-art-row"><div class="fs-pic-prev" id="fsPicPrev">' +
         (a ? '<img src="' + esc(API + a + '?t=' + Date.now()) + '" alt="">' : '') + '</div>' +
         '<div class="fs-art-info"><h3>Picture</h3>' +
-        '<p>Your profile picture appears wherever your channel is shown - next to your videos, in comments and in Embers.</p>' +
-        '<div class="fs-btns"><button class="fs-btn" id="fsPicChange">Change</button>' +
-        (a ? '<button class="fs-btn ghost" id="fsPicRemove">Remove</button>' : '') + '</div></div></div>' +
+        '<p>Your profile picture appears wherever your channel is shown - next to your videos, in comments and in Embers. ' +
+        'It is displayed as a circle, so crop to where your face is.</p>' +
+        '<div class="fs-btns" id="fsPicBtns"></div></div></div>' +
       '<div class="fs-desc-block"><div class="fs-field"><label>Channel description</label>' +
         '<textarea id="fsAbout" maxlength="1000" placeholder="Tell people what your channel is about."></textarea></div>' +
-        '<div class="fs-btns"><button class="fs-btn" id="fsAboutSave">Save</button>' +
+        '<div class="fs-btns"><button class="fs-btn" id="fsAboutSave">Save description</button>' +
         '<button class="fs-btn ghost" id="fsAboutRevert">Discard</button></div>' +
         '<div class="fs-msg" id="fsMsg"></div></div>' +
     '</div>';
@@ -1422,40 +1429,53 @@ function studioCustomise() {
   const fail = m => { msg.className = 'fs-msg err'; msg.textContent = m; };
   const ok = m => { msg.className = 'fs-msg ok'; msg.textContent = m; };
 
-  const art = async (kind, file) => {
-    if (file.size > 5_000_000) return fail('That image must be under 5MB.');
-    const f = new FormData();
-    f.append(kind, file, kind + '.jpg');
-    try {
-      const r = await fetch(API + '/api/channel/edit', {
-        method: 'POST', headers: { 'Authorization': 'Bearer ' + token() }, body: f
-      });
-      const j = await r.json();
-      if (!r.ok) return fail(j.error || 'Upload failed.');
-      renderStudio();
-    } catch { fail('Upload failed - service unreachable.'); }
-  };
-  const removeArt = async kind => {
-    try {
-      const r = await fetch(API + '/api/channel/edit', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
-        body: JSON.stringify(kind === 'banner' ? { removeBanner: true } : { removeAvatar: true })
-      });
-      const j = await r.json();
-      if (!r.ok) return fail(j.error || 'Could not remove that.');
-      renderStudio();
-    } catch { fail('Could not remove that - service unreachable.'); }
-  };
-  const pick = kind => {
-    const inp = document.createElement('input');
-    inp.type = 'file'; inp.accept = 'image/*';
-    inp.onchange = () => { if (inp.files && inp.files[0]) art(kind, inp.files[0]); };
-    inp.click();
-  };
-  const bc = document.getElementById('fsBannerChange'); if (bc) bc.onclick = () => pick('banner');
-  const pc = document.getElementById('fsPicChange'); if (pc) pc.onclick = () => pick('avatar');
-  const br = document.getElementById('fsBannerRemove'); if (br) br.onclick = () => removeArt('banner');
-  const pr = document.getElementById('fsPicRemove'); if (pr) pr.onclick = () => removeArt('avatar');
+  /* Change stages a cropped image; Save is what actually sends it. Uploading on
+     Change used to mean a mis-click replaced a good banner with a bad one and
+     there was no way back. Staging means you can crop, look, and only commit
+     when it is right. */
+  const staged = {};
+  function artRow(kind, prevId, btnsId, has) {
+    const btns = document.getElementById(btnsId);
+    function paint() {
+      const s = staged[kind];
+      btns.innerHTML =
+        '<button class="fs-btn" data-a="change">Change</button>' +
+        (s ? '<button class="fs-btn" data-a="save">Save</button>' +
+             '<button class="fs-btn ghost" data-a="cancel">Cancel</button>' : '') +
+        (has || s ? '<button class="fs-btn danger" data-a="remove">Remove</button>' : '');
+      btns.querySelector('[data-a="change"]').onclick = () =>
+        pickAndCrop(kind, file => { staged[kind] = file; showStaged(kind, prevId); paint(); });
+      const sv = btns.querySelector('[data-a="save"]');
+      if (sv) sv.onclick = async () => {
+        sv.disabled = true;
+        try { await uploadArtFile(kind, staged[kind]); renderStudio(); }
+        catch (e) { fail(e.message || 'Upload failed.'); sv.disabled = false; }
+      };
+      const cv = btns.querySelector('[data-a="cancel"]');
+      if (cv) cv.onclick = () => { delete staged[kind]; clearStaged(kind, prevId); paint(); };
+      const rm = btns.querySelector('[data-a="remove"]');
+      if (rm) rm.onclick = () => confirmRemove(kind, () => {
+        delete staged[kind];
+        return removeArtRemote(kind).then(renderStudio).catch(e => fail(e.message));
+      }, fail);
+    }
+    function showStaged(k, prev) {
+      const el = document.getElementById(prev);
+      const old = el.querySelector('img');
+      const img = document.createElement('img');
+      img.alt = '';
+      img.src = URL.createObjectURL(staged[k]);
+      if (old) el.replaceChild(img, old); else el.appendChild(img);
+    }
+    function clearStaged(k, prev) {
+      const el = document.getElementById(prev);
+      const img = el && el.querySelector('img');
+      if (img) img.remove();
+    }
+    paint();
+  }
+  artRow('banner', 'fsBannerPrev', 'fsBannerBtns', !!b);
+  artRow('avatar', 'fsPicPrev', 'fsPicBtns', !!a);
 
   document.getElementById('fsAboutSave').onclick = async () => {
     const btn = document.getElementById('fsAboutSave');
@@ -1467,12 +1487,40 @@ function studioCustomise() {
       });
       const j = await r.json();
       if (!r.ok) { fail(j.error || 'Save failed.'); btn.disabled = false; return; }
-      renderStudio();
+      ok('Description saved.');
+      fsChannel = Object.assign({}, fsChannel, { about: document.getElementById('fsAbout').value });
+      btn.disabled = false;
     } catch { fail('Save failed - service unreachable.'); btn.disabled = false; }
   };
   document.getElementById('fsAboutRevert').onclick = () => {
     document.getElementById('fsAbout').value = (fsChannel && fsChannel.about) || '';
     msg.className = 'fs-msg'; msg.textContent = '';
+  };
+}
+
+// Remove is destructive and there is no undo for it, so it asks first - on the
+// channel page and in Studio alike.
+function confirmRemove(kind, run, fail) {
+  const label = kind === 'banner' ? 'banner image' : 'profile picture';
+  const { box, close } = fsDialog(
+    '<h2 style="margin:0 0 8px;font-size:18px">Remove your ' + label + '?</h2>' +
+    '<p class="modal-sub">Your channel goes back to the default until you upload a new one. ' +
+    'This cannot be undone.</p>' +
+    '<div class="fs-msg" id="rmMsg"></div>' +
+    '<div class="fs-btns" style="justify-content:flex-end;margin-top:14px">' +
+      '<button class="fs-btn ghost" data-cancel>Keep it</button>' +
+      '<button class="fs-btn danger" id="rmYes">Remove</button></div>', '420px');
+  box.querySelector('[data-cancel]').onclick = close;
+  box.querySelector('#rmYes').onclick = async () => {
+    const btn = box.querySelector('#rmYes');
+    btn.disabled = true;
+    try { await run(); close(); }
+    catch (e) {
+      const m = box.querySelector('#rmMsg');
+      m.className = 'fs-msg err'; m.textContent = e.message || 'Could not remove that.';
+      btn.disabled = false;
+      if (fail) fail(e.message);
+    }
   };
 }
 
@@ -1529,6 +1577,172 @@ function studioVideos() {
     row.querySelector('[data-act="del"]').onclick = () => studioDelete(v);
     row.querySelector('[data-act="vis"]').onclick = () => studioVisDialog(v);
   });
+}
+
+/* ---- image cropping ----
+   Both channel images are shown with object-fit:cover, so without this the
+   browser decides what to keep and it keeps the middle. For a landscape photo
+   that is fine; for a face in a profile picture it is not.
+
+   The transform is kept as (scale, ox, oy) and used twice - once to position
+   the <img> for preview and once to draw the canvas - so what is framed is
+   exactly what gets saved. Offsets are clamped every frame so the image can
+   never be dragged away from the frame and leave a gap. */
+function openCropper(file, spec, cb) {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-box';
+  wrap.style.width = 'min(720px,94vw)';
+  wrap.innerHTML =
+    '<button class="modal-x static" data-x aria-label="Close">&times;</button>' +
+    '<h2 style="margin:0 0 4px;font-size:19px">Crop ' + esc(spec.label.toLowerCase()) + '</h2>' +
+    '<p class="crop-note" style="margin:0 0 16px">Drag to move it, and zoom or scroll to scale. ' +
+      (spec.aspect === 1 ? 'The preview is a circle - the saved picture is shown as a circle everywhere.'
+                         : 'Narrow windows crop the sides a little further.') + '</p>' +
+    '<div class="crop-frame" id="cropFrame" style="aspect-ratio:' + spec.aspect + '">' +
+      '<div class="crop-ring"></div></div>' +
+    '<div class="crop-zoom"><span style="font-size:12.5px;color:#aaa">Zoom</span>' +
+      '<input type="range" id="cropZoom" min="100" max="300" value="100"><span id="cropPct" style="font-size:12.5px;color:#aaa;width:44px">100%</span></div>' +
+    '<div class="fs-btns" style="justify-content:flex-end;margin-top:18px">' +
+      '<button class="fs-btn ghost" id="cropReset">Reset</button>' +
+      '<button class="fs-btn ghost" data-cancel>Cancel</button>' +
+      '<button class="fs-btn" id="cropApply">Apply</button></div>';
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  modal.appendChild(wrap);
+  document.body.appendChild(modal);
+  const close = () => { URL.revokeObjectURL(url); modal.remove(); };
+  wrap.querySelector('[data-x]').onclick = close;
+  wrap.querySelector('[data-cancel]').onclick = close;
+  modal.onclick = e => { if (e.target === modal) close(); };
+
+  const frame = wrap.querySelector('#cropFrame');
+  const slider = wrap.querySelector('#cropZoom');
+  const pct = wrap.querySelector('#cropPct');
+  let FW = 0, FH = 0, base = 1, scale = 1, ox = 0, oy = 0, IW = 0, IH = 0;
+
+  function clamp() {
+    const dw = IW * scale, dh = IH * scale;
+    // dw is always >= FW and dh always >= FH because scale is at least "cover",
+    // so this range is always valid and the image can never uncover an edge.
+    ox = Math.min(0, Math.max(FW - dw, ox));
+    oy = Math.min(0, Math.max(FH - dh, oy));
+  }
+  function paint() {
+    img.style.transform = 'translate(' + ox + 'px,' + oy + 'px) scale(' + scale + ')';
+    clamp();
+  }
+  function measure() {
+    const r = frame.getBoundingClientRect();
+    FW = r.width; FH = r.height;
+    if (!FW) return;
+    base = Math.max(FW / IW, FH / IH);
+    scale = base * (Number(slider.value) / 100);
+    ox = (FW - IW * scale) / 2;
+    oy = (FH - IH * scale) / 2;
+    paint();
+  }
+  img.onload = () => {
+    IW = img.naturalWidth; IH = img.naturalHeight;
+    img.src = url;
+    measure();
+  };
+  img.src = url;
+
+  let dragging = false, lastX = 0, lastY = 0;
+  frame.addEventListener('pointerdown', e => {
+    dragging = true; lastX = e.clientX; lastY = e.clientY;
+    frame.classList.add('drag');
+    try { frame.setPointerCapture(e.pointerId); } catch (err) {}
+    e.preventDefault();
+  });
+  frame.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    ox += e.clientX - lastX; oy += e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    paint();
+  });
+  const end = e => {
+    dragging = false; frame.classList.remove('drag');
+    try { frame.releasePointerCapture(e.pointerId); } catch (err) {}
+  };
+  frame.addEventListener('pointerup', end);
+  frame.addEventListener('pointercancel', end);
+  frame.addEventListener('wheel', e => {
+    e.preventDefault();
+    slider.value = Math.max(100, Math.min(300, Number(slider.value) + (e.deltaY < 0 ? 10 : -10)));
+    scale = base * (Number(slider.value) / 100);
+    paint();
+  }, { passive: false });
+  slider.oninput = () => {
+    pct.textContent = slider.value + '%';
+    scale = base * (Number(slider.value) / 100);
+    paint();
+  };
+  wrap.querySelector('#cropReset').onclick = () => {
+    slider.value = 100; pct.textContent = '100%';
+    scale = base;
+    ox = (FW - IW * scale) / 2; oy = (FH - IH * scale) / 2;
+    paint();
+  };
+  window.addEventListener('resize', measure);
+
+  wrap.querySelector('#cropApply').onclick = () => {
+    const OW = spec.outW, OH = Math.round(OW / spec.aspect);
+    const c = document.createElement('canvas');
+    c.width = OW; c.height = OH;
+    const ctx = c.getContext('2d');
+    // The preview is FW wide and the output OW wide, so everything scales by
+    // this one factor - the framing that was shown is the framing that is saved.
+    const k = OW / FW;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, ox * k, oy * k, IW * scale * k, IH * scale * k);
+    c.toBlob(b => {
+      window.removeEventListener('resize', measure);
+      if (!b) { close(); return; }
+      cb(new File([b], spec.label.toLowerCase().replace(/\s+/g, '-') + '.jpg', { type: 'image/jpeg' }));
+      close();
+    }, 'image/jpeg', 0.92);
+  };
+}
+
+// The aspect each image is saved at, and the size. The banner is 6:1 because
+// that is roughly how the channel page shows it; the picture is square because
+// it is displayed as a circle.
+const ART_SPEC = {
+  banner: { aspect: 6, outW: 2048, label: 'Banner image' },
+  avatar: { aspect: 1, outW: 900, label: 'Picture' }
+};
+async function uploadArtFile(kind, file) {
+  const f = new FormData();
+  f.append(kind, file, kind + '.jpg');
+  const r = await fetch(API + '/api/channel/edit', {
+    method: 'POST', headers: { 'Authorization': 'Bearer ' + token() }, body: f
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'Upload failed.');
+  return true;
+}
+async function removeArtRemote(kind) {
+  const r = await fetch(API + '/api/channel/edit', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+    body: JSON.stringify(kind === 'banner' ? { removeBanner: true } : { removeAvatar: true })
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'Could not remove that.');
+}
+// Pick a file, crop it, hand back a finished File. Shared by Studio and the
+// channel page so both crop identically.
+function pickAndCrop(kind, cb) {
+  const spec = ART_SPEC[kind];
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*';
+  inp.onchange = () => {
+    const f = inp.files && inp.files[0];
+    if (f) openCropper(f, spec, cb);
+  };
+  inp.click();
 }
 
 /* ---- Analytics ----

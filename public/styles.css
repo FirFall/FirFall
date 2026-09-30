@@ -436,6 +436,9 @@ body:not(.site-down) #downOverlay{display:none}
 .fs-acts button:hover{background:#272727;color:#fff}
 .fs-acts button.del:hover{color:#ff6b6b}
 .fs-empty{padding:70px 20px;text-align:center;color:#888}
+/* The banner strip on the channel page is very wide and short; a 6:1 crop
+   matches how it is actually shown, so what you position is what people see. */
+.ch-banner{aspect-ratio:6/1;max-height:170px}
 @media(max-width:900px){
   .fs-art-row{flex-direction:column}
   .fs-row{grid-template-columns:96px 1fr;gap:12px}
@@ -463,6 +466,23 @@ body:not(.site-down) #downOverlay{display:none}
 .fs-ret-track{height:8px;border-radius:4px;background:#272727;overflow:hidden}
 .fs-ret-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,#ff6a00,#ffb066)}
 .fs-ret-pct{font-size:13px;color:#ddd;text-align:right;font-weight:600}
+/* ---- image cropper ----
+   Both channel images are displayed with object-fit:cover, which means whatever
+   the browser decides to keep is whatever happens to be in the middle. That is
+   fine for a landscape photo and terrible for a face. The cropper lets the
+   person decide: drag to move, wheel or slider to zoom, and the output is
+   baked so every other client sees the same framing. */
+.crop-frame{position:relative;overflow:hidden;background:#000;border-radius:10px;
+  margin:0 auto;cursor:grab;touch-action:none;user-select:none}
+.crop-frame.drag{cursor:grabbing}
+.crop-frame img{position:absolute;left:0;top:0;transform-origin:0 0;
+  max-width:none;pointer-events:none}
+.crop-ring{position:absolute;inset:0;pointer-events:none;z-index:2}
+.crop-ring::before{content:"";position:absolute;inset:0;border:2px solid rgba(255,255,255,.5);
+  border-radius:inherit}
+.crop-zoom{display:flex;align-items:center;gap:12px;margin:16px 0 4px}
+.crop-zoom input[type=range]{flex:1;accent-color:#ff6a00}
+.crop-note{color:#aaa;font-size:12.5px;line-height:1.5}
 /* The edit dialog */
 .fs-dlg{width:min(620px,94vw)}
 .fs-dlg h2{margin:0 0 4px;font-size:19px}

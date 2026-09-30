@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="/logo-192.png?v=20">
 <meta property="og:title" content="FirFall">
 <meta property="og:image" content="/logo-512.png?v=20">
-<link rel="stylesheet" href="styles.css?v=25" />
+<link rel="stylesheet" href="styles.css?v=26" />
 </head>
 <body>
 <div id="downOverlay" role="alertdialog" aria-modal="true" aria-labelledby="downTitle">
@@ -221,10 +221,11 @@
      </div>
      <div id="chOwnBar" class="ch-ownbar hidden">
        <button id="chBannerEdit" class="pill-btn">Change banner</button>
+       <button id="chBannerRemove" class="pill-btn hidden">Remove banner</button>
        <button id="chAvatarEdit" class="pill-btn">Change picture</button>
+       <button id="chAvatarRemove" class="pill-btn hidden">Remove picture</button>
        <button id="chAboutEdit" class="pill-btn">Edit description</button>
-       <input id="chBannerFile" type="file" accept="image/*" class="file-hidden" />
-       <input id="chAvatarFile" type="file" accept="image/*" class="file-hidden" />
+       <a href="#/studio" class="pill-btn">Open Studio</a>
      </div>
      <div class="ch-tabs">
        <button data-chtab="videos" class="active">Videos</button>
@@ -400,6 +401,6 @@
 </div>
 
 <script>window.FIRFALL_API = "https://firfall-auth.b8golddude.workers.dev";</script>
-<script src="app.js?v=25"></script>
+<script src="app.js?v=26"></script>
 </body>
 </html>
