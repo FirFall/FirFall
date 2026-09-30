@@ -7,6 +7,12 @@
 .yt-logo{display:flex;align-items:center;gap:6px;color:#fff;text-decoration:none;font-size:19px;font-weight:600;letter-spacing:-.5px}
 .fire-badge{display:flex;filter:drop-shadow(0 0 6px rgba(255,90,0,.55))}
 .logo-word{letter-spacing:-.5px}
+/* The hand-made logo carries the wordmark already, so the text beside it is
+   hidden rather than repeated. Kept in the DOM for the accessible name and
+   for the wordmark to still appear if the image fails to load. */
+.brand-img{height:34px;width:auto;display:block;object-fit:contain}
+.yt-logo .logo-word{position:absolute;width:1px;height:1px;overflow:hidden;
+  clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
 .yt-search{flex:1;display:flex;max-width:540px}
 .yt-search input{flex:1;background:#121212;border:1px solid #303030;border-right:0;border-radius:20px 0 0 20px;color:#fff;padding:9px 16px;font-size:15px;outline:none}
 .yt-search input:focus{border-color:#1c62b9}

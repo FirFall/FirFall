@@ -40,16 +40,24 @@ input,textarea{font:inherit}
   background:var(--bg); z-index:40; border-bottom:1px solid transparent;
 }
 #topbar.stuck{border-bottom-color:var(--line)}
-.brand{display:flex;align-items:center;gap:6px;padding:0 8px;height:100%}
-.brand-mark{width:30px;height:21px;border-radius:6px;background:var(--red);
-  display:flex;align-items:center;justify-content:center;flex:0 0 auto}
-.brand-mark::after{content:"";width:0;height:0;margin-left:2px;
-  border-left:8px solid #fff;border-top:5px solid transparent;border-bottom:5px solid transparent}
-.brand-name{font-size:19px;font-weight:800;letter-spacing:-.6px}
+/* The mark is the hand-made logo, which is a wide banner shape rather than a
+   square, so it is sized by height and the width follows the artwork's own
+   aspect ratio. The height is capped well below the top bar so it reads as a
+   logo and not as a banner. */
+.brand{display:flex;align-items:center;gap:8px;padding:0 6px 0 12px;height:100%;min-width:0}
+.brand-mark{height:22px;max-width:130px;flex:0 0 auto;display:flex;align-items:center;overflow:hidden}
+.brand-mark svg{height:22px;width:auto;display:block}
+.brand-mark img{height:22px;width:auto;max-width:130px;display:block;object-fit:contain}
+/* Logo artwork already contains the FirFall wordmark, so the text is hidden
+   rather than repeated. Kept for screen readers and as fallback if img fails. */
+.brand-name{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
 .icon-btn{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;
   justify-content:center;flex:0 0 auto;position:relative}
 .icon-btn:active{background:var(--bg3)}
 .icon-btn svg{width:24px;height:24px;fill:var(--txt)}
+/* Unread marker on the bell. Positioned against .icon-btn, which is relative. */
+#notifDot{position:absolute;top:7px;right:7px;width:8px;height:8px;border-radius:50%;
+  background:var(--red);box-shadow:0 0 0 2px var(--bg);pointer-events:none}
 #avatarBtn{width:34px;height:34px;background:#3f3f3f;color:#fff;border-radius:50%;
   display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;margin:0 4px}
 #avatarBtn.me{background:var(--red)}
@@ -76,22 +84,56 @@ input,textarea{font:inherit}
 .chip.on{background:#f1f1f1;color:#0f0f0f}
 
 /* ---------- video card ---------- */
-.vcard{display:block;width:100%;text-align:left;padding:0 0 14px}
+.vcard{display:block;width:100%;text-align:left;padding:0 0 12px}
 .thumb{position:relative;width:100%;aspect-ratio:16/9;background:#1f1f1f;overflow:hidden}
 .thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .thumb .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   background:linear-gradient(135deg,#232323,#141414)}
 .thumb .ph span{font-size:40px;font-weight:800;color:#2e2e2e}
+/* Watched progress bar along the bottom of the thumbnail. */
+.thumb .seen{position:absolute;left:0;bottom:0;height:3px;background:#f1f1f1;opacity:.9}
 .dur{position:absolute;right:6px;bottom:6px;background:rgba(0,0,0,.8);color:#fff;
   font-size:12px;font-weight:600;padding:1px 4px;border-radius:4px;letter-spacing:.3px}
-.vmeta{display:flex;gap:12px;padding:12px 12px 0}
+/* The overflow button on the thumbnail is the most recognisable part of the
+   YouTube feed card, and it is where Save, Share and Report live. */
+.kebab{position:absolute;right:2px;top:2px;width:40px;height:40px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;color:#fff;
+  background:rgba(0,0,0,.45)}
+.kebab:active{background:rgba(0,0,0,.75)}
+.kebab svg{width:20px;height:20px;fill:currentColor}
+.vmeta{display:flex;gap:12px;padding:10px 12px 0}
 .vav{width:36px;height:36px;border-radius:50%;background:#3f3f3f;color:#fff;
   display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex:0 0 auto}
 .vtext{min-width:0;flex:1}
-.vtitle{font-size:15px;font-weight:600;line-height:1.35;display:-webkit-box;
+.vtitle{font-size:15px;font-weight:500;line-height:1.35;display:-webkit-box;
   -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
-.vsub{font-size:13px;color:var(--dim);margin-top:3px;display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.vtitle.seen-t{color:var(--dim)}
+.vsub{font-size:13px;color:var(--dim);margin-top:4px;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
 .dot{width:3px;height:3px;border-radius:50%;background:var(--dim2);flex:0 0 auto}
+
+/* ---------- skeleton loading ---------- */
+/* YouTube fills the screen with grey placeholder blocks while the feed loads.
+   It reads as content arriving rather than as a spinner in the middle of
+   nothing, and it stops the layout jumping when the real cards land. */
+.sk{background:linear-gradient(90deg,#1f1f1f 25%,#2a2a2a 37%,#1f1f1f 63%);
+  background-size:400% 100%;animation:sk 1.3s ease-in-out infinite;border-radius:6px}
+@keyframes sk{0%{background-position:100% 50%}100%{background-position:0 50%}}
+.sk-card{padding-bottom:12px}
+.sk-card .sk-thumb{width:100%;aspect-ratio:16/9;border-radius:0}
+.sk-card .sk-meta{display:flex;gap:12px;padding:10px 12px 0}
+.sk-card .sk-av{width:36px;height:36px;border-radius:50%;flex:0 0 auto}
+.sk-card .sk-lines{flex:1;display:flex;flex-direction:column;gap:7px;padding-top:3px}
+.sk-card .sk-l1{height:12px;width:85%}
+.sk-card .sk-l2{height:12px;width:55%}
+
+/* ---------- pull to refresh ---------- */
+.ptr{position:absolute;left:0;right:0;top:0;height:56px;display:flex;align-items:center;
+  justify-content:center;overflow:hidden;pointer-events:none;color:var(--dim)}
+.ptr .arw{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;font-weight:600;
+  transition:transform .18s}
+.ptr .arw svg{width:20px;height:20px;fill:var(--dim)}
+.ptr .arw.spin svg{animation:ptrspin .9s linear infinite}
+@keyframes ptrspin{to{transform:rotate(360deg)}}
 
 /* ---------- bottom nav ---------- */
 #nav{position:fixed;left:0;right:0;bottom:0;height:calc(var(--nav) + var(--safeBot));
@@ -109,6 +151,13 @@ input,textarea{font:inherit}
 #playerBox video{width:100%;height:100%;display:block;background:#000}
 #pfab{position:absolute;right:8px;top:8px;background:rgba(0,0,0,.6);border-radius:6px;
   padding:4px 8px;font-size:11px;font-weight:700;color:#fff}
+/* Double tap to seek, the gesture people expect on a phone. The +10 / -10
+   bubble is drawn by the shell so the page does not have to animate it. */
+#seekFx{position:absolute;inset:0;display:flex;align-items:center;justify-content:0;
+  pointer-events:none}
+.seek-bubble{position:absolute;display:flex;align-items:center;justify-content:center;
+  width:88px;height:88px;border-radius:50%;background:rgba(0,0,0,.62);color:#fff}
+.seek-bubble svg{width:38px;height:38px;fill:#fff}
 .watch-body{padding:12px 12px 24px}
 .wtitle{font-size:18px;font-weight:700;line-height:1.3;margin-bottom:12px;word-break:break-word}
 .wchan{display:flex;align-items:center;gap:10px;margin-bottom:14px}
@@ -118,18 +167,27 @@ input,textarea{font:inherit}
 .sub-btn{background:#f1f1f1;color:#0f0f0f;font-weight:700;font-size:14px;
   padding:9px 18px;border-radius:20px;flex:0 0 auto}
 .sub-btn.on{background:var(--bg3);color:var(--txt)}
+/* YouTube lays the actions out as a scrollable row of pills with a divider
+   before the secondary group. */
 .wacts{display:flex;gap:8px;overflow-x:auto;padding-bottom:14px;
-  border-bottom:1px solid var(--line);margin-bottom:14px}
+  border-bottom:1px solid var(--line);margin-bottom:14px;align-items:center}
 .act{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:20px;
   background:var(--bg3);font-size:13px;font-weight:600;white-space:nowrap;flex:0 0 auto}
 .act:active{background:#3a3a3a}
 .act svg{width:18px;height:18px;fill:currentColor}
 .act.on{background:#fff;color:#0f0f0f}
 .act.flag{border:1px solid var(--redDim);color:var(--redSoft)}
+.act-div{width:1px;height:24px;background:var(--line);flex:0 0 auto;margin:0 2px}
+.speed-btn{font-variant-numeric:tabular-nums}
+/* The description is a tappable card: collapsed shows a couple of lines, the
+   tap expands it, exactly like the YouTube watch page. */
 .desc{background:var(--bg2);border-radius:12px;padding:12px;font-size:14px;
   line-height:1.5;white-space:pre-wrap;word-break:break-word;margin-bottom:20px}
 .desc .dmeta{font-weight:700;margin-bottom:6px;font-size:13px}
-.sect-h{font-size:16px;font-weight:700;margin:0 0 14px}
+.desc.clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.desc .dmore{color:var(--txt);font-weight:600;margin-top:8px;display:block}
+.sect-h{font-size:16px;font-weight:700;margin:0 0 14px;display:flex;align-items:center;gap:8px}
+.sect-h .count{font-weight:400;color:var(--dim);font-size:14px}
 .comment{display:flex;gap:12px;padding:0 0 16px}
 .comment .cav{width:32px;height:32px;font-size:13px;flex:0 0 auto}
 .cbody{min-width:0;flex:1}
@@ -148,23 +206,6 @@ input,textarea{font:inherit}
 .cadd .cbtn{color:var(--dim);font-size:14px;font-weight:700;padding:4px 6px;flex:0 0 auto}
 .cadd .cbtn.go{color:var(--blue)}
 
-/* ---------- shorts ---------- */
-#shorts{position:absolute;inset:0;background:#000;overflow-y:scroll;scroll-snap-type:y mandatory;
-  z-index:30;padding-bottom:calc(var(--nav) + var(--safeBot))}
-.short{position:relative;height:calc(100vh - var(--nav) - var(--safeBot));scroll-snap-align:start;
-  display:flex;align-items:center;justify-content:center;background:#000}
-.short video{width:100%;height:100%;object-fit:contain}
-.short .overlay{position:absolute;left:0;right:0;bottom:0;padding:16px 68px 20px 14px;
-  background:linear-gradient(transparent,rgba(0,0,0,.75))}
-.short .st{font-size:15px;font-weight:600;line-height:1.35;margin-bottom:6px;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.short .ss{font-size:13px;color:#ddd}
-.short .rail{position:absolute;right:8px;bottom:20px;display:flex;flex-direction:column;
-  gap:18px;align-items:center}
-.short .rail button{display:flex;flex-direction:column;align-items:center;gap:3px;
-  color:#fff;font-size:11px;font-weight:600}
-.short .rail svg{width:26px;height:26px;fill:#fff;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
-
 /* ---------- channel ---------- */
 #chBanner{width:100%;aspect-ratio:6/1;background:linear-gradient(135deg,#2a2a2a,#151515);position:relative}
 #chHead{padding:12px 16px 16px;display:flex;gap:14px;align-items:center}
@@ -173,17 +214,72 @@ input,textarea{font:inherit}
 #chName{font-size:19px;font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 #chStats{font-size:13px;color:var(--dim);margin-top:3px}
 
-/* ---------- library / you ---------- */
+/* ---------- feed tail ---------- */
+.vcard-wrap{position:relative}
+/* The feed tail: a spinner while the next page loads, then a quiet end mark. */
+.spin-foot{margin:20px 0 30px}
+.feed-end{text-align:center;color:var(--dim2);font-size:13px;padding:22px 0 30px}
+.chip-sub{font-size:13px;color:var(--dim);font-weight:600;padding:8px 4px}
+
+/* ---------- rows: unread state ---------- */
+.row.unread .rt{font-weight:700}
+.row.unread{background:rgba(255,255,255,.03)}
+.unread-dot{width:8px;height:8px;border-radius:50%;background:var(--blue);flex:0 0 auto;margin-right:12px}
+
+/* ---------- sheets: menu list ---------- */
+/* The overflow menu is a list of icon+label rows, not a stack of buttons. */
+.menu{display:flex;flex-direction:column;margin:14px -20px -8px}
+.menu button{display:flex;align-items:center;gap:18px;width:100%;text-align:left;
+  padding:15px 20px;font-size:15px;color:var(--txt)}
+.menu button:active{background:rgba(255,255,255,.08)}
+.menu button svg{width:22px;height:22px;fill:var(--dim);flex:0 0 auto}
+.menu button span{flex:1}
+.share-url{width:100%;background:var(--bg3);border:1px solid var(--line);border-radius:8px;
+  color:var(--txt);font-size:13px;padding:11px 12px;margin:14px 0;outline:0}
+
+/* ---------- toast with an action ---------- */
+#toast{pointer-events:none}
+#toast.on{pointer-events:auto}
+.t-act{margin-left:14px;color:#065fd4;font-weight:700;font-size:14px;padding:0 2px}
+
+
 .row{display:flex;gap:14px;padding:8px 12px;align-items:center;width:100%;text-align:left}
 .row .rthumb{width:132px;aspect-ratio:16/9;border-radius:8px;overflow:hidden;flex:0 0 auto;background:#1f1f1f;position:relative}
 .row .rthumb img{width:100%;height:100%;object-fit:cover}
+.row .rthumb .dur{right:4px;bottom:4px;font-size:11px}
 .row .rtxt{min-width:0;flex:1}
-.row .rt{font-size:14px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;
+.row .rt{font-size:14px;font-weight:500;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;
   -webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+.row .rt.seen-t{color:var(--dim)}
 .row .rs{font-size:12px;color:var(--dim);margin-top:4px}
+.row .rk{width:40px;height:40px;flex:0 0 auto;color:var(--dim);display:flex;
+  align-items:center;justify-content:center}
+.row .rk svg{width:20px;height:20px;fill:currentColor}
 .group-h{font-size:15px;font-weight:700;padding:18px 12px 6px;display:flex;
   align-items:center;justify-content:space-between}
 .linkish{color:var(--blue);font-size:13px;font-weight:600}
+.lib-item{display:flex;width:100%;text-align:left;align-items:stretch}
+.lib-item .li-thumb{width:168px;flex:0 0 auto;aspect-ratio:16/9;background:#1f1f1f;
+  position:relative;overflow:hidden}
+.lib-item .li-thumb img{width:100%;height:100%;object-fit:cover}
+.lib-item .li-body{flex:1;min-width:0;padding:10px 8px 10px 12px;display:flex;flex-direction:column;justify-content:center}
+.lib-item .li-t{font-size:14px;font-weight:500;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+.lib-item .li-c{font-size:12px;color:var(--dim);margin-top:5px}
+.lib-item .li-c b{color:var(--txt);font-weight:400}
+
+/* Library top bar: a big "Your Library" title with filter chips beneath,
+   which is what YouTube shows when you open Library from the bottom nav. */
+.lib-hero{padding:6px 12px 4px;font-size:24px;font-weight:700;letter-spacing:-.4px}
+.lib-hero .avatar{width:36px;height:36px;border-radius:50%;background:var(--red);color:#fff;
+  display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;
+  vertical-align:middle;margin-right:10px}
+.lib-bar{display:flex;gap:8px;overflow-x:auto;padding:10px 12px;background:var(--bg2);
+  border-radius:8px;margin:12px}
+.lib-bar::-webkit-scrollbar{height:0}
+.lib-bar button{flex:0 0 auto;padding:6px 12px;border-radius:16px;background:rgba(255,255,255,.1);
+  color:var(--txt);font-size:13px;font-weight:600;white-space:nowrap}
+.lib-bar button.on{background:#f1f1f1;color:#0f0f0f}
 
 /* ---------- empty / loading ---------- */
 .empty{padding:56px 24px;text-align:center;color:var(--dim);font-size:14px;line-height:1.6}
@@ -252,7 +348,7 @@ input,textarea{font:inherit}
 
 <header id="topbar">
   <button class="brand" id="brandBtn">
-    <span class="brand-mark"></span><span class="brand-name">FirFall</span>
+    <span class="brand-mark" id="brandMark"></span><span class="brand-name">FirFall</span>
   </button>
   <div style="flex:1"></div>
   <button class="icon-btn" id="searchBtn" aria-label="Search">
@@ -260,7 +356,7 @@ input,textarea{font:inherit}
   </button>
   <button class="icon-btn" id="notifBtn" aria-label="Notifications">
     <svg viewBox="0 0 24 24"><path d="M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4a1.5 1.5 0 0 0-3 0v.68C7.64 5.36 6 7.92 6 11v5l-1.7 1.7a1 1 0 0 0 .7 1.7h14a1 1 0 0 0 .7-1.7L18 16z"/></svg>
-    <span id="notifDot" class="hidden" style="position:absolute;top:7px;right:7px;width:8px;height:8px;background:var(--red);border-radius:50%"></span>
+    <span id="notifDot" class="hidden"></span>
   </button>
   <button id="avatarBtn" aria-label="Account">?</button>
 </header>
@@ -280,6 +376,11 @@ input,textarea{font:inherit}
 
 <div id="chips" class="hidden"></div>
 
+<div id="ptr"><div class="arw" id="ptrArrow">
+  <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 13c0-4.42-3.58-8-8-8z"/></svg>
+  <span id="ptrText">Pull to refresh</span>
+</div></div>
+
 <main class="scroll below above" id="main">
   <div id="feed" class="hidden"></div>
   <div id="watch" class="hidden"></div>
@@ -290,14 +391,9 @@ input,textarea{font:inherit}
   <div id="notifs" class="hidden"></div>
 </main>
 
-<div id="shorts" class="hidden"></div>
-
 <nav id="nav">
   <button class="nitem on" data-tab="home">
     <svg viewBox="0 0 24 24"><path d="M4 21V9l8-6 8 6v12h-6v-7h-4v7H4z"/></svg><span class="lbl">Home</span>
-  </button>
-  <button class="nitem" data-tab="shorts">
-    <svg viewBox="0 0 24 24"><path d="M10 14.65v-5.3L15 12l-5 2.65zm7.77-4.33-1.2-.5L18 9.06c1.84-.96 2.53-3.23 1.56-5.06s-3.24-2.53-5.07-1.56L6 6.94c-1.28.68-2.07 2.04-2 3.49.07 1.42.93 2.67 2.22 3.25.03.01 1.2.5 1.2.5L6 14.93c-1.83.97-2.53 3.24-1.56 5.07.97 1.83 3.24 2.53 5.07 1.56l8.5-4.5c1.29-.68 2.06-2.04 1.99-3.49-.07-1.42-.94-2.68-2.23-3.25z"/></svg><span class="lbl">Shorts</span>
   </button>
   <button class="nitem" data-tab="create">
     <svg viewBox="0 0 24 24" style="width:26px;height:26px"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 10c-2.21 0-4-1.79-4-4 0-1.2.53-2.27 1.36-2.98l1.53 1.53A2 2 0 0 0 12 10c1.1 0 2 .9 2 2 0 .46-.16.88-.43 1.22l1.53 1.53A4 4 0 0 0 12 14z"/></svg><span class="lbl">Create</span>
@@ -305,8 +401,11 @@ input,textarea{font:inherit}
   <button class="nitem" data-tab="subs">
     <svg viewBox="0 0 24 24"><path d="M10 18v-6l5 3-5 3zm7-15H7v1h10V3zm3 3H4v1h16V6zm2 3H2v12h20V9zM3 10h18v10H3V10z"/></svg><span class="lbl">Subscriptions</span>
   </button>
+  <button class="nitem" data-tab="library">
+    <svg viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"/></svg><span class="lbl">Library</span>
+  </button>
   <button class="nitem" data-tab="you">
-    <svg viewBox="0 0 24 24"><path d="M11 7.2V10H8.8l-2.4 2.4 2.4 2.4H11v2.8l5-4-5-4zm-5 9.8h12v2H6v-2z"/><circle cx="12" cy="12" r="10"/></svg><span class="lbl">You</span>
+    <svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5z"/></svg><span class="lbl">You</span>
   </button>
 </nav>
 
@@ -326,12 +425,97 @@ input,textarea{font:inherit}
    ===================================================================== */
 var API = "https://firfall-auth.b8golddude.workers.dev";
 var K_TOKEN="ff_token", K_USER="ff_user", K_ROLE="ff_role", K_MYREP="ff_myrep";
+var K_LATER="ff_later", K_HIST="ff_hist", K_SPEED="ff_speed", K_SEEN="ff_seen";
 
 var me = null, myRole = "user";
 var curTab = "home", curVideo = null, curChannel = null;
-var feedFilter = "all", searchQ = "", shortsBuilt = false;
+var feedSort = "new", searchQ = "";
+var libFilter = "recent";
 var subState = {}, myReports = {};
-var player = null;
+var player = null, playRate = 1;
+var feedOffset = 0, feedTotal = null, feedLoading = false, feedOwner = null;
+
+/* The flame mark, as one polygon in a 24x24 box.
+   This is the single source of truth for the logo: the top bar renders it
+   through svgFromPoints, the launcher icons are generated from the same
+   numbers by make-icons.mjs, and the vector drawable is written from it.
+   A rounded rectangle with a play triangle is what YouTube uses, and
+   FirFall is not YouTube, so it is a flame. */
+var FLAME = [[12,1.4],[14.9,6.2],[13.1,9.6],[16.9,8.1],[19.3,13.2],[19.3,17.6],
+             [16.4,21.6],[12,22.9],[7.6,21.6],[4.7,17.6],[4.7,13.2],[7.9,10.4],
+             [10,12.6],[9.5,8.2],[11.3,5]];
+function svgFromPoints(pts, fill){
+  var d = pts.map(function(p,i){ return (i?"L":"M") + p[0] + " " + p[1]; }).join(" ") + " Z";
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="' + fill + '" d="' + d + '"/></svg>';
+}
+
+/* Icons. Drawn here rather than inlined at each call site so the same glyph is
+   used by the feed, the watch page and the sheets, and so a size change is one
+   edit. */
+var ICON = {
+  kebab:'<svg viewBox="0 0 24 24"><path d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>',
+  like:'<svg viewBox="0 0 24 24"><path d="M18.77 11h-4.23l1.52-4.94C16.38 5.03 15.54 4 14.38 4c-.58 0-1.14.24-1.52.65L7 11H3v10h4h1h9.43c1.06 0 1.98-.67 2.19-1.61l1.34-6C21.23 12.15 20.18 11 18.77 11zM7 20H4v-8h3v8zm12.98-6.83-1.34 6c-.09.3-.38.5-.69.5H8v-8.61l5.6-6.06c.19-.21.48-.33.78-.33.26 0 .5.11.63.3.07.1.15.26.09.47l-1.52 4.94c-.09.26-.02.54.16.71.18.18.43.28.69.28h4.26c.77 0 1.4.56 1.49 1.28z"/></svg>',
+  dislike:'<svg viewBox="0 0 24 24"><path d="M5.23 13h4.23l-1.52 4.94C7.62 18.97 8.46 20 9.62 20c.58 0 1.14-.24 1.52-.65L17 13h4V3h-4H8.57c-1.06 0-1.98.67-2.19 1.61l-1.34 6C4.77 11.85 5.82 13 7.23 13zM17 4h3v8h-3V4zM4.02 10.83l1.34-6C5.45 4.5 5.74 4.3 6.05 4.3H16v8.61l-5.6 6.06c-.19.21-.48.33-.78.33-.26 0-.5-.11-.63-.3-.07-.1-.15-.26-.09-.47l1.52-4.94c.09-.26.02-.54-.16-.71a.98.98 0 0 0-.69-.28H6.54c-.77 0-1.4.56-1.49 1.28z"/></svg>',
+  share:'<svg viewBox="0 0 24 24"><path d="M15 5.63 20.66 12 15 18.37V14h-1c-3.96 0-7.14 1-9.75 3.09 1.84-4.07 5.11-6.4 9.89-7.1l.86-.13V5.63M14 3v6C6.22 10.13 3.11 15.33 2 21c2.78-3.97 6.44-5.78 12-5.78V21l8-9-8-9z"/></svg>',
+  save:'<svg viewBox="0 0 24 24"><path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15-5-2.18L7 18V5h10v13z"/></svg>',
+  check:'<svg viewBox="0 0 24 24"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>',
+  speed:'<svg viewBox="0 0 24 24"><path d="M20.38 8.57l-1.23 1.85a8 8 0 0 1-.22 7.58H5.07A8 8 0 0 1 15.58 6.85l1.85-1.23A10 10 0 0 0 3.35 19a2 2 0 0 0 1.72 1h13.85a2 2 0 0 0 1.74-1 10 10 0 0 0-.27-10.44zm-9.79 6.84a2 2 0 0 0 2.83 0l5.66-8.49-8.49 5.66a2 2 0 0 0 0 2.83z"/></svg>',
+  more:'<svg viewBox="0 0 24 24"><path d="M6 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm12 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>',
+  play:'<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
+  fwd:'<svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 13c0-4.42-3.58-8-8-8z"/><path d="m12 14-5 5 5 5z" opacity=".55"/></svg>',
+  back:'<svg viewBox="0 0 24 24" style="transform:scaleX(-1)"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 13c0-4.42-3.58-8-8-8z"/><path d="m12 14-5 5 5 5z" opacity=".55"/></svg>',
+  flag:'<svg viewBox="0 0 24 24"><path d="M14.4 6 14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>'
+};
+
+/* ---- local device state ----
+   There is no server-side history endpoint, and adding a table for it was not
+   worth the write cost on every play. So history, watch later and how far you
+   got are kept on the device in localStorage, capped so they cannot grow
+   without bound. Clearing them costs one key. */
+function store(k, v){
+  try{ v === null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); }
+  catch(e){}
+}
+function load(k, dflt){
+  try{ var v = localStorage.getItem(k); return v === null ? dflt : JSON.parse(v); }
+  catch(e){ return dflt; }
+}
+var seenMap = load(K_SEEN, {});
+function setSeen(id, pct){ seenMap[id] = pct; store(K_SEEN, seenMap); }
+function seenPct(id){ return seenMap[id] || 0; }
+function watchedBefore(id){ return !!load(K_HIST, []).filter(function(h){ return h.id === id; }).length; }
+var laterList = load(K_LATER, []);
+function isLater(id){ return laterList.indexOf(id) >= 0; }
+function toggleLater(id){
+  var i = laterList.indexOf(id);
+  if (i >= 0) laterList.splice(i, 1); else laterList.unshift(id);
+  if (laterList.length > 300) laterList.length = 300;
+  store(K_LATER, laterList);
+  return i < 0;
+}
+var histList = load(K_HIST, []);
+function pushHistory(v){
+  if (!v || !v.id) return;
+  histList = histList.filter(function(h){ return h.id !== v.id; });
+  histList.unshift({ id:v.id, title:v.title, owner:v.owner, duration:v.duration, at:Date.now() });
+  if (histList.length > 200) histList.length = 200;
+  store(K_HIST, histList);
+}
+function playRateOf(){ return playRate || load(K_SPEED, 1) || 1; }
+/* "Not interested" is a local hide list, the same way watch later is local.
+   The API has no way to express it and inventing one for a list this small
+   would be a table nobody reads. */
+function hiddenIds(){ return load("ff_hidden", []); }
+function hideVideo(id){
+  var hid = hiddenIds();
+  if (hid.indexOf(id) < 0) hid.push(id);
+  if (hid.length > 500) hid.length = 500;
+  store("ff_hidden", hid);
+  // Drop it from the list on screen straight away rather than waiting for a refetch.
+  var card = document.querySelector('.vcard[data-v="' + id + '"]');
+  var wrap = card && card.closest(".vcard-wrap");
+  if (wrap) wrap.remove();
+}
 
 function $(id){ return document.getElementById(id); }
 function token(){ try{ return localStorage.getItem(K_TOKEN); }catch(e){ return null; } }
@@ -377,9 +561,24 @@ function dur(sec){
   var h=Math.floor(sec/3600), m=Math.floor(sec%3600/60), s=sec%60;
   return (h?h+":":"" ) + (h? String(m).padStart(2,"0") : m) + ":" + String(s).padStart(2,"0");
 }
-function toast(msg){
-  var t = $("toast"); t.textContent = msg; t.classList.add("on");
-  clearTimeout(t._h); t._h = setTimeout(function(){ t.classList.remove("on"); }, 2200);
+/* The toast takes an optional action. Anything that removes something the user
+   can no longer get back on its own, such as "Not interested", passes an Undo
+   rather than just telling them what happened. */
+function toast(msg, action, ms){
+  var t = $("toast");
+  clearTimeout(t._h);
+  if (action){
+    t.innerHTML = "";
+    t.appendChild(document.createTextNode(msg));
+    var b = document.createElement("button");
+    b.className = "t-act"; b.textContent = action.label;
+    b.onclick = function(){ t.classList.remove("on"); action.run(); };
+    t.appendChild(b);
+  } else {
+    t.textContent = msg;
+  }
+  t.classList.add("on");
+  t._h = setTimeout(function(){ t.classList.remove("on"); }, ms || (action ? 5000 : 2200));
 }
 function initials(n){ return String(n||"?").charAt(0).toUpperCase(); }
 
@@ -426,7 +625,9 @@ function paintAvatar(){
   b.textContent = me ? initials(me) : "?";
   b.className = me ? "me" : "";
   $("notifBtn").classList.toggle("hidden", !me);
-  $("notifDot").classList.add("hidden");
+  // Ask the server for the unread count rather than guessing. Before this, the
+  // dot was unconditionally hidden here, so it could never turn on.
+  if (me) refreshUnread(); else $("notifDot").classList.add("hidden");
 }
 
 /* =====================================================================
@@ -620,31 +821,136 @@ function loadMyReports(){
 }
 
 /* =====================================================================
+   SHARE / SPEED / OVERFLOW
+   ===================================================================== */
+/* On a device this hands off to the Android share sheet. In a browser there is
+   no such bridge, so it falls back to the clipboard and then to a selectable
+   prompt, rather than silently doing nothing. */
+function shareVideo(v, btn){
+  var url = location.origin + "/watch?v=" + encodeURIComponent(v.id);
+  var text = v.title + " on FirFall\n" + url;
+  var bridge = window.FirFallNative;
+  function copied(){
+    if (btn) btn.innerHTML = ICON.check + "Copied";
+    setTimeout(function(){ if (btn && document.body.contains(btn)) btn.innerHTML = ICON.share + "Share"; }, 1600);
+  }
+  if (bridge && typeof bridge.share === "function") {
+    try { bridge.share(v.title, text); return; } catch(e){}
+  }
+  if (navigator.share) {
+    navigator.share({ title: v.title, url: url }).catch(function(){});
+    return;
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(copied).catch(function(){ promptFallback(url); });
+  } else promptFallback(url);
+}
+function promptFallback(url){
+  openSheet('<div id="sheetTitle">Share this video</div>' +
+    '<div id="sheetSub">Copy the link below.</div>' +
+    '<input id="shareUrl" class="share-url" readonly value="' + esc(url) + '">' +
+    '<button class="sheet-go" id="shareOk">Done</button>');
+  var i = $("shareUrl");
+  i.onclick = function(){ i.select(); };
+  $("shareOk").onclick = closeSheet;
+}
+/* Playback speed. The sheet is built from a list rather than six hard-coded
+   buttons so the rate list stays in one place. */
+var RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+function speedSheet(v){
+  var cur = playRateOf();
+  openSheet(
+    '<div id="sheetTitle">Playback speed</div>' +
+    '<div id="sheetSub">' + esc(v.title) + '</div>' +
+    '<div class="why" id="rateRow">' + RATES.map(function(r){
+      return '<button data-r="' + r + '"' + (r === cur ? ' class="on"' : '') + '>' +
+        (r === 1 ? "Normal" : r + "x") + '</button>';
+    }).join("") + '</div>'
+  );
+  Array.prototype.forEach.call($("rateRow").querySelectorAll("button"), function(b){
+    b.onclick = function(){
+      var r = parseFloat(b.dataset.r);
+      playRate = r; store(K_SPEED, r);
+      if (player) { try{ player.playRate = r; }catch(e){} }
+      var lbl = $("speedLbl");
+      if (lbl) lbl.textContent = r === 1 ? "Speed" : r + "x";
+      closeSheet();
+      toast(r === 1 ? "Normal speed" : "Speed set to " + r + "x");
+    };
+  });
+}
+/* The overflow menu behind the three dots on a feed card. Report moved in here
+   from its own button: it is the item people look for under "..." on YouTube,
+   and a permanent red pill on every card was the least YouTube-like thing in
+   the whole app. */
+function overflowMenu(kind, id, anchor, label){
+  var v = { id: id, title: label || (anchor ? anchor.querySelector(".vtitle").textContent : "this video") };
+  var saved = kind === "video" && isLater(id);
+  var rows = [];
+  if (kind === "video") {
+    rows.push(['later', ICON.save, saved ? "Remove from Watch later" : "Save to Watch later", function(){
+      var now = toggleLater(id);
+      toast(now ? "Saved to Watch later" : "Removed from Watch later");
+    }]);
+    rows.push(['share', ICON.share, "Share", function(){ shareVideo(v); }]);
+  }
+  rows.push(['notint', ICON.more, "Not interested", function(){
+    hideVideo(id);
+    toast("Video hidden", { label: "Undo", run: function(){
+      var hid = load("ff_hidden", []);
+      hid = hid.filter(function(x){ return x !== id; });
+      store("ff_hidden", hid);
+      if (curTab === "home") loadHome();
+    }});
+  }]);
+  if (!me) rows.push(['signin', ICON.more, "Sign in to report", function(){ authSheet("login"); }]);
+  else if (myReports[kind + ":" + id]) rows.push(['done', ICON.check, "Reported", function(){}]);
+  else rows.push(['report', ICON.flag, "Report", function(){ reportSheet(kind, id, v.title); }]);
+
+  openSheet('<div id="sheetTitle">' + (kind==="video" ? "Video options" : "Comment options") + '</div>' +
+    '<div id="sheetSub">' + esc(v.title) + '</div>' +
+    '<div class="menu">' + rows.map(function(r){
+      return '<button data-m="' + r[0] + '">' + r[1] + '<span>' + r[2] + '</span></button>';
+    }).join("") + '</div>');
+  // openSheet writes into #sheetBody, which is a sibling of #scrim, not a
+  // child of it. Selecting under #scrim found nothing, so the rows rendered
+  // but did nothing when tapped.
+  Array.prototype.forEach.call($("sheetBody").querySelectorAll(".menu button"), function(b){
+    b.onclick = function(){
+      var row = rows.filter(function(r){ return r[0] === b.dataset.m; })[0];
+      closeSheet();
+      if (row) row[3]();
+    };
+  });
+}
+
+/* =====================================================================
    TAB ROUTER
    ===================================================================== */
-var TABS = { home:1, shorts:1, subs:1, you:1, channel:1, watch:1, search:1, library:1, notifs:1, create:1 };
+var TABS = { home:1, subs:1, you:1, channel:1, watch:1, search:1, library:1, notifs:1, create:1 };
+/* Which bottom-nav item stays lit while you are inside a pushed screen. YouTube
+   keeps the origin tab highlighted when you open a video or a channel from it. */
+var NAV_OWNER = { watch:null, channel:null, search:null, notifs:null, create:null };
+var navOrigin = "home";
 function go(tab, force){
   if (!TABS[tab]) return;
-  if (curTab === tab && !force) { window.scrollTo(0,0); return; }
-  var wasShorts = curTab === "shorts";
+  if (curTab === tab && !force) { $("main").scrollTo(0,0); return; }
+  if (NAV_OWNER[tab] === null) navOrigin = navOrigin || "home";
   curTab = tab;
-  // Shorts takes over the whole viewport, so it hides the scrolling container.
-  // Every other tab has to take it back, or the app goes black after visiting
-  // Shorts and stays there.
-  $("main").classList.remove("hidden");
-  $("shorts").classList.add("hidden");
+  // Shorts used to take over the whole viewport and hide #main, and nothing
+  // ever took it back, so the app went permanently black after one visit. #main
+  // is now the only scrolling surface and is never hidden.
   document.querySelectorAll(".nitem").forEach(function(n){
-    n.classList.toggle("on", n.dataset.tab === tab ||
-      (tab==="channel" && false) || (tab==="watch" && false));
+    var t = n.dataset.tab;
+    n.classList.toggle("on", t === tab || (NAV_OWNER[tab] === null && t === navOrigin));
   });
   $("searchWrap").classList.remove("on");
-  $("chips").classList.toggle("hidden", !(tab==="home"||tab==="subs"||tab==="library"));
+  $("chips").classList.toggle("hidden", !(tab==="home"||tab==="subs"));
   $("main").scrollTop = 0;
   ["feed","watch","channel","library","search","you","notifs"].forEach(function(id){ $(id).classList.add("hidden"); });
-  if (wasShorts && player) { player.pause(); player.removeAttribute("src"); player = null; }
+  if (tab !== "watch" && player) { player.pause(); player.removeAttribute("src"); player = null; }
 
   if (tab === "home")      return loadHome();
-  if (tab === "shorts")    return buildShorts();
   if (tab === "subs")      return loadSubs();
   if (tab === "you")       return loadYou();
   if (tab === "library")   return loadLibrary();
@@ -667,30 +973,40 @@ function tab(t){
 /* =====================================================================
    HOME
    ===================================================================== */
+var PAGE = 12;
 function paintChips(){
   var row = $("chips"); row.innerHTML = "";
-  var sets = {
-    home: [["all","All"],["subs","Subscriptions"],["recent","Latest"]],
-    subs: [["all","All"],["recent","Latest"]],
-    library:[["all","All"],["subs","Subscriptions"],["liked","Liked"]]
-  };
-  var list = sets[curTab] || [["all","All"]];
-  if (curTab === "home" || curTab === "subs") list = list.filter(function(c){ return !(c[0]==="subs" && !me); });
-  if (curTab === "library" && !me) list = [["all","Sign in to see your library"]];
-  list.forEach(function(c){
+  if (curTab === "subs") {
+    row.innerHTML = '<span class="chip-sub">' + esc(me ? "@" + me.username : "") + '</span>';
+    return;
+  }
+  // Sort chips actually reorder the server query. The old "Latest" chip only
+  // re-sorted an already-fetched list, so it could never do anything the
+  // default was not already doing.
+  [ ["new","Latest"], ["popular","Popular"], ["old","Oldest"] ].forEach(function(c){
     var b = document.createElement("button");
-    b.className = "chip" + (feedFilter === c[0] ? " on" : "");
+    b.className = "chip" + (feedSort === c[0] ? " on" : "");
     b.textContent = c[1];
-    b.onclick = function(){ feedFilter = c[0]; paintChips(); go(curTab, true); };
+    b.onclick = function(){ feedSort = c[0]; loadHome(); };
     row.appendChild(b);
   });
 }
-async function loadHome(){
+function skeletons(n){
+  var one = '<div class="sk-card"><div class="sk sk-thumb"></div><div class="sk-meta">' +
+    '<div class="sk sk-av"></div><div class="sk-lines"><div class="sk sk-l1"></div>' +
+    '<div class="sk sk-l2"></div></div></div></div>';
+  $("feed").innerHTML = new Array(n || 5).join(one);
+}
+async function loadHome(append){
   show("feed"); paintChips();
-  $("feed").innerHTML = '<div class="spin" style="padding:40px 0"></div>';
+  if (!append) skeletons(5);
+  if (feedLoading) return;
+  feedLoading = true;
   try{
     var owner = (curTab === "subs" && me) ? await subsFeedOwner() : null;
-    var j = await api("/api/videos" + (owner ? "?owner=" + encodeURIComponent(owner) : ""));
+    var url = "/api/videos?limit=" + PAGE + "&offset=" + (append ? feedOffset : 0) + "&sort=" + feedSort;
+    if (owner) url += "&owner=" + encodeURIComponent(owner);
+    var j = await api(url);
     var vs = j.videos || [];
     if (curTab === "subs" && me) {
       var names = await subChannels();
@@ -702,13 +1018,18 @@ async function loadHome(){
       all.sort(function(a,b){ return new Date(b.created_at) - new Date(a.created_at); });
       vs = all;
     }
-    if (curTab === "home" && feedFilter === "recent") {
-      vs = vs.slice().sort(function(a,b){ return new Date(b.created_at) - new Date(a.created_at); });
+    if (curTab !== "subs") { feedOffset += vs.length; feedTotal = (j.total == null ? vs.length : j.total); }
+    // Apply the local hide list to the feed only. A channel page and a search
+    // result are places you asked for by name, so hiding there would be wrong.
+    if (curTab === "home") {
+      var hid = hiddenIds();
+      if (hid.length) vs = vs.filter(function(v){ return hid.indexOf(v.id) < 0; });
     }
     renderFeed(vs, curTab === "subs" && me
-      ? "You have not subscribed to any channels yet. Tap a channel and press Subscribe."
-      : "No videos yet. Upload one from the FirFall website.");
+      ? "You have not subscribed to any channels yet. Open a channel and press Subscribe."
+      : "No videos yet. Upload one from the FirFall website.", append);
   }catch(e){ fail(e); }
+  finally { feedLoading = false; }
 }
 async function subsFeedOwner(){ return null; }
 async function subChannels(){
@@ -724,31 +1045,47 @@ function fail(e){
     esc(e && e.message ? e.message : "Could not reach FirFall.") + '</div>';
   $("feed").classList.remove("hidden");
 }
+function progressOf(id){ return seenPct(id); }
 function vcard(v){
   var d = v.duration ? '<span class="dur">' + dur(v.duration) + '</span>' : "";
-  return '<button class="vcard" data-v="' + esc(v.id) + '">' +
+  var p = progressOf(v.id);
+  var seen = p > 0 ? '<span class="seen" style="width:' + p + '%"></span>' : "";
+  var watched = p >= 95 || p === 0 && watchedBefore(v.id);
+  return '<div class="vcard-wrap"><button class="vcard" data-v="' + esc(v.id) + '">' +
     '<div class="thumb">' +
       '<div class="ph"><span>' + esc(initials(v.owner)) + '</span></div>' +
       '<img loading="lazy" alt="" src="' + esc(mediaUrl("t", v.id)) + '" ' +
         'onload="this.style.display=\'block\';this.previousElementSibling.style.display=\'none\'" ' +
-        'onerror="this.style.display=\'none\'">' + d +
+        'onerror="this.style.display=\'none\'">' + d + seen +
     '</div>' +
     '<div class="vmeta"><div class="vav">' + esc(initials(v.owner)) + '</div><div class="vtext">' +
-      '<div class="vtitle">' + esc(v.title) + '</div>' +
+      '<div class="vtitle' + (watched ? " seen-t" : "") + '">' + esc(v.title) + '</div>' +
       '<div class="vsub"><span>@' + esc(v.owner) + '</span><span class="dot"></span>' +
         '<span>' + esc(fmt(v.views)) + '</span><span class="dot"></span><span>' + esc(ago(v.created_at)) + '</span></div>' +
-    '</div></div></button>';
+    '</div></div></button>' +
+    '<button class="kebab" data-k="' + esc(v.id) + '" aria-label="More">' + ICON.kebab + '</button>' +
+  '</div>';
 }
-function renderFeed(vs, emptyMsg){
-  if (!vs.length) {
-    $("feed").innerHTML = '<div class="empty"><div class="big">' + (emptyMsg||"Nothing here") + '</div></div>';
-    if (emptyMsg && emptyMsg.indexOf("<") === 0) $("feed").querySelector(".big").innerHTML = emptyMsg;
+function renderFeed(vs, emptyMsg, append){
+  var feed = $("feed");
+  if (!vs.length && !append) {
+    feed.innerHTML = '<div class="empty"><div class="big"></div></div>';
+    feed.querySelector(".big").textContent = emptyMsg || "Nothing here";
     return;
   }
-  $("feed").innerHTML = vs.map(vcard).join("");
-  Array.prototype.forEach.call($("feed").querySelectorAll(".vcard"), function(b){
+  feed.insertAdjacentHTML("beforeend", vs.map(vcard).join(""));
+  Array.prototype.forEach.call(feed.querySelectorAll(".vcard"), function(b){
     b.onclick = function(){ curVideo = b.dataset.v; go("watch", true); };
   });
+  Array.prototype.forEach.call(feed.querySelectorAll(".kebab"), function(b){
+    b.onclick = function(ev){ ev.stopPropagation(); overflowMenu("video", b.dataset.k, b.closest(".vcard-wrap")); };
+  });
+  if (append) { var w = $("feedMore"); if (w) w.remove(); }
+  // The spinner at the bottom is what loadMore watches for.
+  if (curTab === "home" && feedTotal != null && feedOffset < feedTotal)
+    feed.insertAdjacentHTML("beforeend", '<div id="feedMore" class="spin spin-foot"></div>');
+  else if (curTab === "home")
+    feed.insertAdjacentHTML("beforeend", '<div class="feed-end">You have reached the end</div>');
 }
 
 /* =====================================================================
@@ -790,13 +1127,18 @@ async function loadWatch(id){
               + (sub&&sub.subscribed?"Subscribed":"Subscribe") + '</button>') +
       '</div>' +
       '<div class="wacts">' +
-        '<button class="act' + (w.reaction==="like"?" on":"") + '" id="likeBtn"><svg viewBox="0 0 24 24"><path d="M18.77 11h-4.23l1.52-4.94C16.38 5.03 15.54 4 14.38 4c-.58 0-1.14.24-1.52.65L7 11H3v10h4h1h9.43c1.06 0 1.98-.67 2.19-1.61l1.34-6C21.23 12.15 20.18 11 18.77 11zM7 20H4v-8h3v8zm12.98-6.83-1.34 6c-.1.48-.61.83-1.21.83H8v-8.61l5.6-6.06c.19-.21.48-.33.78-.33.26 0 .5.11.63.3.11.15.15.33.09.51l-1.52 4.94-.4 1.29H18.77c.79 0 1.57.28 2.04.83.28.32.4.72.17 1.26z"/></svg>' + (w.likes?num(w.likes):"Like") + '</button>' +
-        '<button class="act' + (w.reaction==="dislike"?" on":"") + '" id="dislikeBtn"><svg viewBox="0 0 24 24"><path d="M5.23 13h4.23l-1.52 4.94C7.62 18.97 8.46 20 9.62 20c.58 0 1.14-.24 1.52-.65L17 13h4V3h-4H8.57C7.51 3 6.59 3.67 6.38 4.61l-1.34 6C4.77 11.85 5.82 13 7.23 13zM17 4h3v8h-3V4zM6.02 10.83l1.34-6c.1-.48.61-.83 1.21-.83H16v8.61l-5.6 6.06c-.19.21-.48.33-.78.33-.26 0-.5-.11-.63-.3-.11-.15-.15-.33-.09-.51l1.52-4.94.4-1.29H5.23c-.79 0-1.57-.28-2.04-.83-.28-.32-.4-.72-.17-1.26z"/></svg>Dislike</button>' +
-        '<button class="act rbtn" data-k="video" data-i="' + esc(v.id) + '" id="repBtn">Report</button>' +
+        '<button class="act' + (w.reaction==="like"?" on":"") + '" id="likeBtn">' + ICON.like + (w.likes?num(w.likes):"Like") + '</button>' +
+        '<button class="act' + (w.reaction==="dislike"?" on":"") + '" id="dislikeBtn">' + ICON.dislike + 'Dislike</button>' +
+        '<div class="act-div"></div>' +
+        '<button class="act" id="shareBtn">' + ICON.share + 'Share</button>' +
+        '<button class="act' + (isLater(v.id)?" on":"") + '" id="saveBtn">' + (isLater(v.id)?ICON.check:ICON.save) + (isLater(v.id)?"Saved":"Save") + '</button>' +
+        '<button class="act speed-btn" id="speedBtn">' + ICON.speed + '<span id="speedLbl">' + (playRate===1?"Speed":playRate+"x") + '</span></button>' +
+        '<button class="act" id="moreBtn">' + ICON.more + 'More</button>' +
       '</div>' +
-      '<div class="desc" id="descBox">' +
+      '<div class="desc clamp" id="descBox">' +
         '<div class="dmeta">' + esc(fmt(v.views)) + ' &middot; ' + esc(ago(v.created_at)) + (v.duration?" &middot; "+esc(dur(v.duration)):"") + '</div>' +
         (v.description ? esc(v.description) : "<i>No description</i>") +
+        '<span class="dmore">...more</span>' +
       '</div>' +
       '<h3 class="sect-h">Comments</h3>' +
       (me ? '<div class="cadd"><div class="cav vav">' + esc(initials(me)) + '</div>' +
@@ -804,16 +1146,55 @@ async function loadWatch(id){
             '<button class="cbtn" id="cSend">Comment</button></div>'
           : '<div class="cadd" style="padding-bottom:20px"><button class="act" id="cSignin">Sign in to comment</button></div>') +
       '<div id="cList"></div>' +
+      '<div id="upNext"></div>' +
     '</div>';
 
   player = $("vp");
   player.src = mediaUrl("v", v.id);
+  player.playRate = playRateOf();
   player.addEventListener("loadedmetadata", function(){
     if (!v.duration && player.duration && isFinite(player.duration)) {
       var el = $("descBox");
       if (el) el.querySelector(".dmeta").innerHTML = el.querySelector(".dmeta").innerHTML + " &middot; " + dur(player.duration);
     }
   });
+  // Remember how far you got, and mark it watched near the end, so the feed can
+  // show a red progress bar and grey out what you have already seen.
+  player.addEventListener("timeupdate", function(){
+    if (!player.duration || !isFinite(player.duration)) return;
+    setSeen(v.id, Math.round(player.currentTime / player.duration * 100));
+  });
+  player.addEventListener("ended", function(){
+    setSeen(v.id, 100);
+    loadComments(v.id);
+  });
+  pushHistory({ id: v.id, title: v.title, owner: v.owner, duration: v.duration });
+
+  /* Double tap to seek. A single tap is left to the native controls so pause
+     and the scrubber still work; only two taps inside the player seek, and the
+     left third goes back while the right two thirds go forward, which is where
+     people reach for it. */
+  var lastTap = 0, tapTimer = null;
+  $("playerBox").addEventListener("click", function(e){
+    var now = Date.now();
+    if (now - lastTap > 320) { lastTap = now; return; }   // first tap: let the controls have it
+    lastTap = 0;
+    var box = this.getBoundingClientRect();
+    var fwd = (e.clientX - box.left) / box.width > 0.33;
+    if (player.duration) {
+      player.currentTime = Math.max(0, Math.min(player.duration, player.currentTime + (fwd ? 10 : -10)));
+    }
+    seekBubble(fwd);
+  });
+  function seekBubble(fwd){
+    var b = document.createElement("div");
+    b.className = "seek-bubble";
+    b.style.left = fwd ? "auto" : "18px";
+    b.style.right = fwd ? "18px" : "auto";
+    b.innerHTML = fwd ? ICON.fwd : ICON.back;
+    $("playerBox").appendChild(b);
+    setTimeout(function(){ b.remove(); }, 480);
+  }
 
   Array.prototype.forEach.call($("watch").querySelectorAll("[data-ch]"), function(el){
     el.onclick = function(){ curChannel = el.dataset.ch; go("channel", true); };
@@ -844,16 +1225,35 @@ async function loadWatch(id){
         w.likes = j.likes; w.reaction = j.reaction;
         lb.classList.toggle("on", j.reaction === "like");
         db.classList.toggle("on", j.reaction === "dislike");
-        lb.innerHTML = '<svg viewBox="0 0 24 24"><path d="M18.77 11h-4.23l1.52-4.94C16.38 5.03 15.54 4 14.38 4c-.58 0-1.14.24-1.52.65L7 11H3v10h4h1h9.43c1.06 0 1.98-.67 2.19-1.61l1.34-6C21.23 12.15 20.18 11 18.77 11z"/></svg>' + (j.likes?num(j.likes):"Like");
+        lb.innerHTML = ICON.like + (j.likes?num(j.likes):"Like");
       })
       .catch(function(e){ toast(e.message || "Could not save that."); });
   }
   lb.onclick = function(){ react(w.reaction === "like" ? "none" : "like"); };
   db.onclick = function(){ react(w.reaction === "dislike" ? "none" : "dislike"); };
-  $("repBtn").onclick = function(){
-    if (myReports["video:" + v.id]) { toast("You already reported this."); return; }
-    reportSheet("video", v.id, v.title);
+
+  $("shareBtn").onclick = function(){ shareVideo(v, this); };
+  var svb = $("saveBtn");
+  svb.onclick = function(){
+    var now = toggleLater(v.id);
+    svb.classList.toggle("on", now);
+    svb.innerHTML = (now ? ICON.check : ICON.save) + (now ? "Saved" : "Save");
+    toast(now ? "Saved to Watch later" : "Removed from Watch later");
   };
+  $("speedBtn").onclick = function(){ speedSheet(v); };
+  $("moreBtn").onclick = function(){ overflowMenu("video", v.id, null, v.title); };
+
+  // The description is collapsed to two lines and expands on tap, like the
+  // YouTube watch page. The "...more" marker only shows when there is more.
+  var dbx = $("descBox");
+  function syncDesc(){
+    var clamped = dbx.classList.contains("clamp");
+    var more = dbx.querySelector(".dmore");
+    if (clamped) { dbx.classList.remove("clamp"); if (more) more.textContent = "Show less"; }
+    else { dbx.classList.add("clamp"); if (more) more.textContent = "...more"; }
+  }
+  dbx.addEventListener("click", syncDesc);
+  dbx.classList.add("clamp");
   if ($("cSignin")) $("cSignin").onclick = function(){ authSheet("login"); };
 
   var ta = $("cInput");
@@ -872,6 +1272,39 @@ async function loadWatch(id){
     };
   }
   loadComments(v.id);
+  loadUpNext(v);
+}
+/* Up next: more from the same channel, then anything else from the feed.
+   It is the one place a phone app really earns its keep after the video
+   ends, because there is no "keep scrolling" affordance on a watch page. */
+function loadUpNext(v){
+  var box = $("upNext");
+  if (!box) return;
+  api("/api/videos?owner=" + encodeURIComponent(v.owner)).then(function(j){
+    var mine = (j.videos || []).filter(function(x){ return x.id !== v.id; }).slice(0, 6);
+    return api("/api/videos?limit=20").then(function(f){
+      var hid = hiddenIds();
+      var others = (f.videos || []).filter(function(x){
+        return x.id !== v.id && x.owner !== v.owner && hid.indexOf(x.id) < 0;
+      }).slice(0, mine.length ? 4 : 12);
+      return { mine: mine, others: others };
+    });
+  }).then(function(r){
+    if (!r.mine.length && !r.others.length) { box.innerHTML = ""; return; }
+    var head = r.mine.length
+      ? '<h3 class="sect-h">More from this channel</h3>'
+      : '<h3 class="sect-h">Up next</h3>';
+    var body = (r.mine.length ? r.mine : r.others).map(vcard).join("");
+    var tail = r.mine.length && r.others.length
+      ? '<h3 class="sect-h">Up next</h3>' + r.others.map(vcard).join("") : "";
+    box.innerHTML = head + body + tail;
+    Array.prototype.forEach.call(box.querySelectorAll(".vcard"), function(b){
+      b.onclick = function(){ curVideo = b.dataset.v; go("watch", true); };
+    });
+    Array.prototype.forEach.call(box.querySelectorAll(".kebab"), function(b){
+      b.onclick = function(ev){ ev.stopPropagation(); overflowMenu("video", b.dataset.k, b.closest(".vcard-wrap")); };
+    });
+  }).catch(function(){ /* Up next is a nicety; never let it break the page. */ });
 }
 function refreshSub(channel){
   api("/api/substatus?channel=" + encodeURIComponent(channel))
@@ -993,117 +1426,123 @@ async function loadSubs(){
 }
 
 /* =====================================================================
-   SHORTS - vertical, full-bleed feed of the real public videos
-   ===================================================================== */
-async function buildShorts(){
-  $("main").classList.add("hidden");
-  $("shorts").classList.remove("hidden");
-  document.querySelectorAll(".nitem").forEach(function(n){ n.classList.toggle("on", n.dataset.tab === "shorts"); });
-  $("chips").classList.add("hidden");
-  $("shorts").innerHTML = '<div class="spin" style="padding:80px 0"></div>';
-  try{
-    var j = await api("/api/videos");
-    var vs = j.videos || [];
-    if (!vs.length) {
-      $("shorts").innerHTML = '<div class="empty" style="padding-top:120px"><div class="big">No videos</div>' +
-        'Nothing has been uploaded to FirFall yet.</div>';
-      return;
-    }
-    $("shorts").innerHTML = vs.map(function(v, i){
-      return '<div class="short">' +
-        '<video data-src="' + esc(mediaUrl("v", v.id)) + '" poster="' + esc(mediaUrl("t", v.id)) + '" ' +
-          'playsinline loop muted preload="none"></video>' +
-        '<div class="overlay"><div class="st">' + esc(v.title) + '</div>' +
-          '<div class="ss" data-ch="' + esc(v.owner) + '">@' + esc(v.owner) + ' &middot; ' + esc(fmt(v.views)) + '</div></div>' +
-        '<div class="rail">' +
-          '<button data-like="' + esc(v.id) + '"><svg viewBox="0 0 24 24"><path d="M18.77 11h-4.23l1.52-4.94C16.38 5.03 15.54 4 14.38 4c-.58 0-1.14.24-1.52.65L7 11H3v10h4h1h9.43c1.06 0 1.98-.67 2.19-1.61l1.34-6C21.23 12.15 20.18 11 18.77 11z"/></svg><span>Like</span></button>' +
-          '<button data-ch="' + esc(v.owner) + '"><span class="vav" style="width:30px;height:30px;font-size:13px">' + esc(initials(v.owner)) + '</span><span>Channel</span></button>' +
-          '<button data-rep="' + esc(v.id) + '"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><span>Report</span></button>' +
-        '</div></div>';
-    }).join("");
-    // Only load the source for the clip in view; a phone should not pull
-    // 100MB per tile just to build a list.
-    var io = new IntersectionObserver(function(entries){
-      entries.forEach(function(e){
-        var el = e.target;
-        if (e.isIntersecting) {
-          if (!el.src) el.src = el.dataset.src;
-          el.play().catch(function(){});
-        } else { el.pause(); }
-      });
-    }, { root: $("shorts"), threshold: 0.6 });
-    Array.prototype.forEach.call($("shorts").querySelectorAll("video"), function(v){ io.observe(v); });
-    Array.prototype.forEach.call($("shorts").querySelectorAll("[data-ch]"), function(b){
-      b.onclick = function(){ curChannel = b.dataset.ch; go("channel", true); };
-    });
-    Array.prototype.forEach.call($("shorts").querySelectorAll("[data-rep]"), function(b){
-      b.onclick = function(){
-        var id = b.dataset.rep;
-        var v = vs.filter(function(x){ return x.id === id; })[0];
-        reportSheet("video", id, v ? v.title : "");
-      };
-    });
-    Array.prototype.forEach.call($("shorts").querySelectorAll("[data-like]"), function(b){
-      b.onclick = function(){
-        if (!me) { authSheet("login"); return; }
-        api("/api/video/react", { method:"POST", body:{ id: b.dataset.like, kind: "like" } })
-          .then(function(){ toast("Liked"); }).catch(function(e){ toast(e.message || "Could not like that."); });
-      };
-    });
-  }catch(e){
-    $("shorts").innerHTML = '<div class="empty" style="padding-top:120px">' + esc(e.message||"Could not load videos.") + '</div>';
-  }
-}
-
-/* =====================================================================
    LIBRARY
+   The old version showed one long page and its "Liked" chip did nothing,
+   because loadLibrary never looked at the filter at all. This is the YouTube
+   shape: a "Your Library" header, a row of filter chips, and one list.
    ===================================================================== */
+var LIB_TABS = [
+  ["recent",  "History"],
+  ["later",   "Watch later"],
+  ["liked",   "Liked videos"],
+  ["mine",    "Your videos"],
+  ["subs",    "Subscriptions"]
+];
+function libBar(active){
+  return '<div class="lib-hero">Your Library</div><div class="lib-bar">' +
+    LIB_TABS.map(function(t){
+      return '<button data-f="' + t[0] + '"' + (t[0] === active ? ' class="on"' : '') + '>' + t[1] + '</button>';
+    }).join("") + '</div>';
+}
+function libEmpty(msg){ return '<div class="empty" style="padding:40px 24px">' + esc(msg) + '</div>'; }
+function libRows(items, opts){
+  // One row layout for all five lists: thumbnail, title, and a trailing count.
+  return items.map(function(it){
+    return '<div class="lib-item">' +
+      '<button class="li-thumb" data-v="' + esc(it.id) + '">' +
+        '<img loading="lazy" alt="" src="' + esc(mediaUrl("t", it.id)) + '" ' +
+          'onload="this.style.display=\'block\'" onerror="this.style.display=\'none\'">' +
+        (it.duration ? '<span class="dur">' + dur(it.duration) + '</span>' : "") +
+      '</button>' +
+      '<div class="li-body"><div class="li-t' + (it.watched ? " seen-t" : "") + '">' + esc(it.title) + '</div>' +
+        '<div class="li-c">' + esc(it.by || "") + (it.count ? " &middot; " + esc(it.count) : "") + '</div></div>' +
+      '<button class="rk" data-k="' + esc(it.id) + '" aria-label="More">' + ICON.more + '</button>' +
+    '</div>';
+  }).join("");
+}
+function wireLib(container, labels){
+  Array.prototype.forEach.call(container.querySelectorAll("[data-v]"), function(b){
+    b.onclick = function(){ curVideo = b.dataset.v; go("watch", true); };
+  });
+  Array.prototype.forEach.call(container.querySelectorAll(".rk"), function(b){
+    b.onclick = function(){
+      var card = b.closest(".lib-item");
+      var t = card && card.querySelector(".li-t");
+      overflowMenu("video", b.dataset.k, null, t ? t.textContent : "this video");
+    };
+  });
+  Array.prototype.forEach.call(container.querySelectorAll(".lib-bar button"), function(b){
+    b.onclick = function(){ libFilter = b.dataset.f; loadLibrary(); };
+  });
+}
 function loadLibrary(){
-  show("library"); paintChips();
+  show("library");
   if (!me) {
     $("library").innerHTML = '<div class="empty"><div class="big">Sign in</div>' +
       'Your library is saved to your account.<br><button class="act" style="margin-top:14px" id="libSignin">Sign in</button></div>';
     $("libSignin").onclick = function(){ authSheet("login"); };
     return;
   }
-  $("library").innerHTML = '<div class="spin" style="padding:40px 0"></div>';
-  api("/api/subscriptions").then(function(j){
-    var names = (j.subscriptions||[]).map(function(s){ return s.channel; });
-    var liked = [];
-    $("library").innerHTML =
-      '<div class="group-h">Your channels</div>' +
-      '<div class="row"><div class="vav">' + esc(initials(me)) + '</div>' +
-        '<div class="rtxt"><div class="rt">@' + esc(me) + '</div><div class="rs">Your own channel</div></div></div>' +
-      '<div class="group-h">Subscriptions <span class="linkish">' + names.length + '</span></div>' +
-      (names.length ? names.map(function(n){
+  var head = libBar(libFilter);
+  $("library").innerHTML = head + '<div id="libBody"><div class="spin" style="padding:40px 0"></div></div>';
+  var body = $("libBody");
+
+  function paint(html){ body.innerHTML = html; wireLib($("library")); }
+
+  if (libFilter === "later") {
+    var later = load(K_LATER, []);
+    if (!later.length) return paint(libEmpty("Nothing saved yet. Tap Save on any video."));
+    // Watch later is a list of ids, so the titles come from the feed. Fetch it
+    // once and keep only the ids that still resolve.
+    api("/api/videos?limit=50").then(function(j){
+      var byId = {}; (j.videos || []).forEach(function(v){ byId[v.id] = v; });
+      var items = later.map(function(id){ return byId[id]; }).filter(Boolean).map(function(v){
+        return { id: v.id, title: v.title, by: "@" + v.owner, duration: v.duration, watched: seenPct(v.id) >= 95 };
+      });
+      paint(items.length ? libRows(items) : libEmpty("Nothing saved yet. Tap Save on any video."));
+    }).catch(function(e){ paint(libEmpty(e.message || "Could not load that.")); });
+    return;
+  }
+  if (libFilter === "subs") {
+    api("/api/subscriptions").then(function(j){
+      var names = (j.subscriptions || []).map(function(s){ return s.channel; });
+      if (!names.length) return paint(libEmpty("You have not subscribed to anyone yet."));
+      paint('<div id="libBody2">' + names.map(function(n){
         return '<button class="row" data-ch="' + esc(n) + '"><div class="vav">' + esc(initials(n)) + '</div>' +
-          '<div class="rtxt"><div class="rt">@' + esc(n) + '</div></div></button>'; }).join("")
-        : '<div class="empty" style="padding:24px">No subscriptions yet.</div>') +
-      '<div class="group-h">Watch history</div><div id="histList"></div>';
-    Array.prototype.forEach.call($("library").querySelectorAll("[data-ch]"), function(b){
-      b.onclick = function(){ curChannel = b.dataset.ch; go("channel", true); };
-    });
-    // History is local: the API has no history endpoint, and inventing a server
-    // table for a phone app is not worth it. What you actually played is on you.
-    var hist = [];
-    try{ hist = JSON.parse(localStorage.getItem("ff_hist") || "[]"); }catch(e){}
-    $("histList").innerHTML = hist.length
-      ? hist.map(function(h){
-          return '<button class="row" data-v="' + esc(h.id) + '"><div class="rthumb"><div class="ph" style="display:flex;align-items:center;justify-content:center;height:100%;background:#1f1f1f;color:#3a3a3a;font-weight:800">' + esc(initials(h.owner)) + '</div></div>' +
-            '<div class="rtxt"><div class="rt">' + esc(h.title) + '</div><div class="rs">@' + esc(h.owner) + ' &middot; ' + esc(ago(h.at)) + '</div></div></button>'; }).join("")
-      : '<div class="empty" style="padding:24px">Nothing watched yet on this phone.</div>';
-    Array.prototype.forEach.call($("histList").querySelectorAll("[data-v]"), function(b){
-      b.onclick = function(){ curVideo = b.dataset.v; go("watch", true); };
-    });
-  }).catch(function(e){ $("library").innerHTML = '<div class="empty">' + esc(e.message||"Could not load your library.") + '</div>'; });
-}
-function pushHistory(v){
-  try{
-    var h = JSON.parse(localStorage.getItem("ff_hist") || "[]");
-    h = h.filter(function(x){ return x.id !== v.id; });
-    h.unshift({ id:v.id, title:v.title, owner:v.owner, at:new Date().toISOString() });
-    localStorage.setItem("ff_hist", JSON.stringify(h.slice(0, 30)));
-  }catch(e){}
+          '<div class="rtxt"><div class="rt">@' + esc(n) + '</div></div></button>';
+      }).join("") + '</div>');
+      Array.prototype.forEach.call($("library").querySelectorAll("[data-ch]"), function(b){
+        b.onclick = function(){ curChannel = b.dataset.ch; go("channel", true); };
+      });
+    }).catch(function(e){ paint(libEmpty(e.message || "Could not load your subscriptions.")); });
+    return;
+  }
+  if (libFilter === "mine") {
+    api("/api/videos?owner=" + encodeURIComponent(me)).then(function(j){
+      var items = (j.videos || []).map(function(v){
+        return { id: v.id, title: v.title, duration: v.duration,
+                 by: fmt(v.views) + " &middot; " + ago(v.created_at), watched: seenPct(v.id) >= 95 };
+      });
+      paint(items.length ? libRows(items) : libEmpty("You have not uploaded anything yet."));
+    }).catch(function(e){ paint(libEmpty(e.message || "Could not load your videos.")); });
+    return;
+  }
+  if (libFilter === "liked") {
+    api("/api/likes").then(function(j){
+      var items = (j.videos || []).map(function(v){
+        return { id: v.id, title: v.title, duration: v.duration, by: "@" + v.owner };
+      });
+      paint(items.length ? libRows(items) : libEmpty("Videos you like will show up here."));
+    }).catch(function(e){ paint(libEmpty(e.message || "Could not load liked videos.")); });
+    return;
+  }
+  // History. Kept on the device: the API has no history endpoint and a server
+  // table for one person's play history on one phone is not worth the writes.
+  var hist = load(K_HIST, []);
+  if (!hist.length) return paint(libEmpty("Nothing watched yet on this phone."));
+  paint(libRows(hist.map(function(h){
+    return { id: h.id, title: h.title, by: "@" + h.owner + " &middot; " + ago(h.at), duration: h.duration };
+  })));
 }
 
 /* =====================================================================
@@ -1151,25 +1590,39 @@ function createNote(){
 /* =====================================================================
    SEARCH
    ===================================================================== */
-$("searchBtn").onclick = function(){
-  $("searchWrap").classList.add("on"); $("qIn").focus();
-  setTimeout(function(){ var i = $("searchInput"); if (i) i.focus(); }, 220);
-};
+/* The old handler called $("qIn").focus(), but the input's id is searchInput.
+   $() returns null for a missing id and .focus() on null throws, which killed
+   the handler before the guarded fallback below it ran. The search bar slid in
+   and the keyboard never came up. Focus the input that actually exists. */
+function openSearch(){
+  $("searchWrap").classList.add("on");
+  var i = $("searchInput");
+  if (i) setTimeout(function(){ i.focus(); i.select && i.select(); }, 220);
+}
+$("searchBtn").onclick = openSearch;
 $("searchBack").onclick = function(){ $("searchWrap").classList.remove("on"); $("searchInput").blur(); };
 $("searchGo").onclick = function(){ searchQ = $("searchInput").value.trim(); if (searchQ) doSearch(searchQ); };
-$("searchInput").onkeydown = function(e){ if (e.key === "Enter") { searchQ = e.target.value.trim(); if (searchQ) doSearch(searchQ); } };
 $("searchClear").onclick = function(){ $("searchInput").value = ""; $("searchInput").focus(); };
+/* Live search as you type. The API has no search route, so this filters the
+   feed it would load anyway; the timer keeps it from firing on every keypress. */
+var searchTimer = null;
+$("searchInput").oninput = function(){
+  var q = this.value.trim();
+  clearTimeout(searchTimer);
+  if (!q) { if (curTab === "search") { searchQ = ""; go("home", true); } return; }
+  searchTimer = setTimeout(function(){ searchQ = q; doSearch(q); }, 260);
+};
+$("searchInput").onkeydown = function(e){
+  if (e.key === "Enter") { clearTimeout(searchTimer); searchQ = e.target.value.trim(); if (searchQ) doSearch(searchQ); }
+};
 function doSearch(q){
   curTab = "search"; searchQ = q || searchQ;
   $("searchWrap").classList.remove("on");
   $("chips").classList.add("hidden");
-  $("main").classList.remove("hidden");
   show("search");
   $("search").innerHTML = '<div class="spin" style="padding:40px 0"></div>';
-  var all = api("/api/videos").then(function(j){ return j.videos || []; });
-  var chs = api("/api/videos").then(function(){});
-  Promise.all([all]).then(function(res){
-    var vs = res[0] || [];
+  api("/api/videos?limit=50").then(function(j){
+    var vs = j.videos || [];
     var term = searchQ.toLowerCase();
     var hitV = vs.filter(function(v){
       return (v.title||"").toLowerCase().indexOf(term) >= 0 || (v.owner||"").toLowerCase().indexOf(term) >= 0;
@@ -1177,16 +1630,20 @@ function doSearch(q){
     var owners = {};
     vs.forEach(function(v){ owners[v.owner] = (owners[v.owner]||0) + 1; });
     var hitC = Object.keys(owners).filter(function(n){ return n.toLowerCase().indexOf(term) >= 0; });
-    $("search").innerHTML =
-      '<div class="group-h">Channels</div>' +
-      (hitC.length ? hitC.map(function(n){
+    var label = '<div class="group-h">Results for &quot;' + esc(searchQ) + '&quot;</div>';
+    $("search").innerHTML = label +
+      (hitC.length ? '<div class="group-h">Channels</div>' + hitC.map(function(n){
         return '<button class="row" data-ch="' + esc(n) + '"><div class="vav">' + esc(initials(n)) + '</div>' +
-          '<div class="rtxt"><div class="rt">@' + esc(n) + '</div><div class="rs">' + owners[n] + ' video' + (owners[n]===1?"":"s") + '</div></div></button>'; }).join("")
-        : '<div class="empty" style="padding:20px">No channels match.</div>') +
+          '<div class="rtxt"><div class="rt">@' + esc(n) + '</div><div class="rs">' + owners[n] + ' video' + (owners[n]===1?"":"s") + '</div></div>' +
+          '<div class="rk">' + ICON.kebab + '</div></button>'; }).join("")
+        : "") +
       '<div class="group-h">Videos</div>' +
       (hitV.length ? hitV.map(vcard).join("") : '<div class="empty" style="padding:20px">No videos match.</div>');
     Array.prototype.forEach.call($("search").querySelectorAll(".vcard"), function(b){
       b.onclick = function(){ curVideo = b.dataset.v; go("watch", true); };
+    });
+    Array.prototype.forEach.call($("search").querySelectorAll(".kebab"), function(b){
+      b.onclick = function(ev){ ev.stopPropagation(); overflowMenu("video", b.dataset.k, b.closest(".vcard-wrap")); };
     });
     Array.prototype.forEach.call($("search").querySelectorAll("[data-ch]"), function(b){
       b.onclick = function(){ curChannel = b.dataset.ch; go("channel", true); };
@@ -1197,6 +1654,14 @@ function doSearch(q){
 /* =====================================================================
    NOTIFICATIONS
    ===================================================================== */
+/* The rows from /api/notifications carry {id, video_id, title, owner,
+   created_at, read}. The old renderer read n.actor and n.text, which no row
+   has, so every notification rendered as "? / activity" instead of the video
+   it was about. */
+function notifText(n){
+  if (n.title) return n.owner ? n.owner + " uploaded " + n.title : n.title;
+  return "New activity";
+}
 function loadNotifs(){
   show("notifs");
   if (!me) { $("notifs").innerHTML = '<div class="empty">Sign in to see notifications.</div>'; return; }
@@ -1204,13 +1669,28 @@ function loadNotifs(){
   api("/api/notifications").then(function(j){
     var ns = j.notifications || [];
     $("notifs").innerHTML = ns.length ? ns.map(function(n){
-      return '<div class="row"><div class="vav">' + esc(initials(n.actor||n.user||"?")) + '</div>' +
-        '<div class="rtxt"><div class="rt">' + esc(n.text||("" + (n.type||"activity"))) + '</div>' +
-        '<div class="rs">' + esc(ago(n.created_at)) + '</div></div></div>'; }).join("")
+      var av = initials(n.owner || "?");
+      return '<button class="row' + (n.read ? "" : " unread") + '"' + (n.video_id ? ' data-v="' + esc(n.video_id) + '"' : '') + '>' +
+        '<div class="vav">' + esc(av) + '</div>' +
+        '<div class="rtxt"><div class="rt">' + esc(notifText(n)) + '</div>' +
+        '<div class="rs">' + esc(ago(n.created_at)) + '</div></div>' +
+        (n.read ? "" : '<div class="unread-dot"></div>') + '</button>'; }).join("")
       : '<div class="empty"><div class="big">All clear</div>No notifications.</div>';
-    api("/api/notifications/read", { method:"POST", body:{} }).catch(function(){});
-    $("notifDot").classList.add("hidden");
+    Array.prototype.forEach.call($("notifs").querySelectorAll("[data-v]"), function(b){
+      b.onclick = function(){ curVideo = b.dataset.v; go("watch", true); };
+    });
+    api("/api/notifications/read", { method:"POST", body:{} }).then(function(){
+      $("notifDot").classList.add("hidden");
+    }).catch(function(){});
   }).catch(function(e){ $("notifs").innerHTML = '<div class="empty">' + esc(e.message||"Could not load notifications.") + '</div>'; });
+}
+/* The dot on the bell. Polled once at boot and refreshed when the tab regains
+   focus, so it is never permanently wrong in either direction. */
+function refreshUnread(){
+  if (!me) { $("notifDot").classList.add("hidden"); return; }
+  api("/api/notifications").then(function(j){
+    $("notifDot").classList.toggle("hidden", !(j.unread > 0));
+  }).catch(function(){});
 }
 $("notifBtn").onclick = function(){ go("notifs", true); };
 $("avatarBtn").onclick = function(){ go("you", true); };
@@ -1225,10 +1705,108 @@ $("main").addEventListener("scroll", function(){
 });
 
 /* =====================================================================
+   PULL TO REFRESH
+   Hand rolled rather than using overscroll-behavior: the feed is a real
+   scrolling div, not the document, so the browser's native refresh pull only
+   ever fires on the document and never here. Touch events it is.
+   ===================================================================== */
+(function(){
+  var main = $("main"), ptr = $("ptr"), arrow = $("ptrArrow"), label = $("ptrText");
+  var startY = 0, pulling = false, dist = 0, armed = false, busy = false;
+  var THRESHOLD = 64;
+
+  function set(dist2){
+    // Rubber band: the further you pull the less it moves, so the gesture can
+    // never run away on a long page.
+    var y = Math.min(96, dist2 * 0.55);
+    ptr.style.height = y + "px";
+    arrow.style.transform = "translateY(" + y + "px) rotate(" + (dist2 >= THRESHOLD ? 180 : 0) + "deg)";
+    ptr.style.opacity = Math.min(1, y / 40);
+  }
+  function reset(){
+    pulling = false; armed = false;
+    ptr.style.height = "0px"; ptr.style.opacity = "0";
+    arrow.classList.remove("spin");
+    arrow.style.transform = "translateY(0)";
+  }
+  main.addEventListener("touchstart", function(e){
+    if (busy || main.scrollTop > 2 || e.touches.length !== 1) return;
+    startY = e.touches[0].clientY; pulling = true; dist = 0;
+  }, { passive: true });
+
+  main.addEventListener("touchmove", function(e){
+    if (!pulling) return;
+    var dy = e.touches[0].clientY - startY;
+    if (dy <= 0) { reset(); pulling = false; return; }
+    dist = dy;
+    armed = dy >= THRESHOLD;
+    label.textContent = armed ? "Release to refresh" : "Pull to refresh";
+    set(dy);
+    // Once the gesture is clearly a refresh, stop the page from scrolling under
+    // the pull so the content does not slide away from the finger.
+    if (armed) e.preventDefault();
+  }, { passive: false });
+
+  function end(){
+    if (!pulling) return;
+    var go2 = armed;
+    pulling = false;
+    if (!go2) { reset(); return; }
+    busy = true;
+    arrow.classList.add("spin");
+    label.textContent = "Refreshing";
+    ptr.style.height = "56px";
+    ptr.style.opacity = "1";
+    var done = false;
+    function finish(){
+      if (done) return; done = true; busy = false; reset();
+    }
+    // The feed has no single "reload" promise, so refresh the current tab and
+    // give it a beat to finish. loadHome/loadSubs/loadLibrary all replace the
+    // view in place.
+    feedOffset = 0; feedTotal = null;
+    try{
+      if (curTab === "home") loadHome();
+      else if (curTab === "subs") loadSubs();
+      else if (curTab === "library") loadLibrary();
+      else if (curTab === "you") loadYou();
+      else if (curTab === "channel") loadChannel(curChannel);
+      else if (curTab === "watch") loadWatch(curVideo);
+      else if (curTab === "notifs") loadNotifs();
+      else if (curTab === "search") doSearch(searchQ);
+    }catch(e){}
+    setTimeout(finish, 900);
+  }
+  main.addEventListener("touchend", end, { passive: true });
+  main.addEventListener("touchcancel", function(){ pulling = false; reset(); }, { passive: true });
+})();
+
+/* =====================================================================
+   INFINITE SCROLL
+   A scroll check rather than an IntersectionObserver: the tail marker is
+   destroyed and rebuilt on every page, so an observer would have to be
+   re-attached each time and would then hold a dead node. The feed is one
+   scrolling element, so "close enough to the bottom" is a two-line test.
+   Paging is home-only: the subscriptions feed fetches every channel at once,
+   because there is no server-side "videos from my subscriptions" query.
+   ===================================================================== */
+$("main").addEventListener("scroll", function(){
+  if (curTab !== "home" || feedLoading) return;
+  if (feedTotal != null && feedOffset >= feedTotal) return;
+  if (!$("feedMore")) return;
+  if ($("main").scrollTop + $("main").clientHeight >= $("main").scrollHeight - 600) loadHome(true);
+});
+
+/* =====================================================================
    BOOT
    ===================================================================== */
 (async function boot(){
   try{ myReports = JSON.parse(localStorage.getItem(K_MYREP) || "{}") || {}; }catch(e){ myReports = {}; }
+  // The logo is the hand-made artwork, served from the site rather than inlined.
+  // The APK already loads everything else from there, so shipping a second copy
+  // inside the package would only add weight and a chance of the two drifting.
+  $("brandMark").innerHTML = '<img src="/mobile/logo.png?v=21" alt="FirFall" width="33" height="22" ' +
+    'onerror="this.parentNode.innerHTML=\'' + svgFromPoints(FLAME, "#ff0000") + '\'">';
   var t = token(), u = null;
   try{ u = localStorage.getItem(K_USER); }catch(e){}
   if (t) {
@@ -1253,15 +1831,12 @@ window.FirFall = {
      app genuinely has nowhere left to go, so Back closes an open sheet or
      backs out of a channel before it ever backs out of the app. */
   onBack: function(){
-    if (!$("scrim").classList.contains("on")) { /* sheet not open */ }
-    else { closeSheet(); return "handled"; }
+    if ($("scrim").classList.contains("on")) { closeSheet(); return "handled"; }
     if ($("searchWrap").classList.contains("on")) { $("searchWrap").classList.remove("on"); return "handled"; }
-    if (curTab === "watch" || curTab === "channel" || curTab === "search" || curTab === "notifs") {
-      curTab = "home"; go("home", true); paintChips(); return "handled";
-    }
-    if (curTab === "shorts") { go("home", true); paintChips(); return "handled"; }
-    if (feedFilter !== "all") { feedFilter = "all"; go(curTab, true); paintChips(); return "handled"; }
     if (!$("ban").classList.contains("hidden")) return "exit";
+    // A pushed screen goes back to whichever feed opened it, not always Home:
+    // youTube returns you to where you were, and so does this.
+    if (NAV_OWNER[curTab] === null && curTab !== "home") { go(navOrigin, true); return "handled"; }
     return "exit";
   }
 };
