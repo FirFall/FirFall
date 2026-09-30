@@ -1337,8 +1337,12 @@ function openReplyBox(commentEl, parent, vid, list, isReply) {
   if (existing) { existing.remove(); return; }
   const box = document.createElement('div');
   box.className = 'reply-box';
-  box.innerHTML = '<textarea rows="2" maxlength="500" placeholder="Reply to @' +
-    (parent.reply_to || parent.user).replace(/[<>&"]/g, '') + '..."></textarea>' +
+  // The composer sits indented inside the reply section rather than at the
+  // parent comment's own level, so what you are writing reads as part of the
+  // thread instead of as a stray box hanging off the comment.
+  box.innerHTML = '<div class="rbsum">Replying to @' +
+    (parent.reply_to || parent.user).replace(/[<>&"]/g, '') + '</div>' +
+    '<textarea rows="2" maxlength="500" placeholder="Add a reply..."></textarea>' +
     '<div><button class="ghost-btn" data-x>Cancel</button> <button class="auth-go" data-send>Reply</button></div>';
   commentEl.appendChild(box);
   const ta = box.querySelector('textarea');

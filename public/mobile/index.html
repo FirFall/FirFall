@@ -255,6 +255,16 @@ input,textarea{font:inherit}
 .thread{display:none}
 .thread.open{display:block}
 .rbtn.thtoggle{color:var(--blue);font-weight:700}
+/* The inline reply composer. Indented like a reply, and folded away until you
+   press Reply, so a thread stays readable until you are actually writing. */
+.rbox{display:none;margin:10px 0 0 10px;padding-left:10px;border-left:2px solid #2f2f2f}
+.rbox.open{display:block}
+.rbsum{color:var(--blue);font-size:12px;font-weight:600;margin-bottom:6px}
+.rbox textarea{width:100%;background:var(--bg3);color:var(--txt);border:1px solid var(--line);
+  border-radius:10px;padding:9px 10px;font:inherit;font-size:14px;resize:vertical;outline:0;min-height:44px}
+.rbox textarea:focus{border-color:var(--red)}
+.rba{display:flex;justify-content:flex-end;gap:10px;margin-top:8px}
+.rbtn.go{color:var(--red);font-weight:700}
 .comment.reply .ctext{font-size:13.5px}
 .crep{color:var(--blue);font-weight:600}
 .rbtn.heart.on{color:#ff5a5a}
@@ -572,7 +582,12 @@ input,textarea{font:inherit}
 
 <div id="chips" class="hidden"></div>
 
-<div id="ptr"><div class="arw" id="ptrArrow">
+<!-- class="ptr" is load-bearing, not decoration: every rule for this strip
+     (its 56px height, and the 20px size on the arrow below) is written as
+     .ptr ... Without it the rules matched nothing, the arrow's svg had no
+     size at all and rendered a screen-tall glyph behind the whole page.
+     Starts collapsed so "Pull to refresh" only appears once you pull. -->
+<div id="ptr" class="ptr" style="height:0;opacity:0"><div class="arw" id="ptrArrow">
   <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 13c0-4.42-3.58-8-8-8z"/></svg>
   <span id="ptrText">Pull to refresh</span>
 </div></div>
@@ -1635,6 +1650,7 @@ var replyThreadsOpen = {};
 function loadComments(vid, target){
   api("/api/comments?video=" + encodeURIComponent(vid)).then(function(j){
     var list = target || $("cList"); if (!list) return;
+    var inlineReply = list.id !== "scList";
     var cs = j.comments || [];
     if (!cs.length) { list.innerHTML = "<div style=\"color:var(--dim);font-size:14px\">No comments yet.</div>"; return; }
     // Flat list from the API, rendered as one level of replies under their
@@ -1689,11 +1705,23 @@ function loadComments(vid, target){
       var cav = c.avatar
         ? "<img class=\"cav cav-img\" src=\"" + esc(API + c.avatar + "?t=" + Date.now()) + "\" alt=\"" + esc("@" + c.user) + "\">"
         : "<div class=\"cav vav\">" + esc(initials(c.user)) + "</div>";
+      /* The reply composer is inline and indented into the reply section, the
+         way YouTube does it, rather than a full-screen sheet: you can see the
+         comment you are answering while you write. The Shorts panel is the one
+         place with no room for it, so there the sheet is still used. */
+      var composer = (me && !isReply && inlineReply)
+        ? "<div class=\"rbox\" data-rb=\"" + esc(c.id) + "\" data-rto=\"" + esc(c.reply_to || c.user) + "\">" +
+            "<div class=\"rbsum\">Replying to @" + esc(c.reply_to || c.user) + "</div>" +
+            "<textarea rows=\"2\" maxlength=\"500\" placeholder=\"Add a reply...\"></textarea>" +
+            "<div class=\"rba\"><button class=\"rbtn\" data-rx>Cancel</button>" +
+            "<button class=\"rbtn go\" data-rs>Reply</button></div>" +
+          "</div>"
+        : "";
       return "<div class=\"comment" + (isReply ? " reply" : "") + "\"><div class=\"cavw\" data-cu=\"" + esc(c.user) + "\">" + cav +
         "</div><div class=\"cbody\"><div class=\"cwho\"><span class=\"cname\" data-cu=\"" + esc(c.user) + "\">@" + esc(c.user) +
         "</span><span class=\"ctime\">" + esc(ago(c.created_at)) +
         "</span></div><div class=\"ctext\">" + at + esc(c.text) + "</div>" +
-        (acts ? "<div class=\"cfoot\">" + acts + "</div>" : "") + thread + "</div></div>";
+        (acts ? "<div class=\"cfoot\">" + acts + "</div>" : "") + thread + composer + "</div></div>";
     }
     list.innerHTML = (kids.root || []).map(function(c){ return one(c, false); }).join("");
     Array.prototype.forEach.call(list.querySelectorAll("[data-cu]"), function(a){
@@ -1737,7 +1765,39 @@ function loadComments(vid, target){
       if (b.dataset.r) {
         b.onclick = function(){
           var c = cs.filter(function(x){ return String(x.id) === String(b.dataset.r); })[0];
-          if (c) replySheet(vid, c, list);
+          if (!c) return;
+          if (!inlineReply) { replySheet(vid, c, list); return; }
+          var box = b.closest(".comment").querySelector(".rbox");
+          if (!box) return;
+          if (box.classList.contains("open")) { box.classList.remove("open"); return; }
+          Array.prototype.forEach.call(list.querySelectorAll(".rbox.open"), function(o){ o.classList.remove("open"); });
+          box.classList.add("open");
+          var ta = box.querySelector("textarea");
+          if (ta) ta.focus();
+        };
+        return;
+      }
+      if (b.dataset.rx) {
+        b.onclick = function(){ b.closest(".rbox").classList.remove("open"); };
+        return;
+      }
+      if (b.dataset.rs) {
+        b.onclick = function(){
+          var box = b.closest(".rbox");
+          var ta = box.querySelector("textarea");
+          var t = ta.value.trim();
+          if (!t) return;
+          b.disabled = true;
+          api("/api/comments", { method:"POST", body:{ video_id: vid, text: t, parent_id: box.dataset.rb, reply_to: box.dataset.rto || "" } })
+            .then(function(){
+              // Open the thread you just replied in - the list re-renders.
+              replyThreadsOpen[box.dataset.rb] = 1;
+              box.classList.remove("open");
+              ta.value = "";
+              toast("Reply posted");
+              loadComments(vid, list);
+            })
+            .catch(function(e){ b.disabled = false; toast(e.message || "Could not post that reply."); });
         };
         return;
       }
@@ -2089,7 +2149,10 @@ function createNote(){
    lying about its length. */
 var EMBER_MAX_S = 60;
 var camStream = null, camRec = null, camChunks = [], camTimerIv = null;
-var camFacing = "user", camStart = 0, emberBlob = null, emberMime = "video/mp4";
+// The back camera is what an ember is shot on, so that is where it opens.
+// "user" is the selfie camera and was the old default, which meant the
+// first thing you saw on record was the wrong one.
+var camFacing = "environment", camStart = 0, emberBlob = null, emberMime = "video/mp4";
 var uploading = false;
 
 function openCamera(){
@@ -2116,11 +2179,19 @@ function openCamera(){
    with progressively looser constraints, and only a genuine NotAllowedError
    (the user said no) is reported as a permissions problem. */
 var CAM_TRIES = [
-  function(f){ return { video: { facingMode: { ideal: f }, width: { ideal: 720 }, height: { ideal: 1280 } },
-                        audio: { echoCancellation: true, noiseSuppression: true } }; },
-  function(f){ return { video: { facingMode: { ideal: f } }, audio: true }; },
-  function(f){ return { video: true, audio: true }; },
-  function(){ return { video: true }; }
+  function(f){ return { cons: { video: { facingMode: { exact: f }, width: { ideal: 720 }, height: { ideal: 1280 } },
+                                 audio: { echoCancellation: true, noiseSuppression: true } } }; },
+  function(f){ return { cons: { video: { facingMode: { exact: f } }, audio: true } }; },
+  function(f){ return { cons: { video: { facingMode: { ideal: f } }, audio: true } }; },
+  // The last rungs ask for no particular camera and are marked "any". They are
+  // the escape hatch: the device either cannot name a facing or keeps handing
+  // back the other one, and a working picture of the wrong camera is still worth
+  // far more than "No camera available" with no way forward. camMatches is not
+  // applied to these, so a stream that arrives here is used rather than thrown
+  // away - which is what used to walk the whole ladder and report failure on a
+  // phone that had a perfectly good camera pointed at the user.
+  function(){  return { cons: { video: true, audio: true }, any: true }; },
+  function(){  return { cons: { video: true }, any: true }; }
 ];
 /* Flipping is a different problem and needs a different ladder. "ideal" is a
    HINT, not a request: the browser is free to hand back any camera it likes,
@@ -2132,10 +2203,10 @@ var CAM_TRIES = [
    The looser rungs only run when exact is rejected outright, and camMatches()
    still throws away any stream that turns out to be the wrong camera. */
 var CAM_FLIP_TRIES = [
-  function(f){ return { video: { facingMode: { exact: f } }, audio: { echoCancellation: true, noiseSuppression: true } }; },
-  function(f){ return { video: { facingMode: { exact: f } }, audio: true }; },
-  function(f){ return { video: { facingMode: { ideal: f } }, audio: true }; },
-  function(){ return { video: true, audio: true }; }
+  function(f){ return { cons: { video: { facingMode: { exact: f } }, audio: { echoCancellation: true, noiseSuppression: true } } }; },
+  function(f){ return { cons: { video: { facingMode: { exact: f } }, audio: true } }; },
+  function(f){ return { cons: { video: { facingMode: { ideal: f } }, audio: true } }; },
+  function(){  return { cons: { video: true, audio: true }, any: true }; }
 ];
 /* The device the camera is currently on, so a flip can be checked by identity
    as well as by facingMode - some devices report one but not the other. */
@@ -2176,9 +2247,10 @@ function startCam(facing, flipping, announce){
       } else camFail("nocam");
       return;
     }
-    var cons = tries[i++](facing);
+    var rung = tries[i++](facing);
+    var cons = rung.cons, anyRung = rung.any;
     navigator.mediaDevices.getUserMedia(cons).then(function(s){
-      if (!camMatches(s, facing)) {
+      if (!anyRung && !camMatches(s, facing)) {
         // Handed the wrong camera. Drop it on the floor and try the next rung
         // rather than showing it and calling it a successful flip.
         try { s.getTracks().forEach(function(t){ t.stop(); }); } catch(e){}
@@ -2190,6 +2262,15 @@ function startCam(facing, flipping, announce){
       var st = (tr && tr.getSettings && tr.getSettings()) || {};
       camDeviceId = st.deviceId || null;
       var v = $("camVideo");
+      // The element is looked up inside a promise callback, so a miss here
+      // used to throw where nobody could see it: no stream, no message, and a
+      // camera button that looked broken. Report it the same way as any other
+      // camera failure instead.
+      if (!v) {
+        try { s.getTracks().forEach(function(t){ t.stop(); }); } catch(e){}
+        camFail("nocam");
+        return;
+      }
       v.srcObject = s;
       // Mirror on the real facing when we have one, else on what we asked for.
       v.classList.toggle("mirror", (camFacingOf(s) || facing) === "user");

@@ -186,6 +186,15 @@ const DRIVE = `<script>
           rec("feedVertical", f && f.classList.contains("vgrid") ? "yes" : "no");
           rec("feedText", ((f && f.textContent) || "").replace(/\\s+/g, " ").trim().slice(0, 60));
           rec("chipsHidden", document.getElementById("chips").classList.contains("hidden") ? "yes" : "no");
+          // The pull-to-refresh strip. #ptr shipped with no class, so every
+          // .ptr rule matched nothing, the arrow's svg had no size at all and
+          // drew a screen-tall arrow behind the whole page on every screen.
+          // Nothing caught it: the id existed, the ids guard passed, and a
+          // missing class is invisible to a check that only counts ids.
+          var ptr = document.getElementById("ptr");
+          rec("ptrClass", ptr ? ptr.className : "MISSING");
+          rec("ptrH", ptr ? Math.round(ptr.getBoundingClientRect().height) : -1);
+          rec("ptrArrowW", ptr && ptr.querySelector("svg") ? Math.round(ptr.querySelector("svg").getBoundingClientRect().width) : -1);
         }catch(e){ rec("lateError", e.message); }
       }, 1000);
     }catch(e){ rec("earlyError", e.message); }
@@ -428,6 +437,32 @@ function load(path) {
    they got there. The one deliberate exception is the Watch later id lookup,
    which must resolve embers too because they open in the Shorts panel; it
    carries a comment saying so. Everything else has to say which kind it wants. */
+/* The camera ladders. Two things here are easy to break and impossible to see:
+   the back camera has to be the default (an ember is shot on the back camera,
+   not the selfie one), and both ladders have to end in a rung that accepts
+   whatever the device hands back. The rungs above it ask for a facing by name
+   and throw away a stream that turns out to be the wrong camera, so without a
+   final "any" rung a phone that ignores the request walks the whole ladder and
+   reports "No camera available" while pointing a perfectly good lens at you. */
+function checkCameraLadder() {
+  const src = readFileSync(join(ROOT, "public/mobile/index.html"), "utf8");
+  const bad = [];
+  if (!/var camFacing = "environment"/.test(src)) bad.push("the back camera is not the default");
+  for (const name of ["CAM_TRIES", "CAM_FLIP_TRIES"]) {
+    const from = src.indexOf("var " + name + " = [");
+    if (from < 0) { bad.push(name + " not found"); continue; }
+    const to = src.indexOf("\n];", from);
+    const block = src.slice(from, to < 0 ? from : to);
+    if (!/any:\s*true/.test(block)) bad.push(name + " has no 'any' rung to fall back on");
+  }
+  if (bad.length) {
+    console.log("  FAIL  camera  " + bad.join("; "));
+    return false;
+  }
+  console.log("  ok    camera  back camera by default, both ladders end in an 'any' rung");
+  return true;
+}
+
 function checkKindFilters() {
   const files = [["public/mobile/index.html", "/api/videos?"], ["public/app.js", "/api/videos?"]];
   let bad = 0;
@@ -496,6 +531,7 @@ server.listen(PORT, async () => {
   if (!checkKindFilters()) failed = true;
   if (!checkCustomPlayer()) failed = true;
   if (!checkDanglingIds()) failed = true;
+  if (!checkCameraLadder()) failed = true;
   prepare();
   for (const path of ["/", "/mobile/"]) {
     const r = await load(path);
@@ -538,7 +574,8 @@ server.listen(PORT, async () => {
         shortsOpen: "yes", slides: "2", railButtons: "4", snapY: "yes",
         stageRatio: "9/16", objectFit: "contain", shortsClosed: "yes", leftBehind: "0",
         simultaneous: "1", commentUI: "yes", agoHours: "2 hours ago", agoDays: "3 days ago",
-        ctRoots: "2", ctReplies: "1", ctAll: "yes"
+        ctRoots: "2", ctReplies: "1", ctAll: "yes",
+        ptrClass: "ptr", ptrH: "0", ptrArrowW: "20"
       };
       // getComputedStyle reports aspect-ratio as "9 / 16", spaces and all.
       if (r.stageRatio) r.stageRatio = r.stageRatio.replace(/\s+/g, "");
