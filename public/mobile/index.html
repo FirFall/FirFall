@@ -1224,7 +1224,10 @@ async function loadHome(append){
   feedLoading = true;
   try{
     var owner = (curTab === "subs" && me) ? await subsFeedOwner() : null;
-    var url = "/api/videos?limit=" + PAGE + "&offset=" + (append ? feedOffset : 0) + "&sort=" + feedSort;
+    // Embers are vertical and live in their own tab. Every feed meant to hold
+    // ordinary videos says kind=video explicitly: the API treats a missing
+    // kind as "both", which is how vertical clips ended up in the normal grid.
+    var url = "/api/videos?kind=video&limit=" + PAGE + "&offset=" + (append ? feedOffset : 0) + "&sort=" + feedSort;
     if (owner) url += "&owner=" + encodeURIComponent(owner);
     var j = await api(url);
     var vs = j.videos || [];
@@ -1232,7 +1235,7 @@ async function loadHome(append){
       var names = await subChannels();
       var all = [];
       for (var i=0;i<names.length;i++){
-        var r = await api("/api/videos?owner=" + encodeURIComponent(names[i]));
+        var r = await api("/api/videos?kind=video&owner=" + encodeURIComponent(names[i]));
         all = all.concat(r.videos || []);
       }
       all.sort(function(a,b){ return new Date(b.created_at) - new Date(a.created_at); });
@@ -1522,9 +1525,9 @@ async function loadWatch(id){
 function loadUpNext(v){
   var box = $("upNext");
   if (!box) return;
-  api("/api/videos?owner=" + encodeURIComponent(v.owner)).then(function(j){
+  api("/api/videos?kind=video&owner=" + encodeURIComponent(v.owner)).then(function(j){
     var mine = (j.videos || []).filter(function(x){ return x.id !== v.id; }).slice(0, 6);
-    return api("/api/videos?limit=20").then(function(f){
+    return api("/api/videos?kind=video&limit=20").then(function(f){
       var hid = hiddenIds();
       var others = (f.videos || []).filter(function(x){
         return x.id !== v.id && x.owner !== v.owner && hid.indexOf(x.id) < 0;
@@ -1600,7 +1603,7 @@ async function loadChannel(name){
       '</div>' +
       (c.about ? '<div style="padding:0 16px 8px;font-size:14px;line-height:1.5;white-space:pre-wrap">' + esc(c.about) + '</div>' : "") +
       '<h3 class="sect-h" style="padding:12px 12px 8px">Videos</h3><div id="chVids"></div>';
-    var v = await api("/api/videos?owner=" + encodeURIComponent(c.username));
+    var v = await api("/api/videos?kind=video&owner=" + encodeURIComponent(c.username));
     var vs = v.videos || [];
     $("chVids").innerHTML = vs.length ? vs.map(vcard).join("")
       : '<div class="empty">This channel has no public videos.</div>';
@@ -1690,7 +1693,7 @@ async function loadSubs(){
     // reachable, so it is not gated behind having followed someone.
     var all = [];
     for (var i=0;i<names.length;i++){
-      var r = await api("/api/videos?owner=" + encodeURIComponent(names[i]));
+      var r = await api("/api/videos?kind=video&owner=" + encodeURIComponent(names[i]));
       all = all.concat(r.videos || []);
     }
     all.sort(function(a,b){ return new Date(b.created_at) - new Date(a.created_at); });
@@ -1776,7 +1779,9 @@ function loadLibrary(){
     var later = load(K_LATER, []);
     if (!later.length) return paint(libEmpty("Nothing saved yet. Tap Save on any video."));
     // Watch later is a list of ids, so the titles come from the feed. Fetch it
-    // once and keep only the ids that still resolve.
+    // once and keep only the ids that still resolve. Deliberately NOT
+    // kind=video: an ember can be saved to Watch later too, and it opens in the
+    // Shorts panel rather than the watch page, so it has to resolve here as well.
     api("/api/videos?limit=50").then(function(j){
       var byId = {}; (j.videos || []).forEach(function(v){ byId[v.id] = v; });
       var items = later.map(function(id){ return byId[id]; }).filter(Boolean).map(function(v){
@@ -1787,7 +1792,7 @@ function loadLibrary(){
     return;
   }
   if (libFilter === "mine") {
-    api("/api/videos?owner=" + encodeURIComponent(me)).then(function(j){
+    api("/api/videos?kind=video&owner=" + encodeURIComponent(me)).then(function(j){
       var items = (j.videos || []).map(function(v){
         return { id: v.id, title: v.title, duration: v.duration,
                  by: fmt(v.views) + " &middot; " + ago(v.created_at), watched: seenPct(v.id) >= 95 };
@@ -2555,7 +2560,7 @@ function doSearch(q){
   $("chips").classList.add("hidden");
   show("search");
   $("search").innerHTML = '<div class="spin" style="padding:40px 0"></div>';
-  api("/api/videos?limit=50").then(function(j){
+  api("/api/videos?kind=video&limit=50").then(function(j){
     var vs = j.videos || [];
     var term = searchQ.toLowerCase();
     var hitV = vs.filter(function(v){

@@ -416,7 +416,8 @@ const homeView = document.getElementById('homeView');
 const channelView = document.getElementById('channelView');
 const watchView = document.getElementById('watchView');
 const listView = document.getElementById('listView');
-function show(el) { [homeView, channelView, watchView, listView].forEach(v => v.classList.add('hidden')); el.classList.remove('hidden');
+const studioView = document.getElementById('studioView');
+function show(el) { [homeView, channelView, watchView, listView, studioView].forEach(v => v.classList.add('hidden')); el.classList.remove('hidden');
   // The Embers shelf belongs to the home feed only; every other view hides it.
   document.getElementById('emberShelf').classList.toggle('hidden', el !== homeView);
 }
@@ -826,7 +827,9 @@ async function renderChannel(name) {
     meta.textContent = '@' + c.username + ' • ' + fmt(c.subscribers) + ' subscribers • ' + c.videos + ' videos';
     document.getElementById('chAbout').textContent = c.about || 'This channel has no description yet.';
     document.getElementById('chStats').textContent = fmt(c.views) + ' total views • joined ' + new Date(c.joined).toLocaleDateString();
-    const r = await fetch(API + '/api/videos?owner=' + encodeURIComponent(c.username),
+    // kind=video explicitly: the API treats a missing kind as "both", so without
+    // it the channel's Videos tab filled up with other people's embers.
+    const r = await fetch(API + '/api/videos?kind=video&owner=' + encodeURIComponent(c.username),
       me() ? { headers: { 'Authorization': 'Bearer ' + token() } } : undefined);
     const { videos } = await r.json();
     const list = (videos || []).slice();
@@ -1275,6 +1278,339 @@ function savedCard(v, opts) {
   d.onclick = () => { location.hash = '#/watch/' + v.id; };
   return d;
 }
+// ---- FirFall Studio ----
+// The creator side. FirFall's flame and orange rather than a YouTube pastiche:
+// this is FirFall's studio and pretending otherwise helps nobody.
+//
+// Videos and Embers are kept in separate tabs on purpose. A vertical ember is
+// not a video that happens to be tall, and the API's default kind filter is
+// "both" - so one table over the unfiltered list would be exactly the thing
+// that put embers in the normal feed in the first place.
+const FS_VIS = [
+  ['public', 'Public', 'Anyone can watch'],
+  ['unlisted', 'Unlisted', 'Only people with the link'],
+  ['private', 'Private', 'Only you']
+];
+let fsTab = 'home', fsKind = 'video', fsFilter = 'all', fsVideos = [], fsChannel = null, fsStats = {};
+
+async function renderStudio() {
+  show(studioView); markNav('studio');
+  document.getElementById('fsChannel').textContent = me() ? '@' + me() : '';
+  document.querySelectorAll('.fs-tab').forEach(b => b.classList.toggle('on', b.dataset.tab === fsTab));
+  const body = document.getElementById('fsBody');
+  if (!me()) {
+    body.innerHTML = '<div class="fs-empty"><h2>Sign in to open FirFall Studio</h2>' +
+      '<p>Studio is where you manage your channel and your videos.</p></div>';
+    return;
+  }
+  body.innerHTML = '<div class="blank-state"><p>Loading...</p></div>';
+  // The channel is needed on every tab: customise previews the banner and
+  // picture from it, and the dashboard shows the avatar.
+  try { fsChannel = await (await fetch(API + '/api/channel?name=' + encodeURIComponent(me()))).json(); }
+  catch { fsChannel = null; }
+  try {
+    const r = await fetch(API + '/api/studio/videos', { headers: { 'Authorization': 'Bearer ' + token() } });
+    const j = await r.json();
+    if (r.ok) { fsVideos = j.videos || []; fsStats = j.stats || {}; }
+  } catch { fsVideos = []; }
+  if (fsTab === 'customise') studioCustomise();
+  else if (fsTab === 'videos') studioVideos();
+  else studioHome();
+}
+
+function studioHome() {
+  const av = fsChannel && fsChannel.avatar
+    ? '<img src="' + esc(API + fsChannel.avatar + '?t=' + Date.now()) + '" alt="">'
+    : '<div class="fs-pic-prev" style="display:flex;align-items:center;justify-content:center;' +
+      'font-size:32px;font-weight:800;color:#555">' + esc((me() || '?')[0].toUpperCase()) + '</div>';
+  const videos = fsVideos.filter(v => v.kind !== 'ember').length;
+  const embers = fsVideos.filter(v => v.kind === 'ember').length;
+  document.getElementById('fsBody').innerHTML =
+    '<div class="fs-cards">' +
+      '<button class="fs-card" id="fsGoCustomise">' +
+        '<svg viewBox="0 0 24 24"><path d="M3 5h18v4H3V5zm0 7h18v3H3v-3zm0 6h11v3H3v-3z"/></svg>' +
+        '<strong>Customise channel</strong>' +
+        '<span>Banner, picture and the description on your channel page.</span></button>' +
+      '<button class="fs-card" id="fsGoVideos">' +
+        '<svg viewBox="0 0 24 24"><path d="M4 5h16v2H4V5zm0 6h16v2H4v-2zm0 6h10v2H4v-2z"/></svg>' +
+        '<strong>Manage videos</strong>' +
+        '<span>Edit titles, descriptions and visibility, or delete something.</span></button>' +
+    '</div>' +
+    '<div class="fs-stats">' +
+      '<div class="fs-stat"><b>' + fmt(videos) + '</b><span>Videos</span></div>' +
+      '<div class="fs-stat"><b>' + fmt(embers) + '</b><span>Embers</span></div>' +
+      '<div class="fs-stat"><b>' + fmt(fsStats.views || 0) + '</b><span>Total views</span></div>' +
+      '<div class="fs-stat"><b>' + fmt(fsStats.comments || 0) + '</b><span>Comments</span></div>' +
+    '</div>' +
+    '<div style="display:flex;gap:18px;align-items:center">' + av +
+      '<div><div style="font-size:18px;font-weight:700">@' + esc(me()) + '</div>' +
+      '<div style="color:#aaa;font-size:13.5px;max-width:60ch">' +
+        esc((fsChannel && fsChannel.about) || 'No channel description yet.') + '</div></div></div>';
+  document.getElementById('fsGoCustomise').onclick = () => { fsTab = 'customise'; renderStudio(); };
+  document.getElementById('fsGoVideos').onclick = () => { fsTab = 'videos'; renderStudio(); };
+}
+
+/* ---- Channel customisation ----
+   Change and Remove are separate because they are separate actions: one
+   replaces the file, the other clears the stored key and drops the object.
+   Leaving the column pointing at a deleted file is how a "removed" picture
+   comes back a week later. */
+function studioCustomise() {
+  const b = fsChannel && fsChannel.banner, a = fsChannel && fsChannel.avatar;
+  document.getElementById('fsBody').innerHTML =
+    '<div class="fs-art">' +
+      '<div>' +
+        '<div class="fs-art-row"><div class="fs-banner-prev">' +
+          (b ? '<img src="' + esc(API + b + '?t=' + Date.now()) + '" alt="">' : '') + '</div>' +
+          '<div class="fs-art-info"><h3>Banner image</h3>' +
+          '<p>This image appears across the top of your channel. Best results at 2048&times;1152 or wider, 6&nbsp;MB or less.</p>' +
+          '<div class="fs-btns"><button class="fs-btn" id="fsBannerChange">Change</button>' +
+          (b ? '<button class="fs-btn ghost" id="fsBannerRemove">Remove</button>' : '') + '</div></div></div>' +
+        '<div class="fs-art-row"><div class="fs-pic-prev">' +
+          (a ? '<img src="' + esc(API + a + '?t=' + Date.now()) + '" alt="">' : '') + '</div>' +
+          '<div class="fs-art-info"><h3>Picture</h3>' +
+          '<p>Your profile picture appears wherever your channel is shown - next to your videos, in comments and in Embers.</p>' +
+          '<div class="fs-btns"><button class="fs-btn" id="fsPicChange">Change</button>' +
+          (a ? '<button class="fs-btn ghost" id="fsPicRemove">Remove</button>' : '') + '</div></div></div>' +
+      '</div>' +
+      '<div><div class="fs-field"><label>Channel description</label>' +
+        '<textarea id="fsAbout" maxlength="1000" placeholder="Tell people what your channel is about."></textarea></div>' +
+        '<div class="fs-btns"><button class="fs-btn" id="fsAboutSave">Save</button>' +
+        '<button class="fs-btn ghost" id="fsAboutRevert">Discard</button></div>' +
+        '<div class="fs-msg" id="fsMsg"></div></div>' +
+    '</div>';
+  document.getElementById('fsAbout').value = (fsChannel && fsChannel.about) || '';
+  const msg = document.getElementById('fsMsg');
+  const fail = m => { msg.className = 'fs-msg err'; msg.textContent = m; };
+  const ok = m => { msg.className = 'fs-msg ok'; msg.textContent = m; };
+
+  const art = async (kind, file) => {
+    if (file.size > 5_000_000) return fail('That image must be under 5MB.');
+    const f = new FormData();
+    f.append(kind, file, kind + '.jpg');
+    try {
+      const r = await fetch(API + '/api/channel/edit', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + token() }, body: f
+      });
+      const j = await r.json();
+      if (!r.ok) return fail(j.error || 'Upload failed.');
+      renderStudio();
+    } catch { fail('Upload failed - service unreachable.'); }
+  };
+  const removeArt = async kind => {
+    try {
+      const r = await fetch(API + '/api/channel/edit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+        body: JSON.stringify(kind === 'banner' ? { removeBanner: true } : { removeAvatar: true })
+      });
+      const j = await r.json();
+      if (!r.ok) return fail(j.error || 'Could not remove that.');
+      renderStudio();
+    } catch { fail('Could not remove that - service unreachable.'); }
+  };
+  const pick = kind => {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'image/*';
+    inp.onchange = () => { if (inp.files && inp.files[0]) art(kind, inp.files[0]); };
+    inp.click();
+  };
+  const bc = document.getElementById('fsBannerChange'); if (bc) bc.onclick = () => pick('banner');
+  const pc = document.getElementById('fsPicChange'); if (pc) pc.onclick = () => pick('avatar');
+  const br = document.getElementById('fsBannerRemove'); if (br) br.onclick = () => removeArt('banner');
+  const pr = document.getElementById('fsPicRemove'); if (pr) pr.onclick = () => removeArt('avatar');
+
+  document.getElementById('fsAboutSave').onclick = async () => {
+    const btn = document.getElementById('fsAboutSave');
+    btn.disabled = true;
+    try {
+      const r = await fetch(API + '/api/channel/edit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+        body: JSON.stringify({ about: document.getElementById('fsAbout').value })
+      });
+      const j = await r.json();
+      if (!r.ok) { fail(j.error || 'Save failed.'); btn.disabled = false; return; }
+      renderStudio();
+    } catch { fail('Save failed - service unreachable.'); btn.disabled = false; }
+  };
+  document.getElementById('fsAboutRevert').onclick = () => {
+    document.getElementById('fsAbout').value = (fsChannel && fsChannel.about) || '';
+    msg.className = 'fs-msg'; msg.textContent = '';
+  };
+}
+
+/* ---- Manage videos ----
+   The Videos and Embers tabs are separate lists, not one list with a filter,
+   so a normal video can never appear under Embers. */
+function studioVideos() {
+  const mine = fsVideos.filter(v => (v.kind === 'ember') === (fsKind === 'ember'));
+  const rows = mine.filter(v => fsFilter === 'all' || v.visibility === fsFilter);
+  const label = { public: 'Public', unlisted: 'Unlisted', private: 'Private' };
+  const glyph = { public: '&#9679;', unlisted: '&#128279;', private: '&#128274;' };
+  document.getElementById('fsBody').innerHTML =
+    '<div class="fs-table-tools">' +
+      '<div class="fs-seg">' +
+        '<button data-kind="video" class="' + (fsKind === 'video' ? 'on' : '') + '">Videos</button>' +
+        '<button data-kind="ember" class="' + (fsKind === 'ember' ? 'on' : '') + '">Embers</button>' +
+      '</div>' +
+      '<select class="fs-filter" id="fsFilter">' +
+        ['all', 'public', 'unlisted', 'private'].map(f =>
+          '<option value="' + f + '"' + (fsFilter === f ? ' selected' : '') + '>' +
+          (f === 'all' ? 'All visibility' : label[f]) + '</option>').join('') +
+      '</select>' +
+      '<span class="list-count">' + rows.length + ' of ' + mine.length + '</span></div>' +
+    (rows.length ? '<div class="fs-rows">' +
+      '<div class="fs-row head"><span>Video</span><span></span><span>Visibility</span>' +
+        '<span>Date</span><span>Views</span><span>Comments</span><span></span></div>' +
+      rows.map(v =>
+        '<div class="fs-row" data-id="' + esc(v.id) + '">' +
+          '<div class="fs-thumb"><img loading="lazy" alt="" src="' + esc(API + '/t/' + v.id) + '"></div>' +
+          '<div><div class="fs-title">' + esc(v.title || '(untitled)') + '</div>' +
+            '<div class="fs-desc">' + esc(v.description || 'Add description') + '</div></div>' +
+          '<button class="fs-vis ' + esc(v.visibility) + '" data-act="vis" title="Change visibility">' +
+            glyph[v.visibility] + ' ' + label[v.visibility] + '</button>' +
+          '<div class="fs-date">' + esc(timeAgo(v.created_at)) + '</div>' +
+          '<div class="fs-num">' + fmt(v.views || 0) + '</div>' +
+          '<div class="fs-num">' + fmt(v.comments || 0) + '</div>' +
+          '<div class="fs-acts"><button data-act="edit">Edit</button>' +
+            '<button class="del" data-act="del">Delete</button></div>' +
+        '</div>').join('') +
+      '</div>'
+      : '<div class="fs-empty"><h2>' +
+        (mine.length ? 'Nothing with that visibility' : (fsKind === 'ember' ? 'No embers yet' : 'No videos yet')) +
+        '</h2><p>' + (mine.length ? 'Try a different filter.' : 'Upload something and it will appear here.') + '</p></div>');
+
+  document.querySelectorAll('#fsBody [data-kind]').forEach(b => b.onclick = () => {
+    fsKind = b.dataset.kind; fsFilter = 'all'; studioVideos();
+  });
+  const f = document.getElementById('fsFilter');
+  if (f) f.onchange = e => { fsFilter = e.target.value; studioVideos(); };
+  document.querySelectorAll('#fsBody .fs-row[data-id]').forEach(row => {
+    const v = fsVideos.find(x => x.id === row.dataset.id);
+    if (!v) return;
+    row.querySelector('[data-act="edit"]').onclick = () => studioEditDialog(v);
+    row.querySelector('[data-act="del"]').onclick = () => studioDelete(v);
+    row.querySelector('[data-act="vis"]').onclick = () => studioVisDialog(v);
+  });
+}
+
+function fsDialog(innerHTML, width) {
+  const box = document.createElement('div');
+  box.className = 'modal-box' + (width ? '' : ' fs-dlg');
+  if (width) box.style.width = width;
+  box.innerHTML = '<button class="modal-x static" data-x aria-label="Close">&times;</button>' + innerHTML;
+  const wrap = document.createElement('div');
+  wrap.className = 'modal';
+  wrap.appendChild(box);
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  box.querySelector('[data-x]').onclick = close;
+  wrap.onclick = e => { if (e.target === wrap) close(); };
+  return { wrap, box, close };
+}
+
+function studioEditDialog(v) {
+  const { box, close } = fsDialog(
+    '<h2>Edit ' + (v.kind === 'ember' ? 'ember' : 'video') + '</h2>' +
+    '<div class="fs-sub">Changes go live immediately.</div>' +
+    '<div class="fs-field"><label>Title</label>' +
+      '<input id="fsEditTitle" maxlength="100" value="' + esc(v.title || '') + '"></div>' +
+    '<div class="fs-field"><label>Description</label>' +
+      '<textarea id="fsEditDesc" maxlength="2000" class="fs-area">' + esc(v.description || '') + '</textarea></div>' +
+    '<div class="fs-field"><label>Visibility</label><div class="fs-seg" id="fsEditVis">' +
+      FS_VIS.map(o => '<button data-v="' + o[0] + '" class="' + (v.visibility === o[0] ? 'on' : '') +
+        '" title="' + esc(o[2]) + '">' + o[1] + '</button>').join('') +
+    '</div></div>' +
+    '<div class="fs-msg" id="fsEditMsg"></div>' +
+    '<div class="fs-btns" style="justify-content:flex-end;margin-top:6px">' +
+      '<button class="fs-btn ghost" data-cancel>Cancel</button>' +
+      '<button class="fs-btn" id="fsEditSave">Save</button></div>');
+  let vis = v.visibility;
+  box.querySelectorAll('#fsEditVis button').forEach(b => b.onclick = () => {
+    vis = b.dataset.v;
+    box.querySelectorAll('#fsEditVis button').forEach(x => x.classList.toggle('on', x === b));
+  });
+  box.querySelector('[data-cancel]').onclick = close;
+  box.querySelector('#fsEditSave').onclick = async () => {
+    const msg = box.querySelector('#fsEditMsg');
+    const btn = box.querySelector('#fsEditSave');
+    btn.disabled = true; msg.className = 'fs-msg'; msg.textContent = 'Saving...';
+    try {
+      const r = await fetch(API + '/api/video/edit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+        body: JSON.stringify({
+          id: v.id, title: box.querySelector('#fsEditTitle').value,
+          description: box.querySelector('#fsEditDesc').value, visibility: vis
+        })
+      });
+      const j = await r.json();
+      if (!r.ok) { msg.className = 'fs-msg err'; msg.textContent = j.error || 'Could not save.'; btn.disabled = false; return; }
+      close(); renderStudio();
+    } catch { msg.className = 'fs-msg err'; msg.textContent = 'Could not save - service unreachable.'; btn.disabled = false; }
+  };
+}
+
+// Visibility is what people change most, so it gets a one-tap menu of its own
+// rather than making them open the whole editor to change a single field.
+function studioVisDialog(v) {
+  const { box, close } = fsDialog(
+    '<h2 style="margin:0 0 6px;font-size:18px">Visibility</h2>' +
+    '<p class="modal-sub" style="margin-bottom:14px">' + esc(v.title || '') + '</p>' +
+    '<div class="menu" id="fvMenu">' + FS_VIS.map(o =>
+      '<button data-v="' + o[0] + '"><span><strong>' + o[1] + '</strong><br>' +
+      '<small style="color:#aaa">' + o[2] + '</small></span>' +
+      (v.visibility === o[0] ? '<span>&#10003;</span>' : '') + '</button>').join('') + '</div>' +
+    '<div class="fs-msg" id="fvMsg"></div>', '380px');
+  box.querySelectorAll('#fvMenu button').forEach(b => b.onclick = async () => {
+    if (b.dataset.v === v.visibility) { close(); return; }
+    try {
+      const r = await fetch(API + '/api/video/edit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+        body: JSON.stringify({ id: v.id, visibility: b.dataset.v })
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        const m = box.querySelector('#fvMsg'); m.className = 'fs-msg err'; m.textContent = j.error || 'Could not change that.';
+        return;
+      }
+      close(); renderStudio();
+    } catch {
+      const m = box.querySelector('#fvMsg'); m.className = 'fs-msg err'; m.textContent = 'Service unreachable.';
+    }
+  });
+}
+
+function studioDelete(v) {
+  const { box, close } = fsDialog(
+    '<h2 style="margin:0 0 8px;font-size:18px">Delete this ' + (v.kind === 'ember' ? 'ember' : 'video') + '?</h2>' +
+    '<p class="modal-sub">&ldquo;' + esc(v.title || '') + '&rdquo; and its comments are removed permanently. This cannot be undone.</p>' +
+    '<div class="fs-msg" id="fdMsg"></div>' +
+    '<div class="fs-btns" style="justify-content:flex-end;margin-top:14px">' +
+      '<button class="fs-btn ghost" data-cancel>Cancel</button>' +
+      '<button class="fs-btn danger" id="fdYes">Delete</button></div>', '420px');
+  box.querySelector('[data-cancel]').onclick = close;
+  box.querySelector('#fdYes').onclick = async () => {
+    const btn = box.querySelector('#fdYes');
+    btn.disabled = true;
+    try {
+      const r = await fetch(API + '/api/video/delete', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+        body: JSON.stringify({ id: v.id })
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        const m = box.querySelector('#fdMsg'); m.className = 'fs-msg err'; m.textContent = j.error || 'Delete failed.';
+        btn.disabled = false; return;
+      }
+      close(); renderStudio();
+    } catch {
+      const m = box.querySelector('#fdMsg'); m.className = 'fs-msg err'; m.textContent = 'Delete failed - service unreachable.';
+      btn.disabled = false;
+    }
+  };
+}
+
+document.querySelectorAll('.fs-tab').forEach(b => b.onclick = () => { fsTab = b.dataset.tab; renderStudio(); });
+
 function renderList(title, items, empty, opts) {
   opts = opts || {};
   show(listView); markNav(title === 'Subscriptions' ? 'subs' : title === 'History' ? 'history' : 'later');
@@ -1587,6 +1923,7 @@ function router() {
   if (m) { renderChannel(m[1]); return; }
   if (location.hash === '#/subs') { renderSubs(); return; }
   if (location.hash === '#/embers') { renderEmbers(); return; }
+  if (location.hash === '#/studio') { renderStudio(); return; }
   if (location.hash === '#/history') { renderHistory(); return; }
   if (location.hash === '#/later') { renderLater(); return; }
   if (location.hash === '#/admin') { renderAdmin(); return; }

@@ -852,7 +852,7 @@ var index_default = {
         const user = await authedUser();
         if (!user) return json(401, { error: "Sign in." });
         const form = await req.formData().catch(() => null);
-        let about = null, banner = null, avatar = null;
+        let about = null, banner = null, avatar = null, removeBanner = false, removeAvatar = false;
         if (form) {
           const ab = form.get("about");
           about = ab == null ? null : String(ab).slice(0, 1e3);
@@ -863,6 +863,11 @@ var index_default = {
           try {
             const j = await req.json();
             about = j.about == null ? null : String(j.about).slice(0, 1e3);
+            // Removing an image is not the same as saying nothing about it. If
+            // the row keeps its key the old file is still served forever, so a
+            // remove has to clear the column as well as drop the object.
+            removeBanner = !!j.removeBanner;
+            removeAvatar = !!j.removeAvatar;
           } catch {
           }
         }
@@ -879,6 +884,14 @@ var index_default = {
           await s3Put("a/" + user.username + "/" + kind + ".jpg", buf, "image/jpeg");
           sets.push(kind + "_key=?");
           vals.push("a/" + user.username + "/" + kind + ".jpg");
+        }
+        for (const [kind, drop] of [["banner", removeBanner], ["avatar", removeAvatar]]) {
+          if (!drop) continue;
+          sets.push(kind + "_key=?");
+          vals.push(null);
+          // Best effort: a failure here must not fail the whole edit, because
+          // the row is already being updated and the column is what matters.
+          if (storageConfigured()) { try { await s3Delete("a/" + user.username + "/" + kind + ".jpg"); } catch (e) { } }
         }
         if (!sets.length) return json(400, { error: "Nothing to update." });
         vals.push(user.username);
@@ -1163,6 +1176,70 @@ var index_default = {
           return resolve("author banned", v ? { username: v.owner, action: "ban", reason: "Confirmed by a moderator review of a reported video.", network: !!network } : null);
         }
         return json(400, { error: "Unknown action." });
+      }
+      // Everything FirFall Studio can change about a published video. Editing is
+      // not a way around moderation, so the new text is scanned exactly as an
+      // upload would be: a title that could not be posted cannot be written
+      // afterwards either.
+      if (req.method === "POST" && url.pathname === "/api/video/edit") {
+        const user = await authedUser();
+        if (!user) return json(401, { error: "Sign in." });
+        let body;
+        try { body = await req.json(); } catch { return json(400, { error: "Invalid JSON body." }); }
+        const id = String(body.id || "");
+        const row = await env.DB.prepare("SELECT title,description,owner FROM videos WHERE id=?").bind(id).first();
+        if (!row || row.owner !== user.username) return json(404, { error: "Video not found." });
+        const sets = [], vals = [];
+        let nextTitle = row.title, nextDesc = row.description;
+        if (body.title !== undefined) {
+          const t = String(body.title).trim();
+          if (t.length < 1 || t.length > 100) return json(400, { error: "Title must be 1-100 characters." });
+          sets.push("title=?"); vals.push(t); nextTitle = t;
+        }
+        if (body.description !== undefined) {
+          const d = String(body.description).trim();
+          if (d.length > 2000) return json(400, { error: "Description max 2000 characters." });
+          sets.push("description=?"); vals.push(d); nextDesc = d;
+        }
+        if (body.visibility !== undefined) {
+          const v = String(body.visibility);
+          if (!["public", "unlisted", "private"].includes(v))
+            return json(400, { error: "Visibility must be public, unlisted or private." });
+          sets.push("visibility=?"); vals.push(v);
+        }
+        if (!sets.length) return json(400, { error: "Nothing to update." });
+        const verdict = scanText(nextTitle, nextDesc, "");
+        if (verdict === "severe" || verdict === "racism" || verdict === "extremism")
+          return json(400, { error: "Blocked: prohibited content (" + verdict + "). This text cannot be saved." });
+        vals.push(id);
+        await env.DB.prepare("UPDATE videos SET " + sets.join(",") + " WHERE id=?").bind(...vals).run();
+        return json(200, { ok: true });
+      }
+      // The owner\'s own library for FirFall Studio: every visibility, drafts
+      // included, with comment counts in one query. N+1 for the counts would
+      // be fine at this scale and still be the wrong shape to build a table on.
+      if (req.method === "GET" && url.pathname === "/api/studio/videos") {
+        const user = await authedUser();
+        if (!user) return json(401, { error: "Sign in." });
+        try {
+          const rows = await env.DB.prepare(
+            "SELECT v.id,v.title,v.description,v.visibility,v.views,v.created_at,v.status,v.kind," +
+            "(SELECT COUNT(*) FROM comments c WHERE c.video_id=v.id) AS comments " +
+            "FROM videos v WHERE v.owner=? ORDER BY v.created_at DESC LIMIT 200"
+          ).bind(user.username).all();
+          const total = rows.results || [];
+          return json(200, {
+            videos: total,
+            stats: {
+              videos: total.length,
+              views: total.reduce((n, v) => n + (Number(v.views) || 0), 0),
+              comments: total.reduce((n, v) => n + (Number(v.comments) || 0), 0)
+            }
+          });
+        } catch (e) {
+          console.error("STUDIO_VIDEOS_FATAL:", e);
+          return json(500, { error: "Could not load your videos." });
+        }
       }
       if (req.method === "POST" && url.pathname === "/api/video/delete") {
         const user = await authedUser();

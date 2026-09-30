@@ -209,6 +209,35 @@ setTimeout(function(){
             closeShorts();
           }catch(e){ rec("playError", e.message); }
         }, 400);
+        // FirFall Studio. me() reads localStorage on every call, so setting a
+        // user here signs the page in enough to render the real pages; the API
+        // is unreachable, which the render functions handle.
+        setTimeout(function(){
+          try{
+            localStorage.setItem("firfall_user", "ada");
+            localStorage.setItem("firfall_token", "stub");
+            renderStudio();
+            setTimeout(function(){
+              try{
+                rec("studioView", document.getElementById("studioView").classList.contains("hidden") ? "no" : "yes");
+                rec("studioBrand", (document.querySelector(".fs-brand h1") || {}).textContent || "NONE");
+                rec("studioFlame", document.querySelector(".fs-logo") ? "yes" : "no");
+                rec("entryCards", document.querySelectorAll(".fs-card").length);
+                rec("cardCustomise", document.getElementById("fsGoCustomise") ? "yes" : "no");
+                rec("cardVideos", document.getElementById("fsGoVideos") ? "yes" : "no");
+                rec("navStudio", document.querySelector('[data-nav="studio"]') ? "yes" : "no");
+                studioCustomise();
+                rec("btnBannerChange", document.getElementById("fsBannerChange") ? "yes" : "no");
+                rec("btnPictureChange", document.getElementById("fsPicChange") ? "yes" : "no");
+                rec("aboutField", document.getElementById("fsAbout") ? "yes" : "no");
+                rec("btnAboutSave", document.getElementById("fsAboutSave") ? "yes" : "no");
+                studioVideos();
+                rec("kindTabs", document.querySelectorAll("#fsBody [data-kind]").length);
+                rec("visibilityFilter", document.getElementById("fsFilter") ? "yes" : "no");
+              }catch(e){ rec("studioLateError", e.message); }
+            }, 800);
+          }catch(e){ rec("studioError", e.message); }
+        }, 1200);
       }catch(e){ rec("lateError", e.message); }
     }, 500);
   }catch(e){ rec("earlyError", e.message); }
@@ -329,8 +358,35 @@ function load(path) {
   });
 }
 
+/* Embers are vertical clips with their own feed and their own tab. The API
+   treats a missing kind filter as "both kinds", so a single unfiltered call
+   anywhere puts vertical clips back in the normal grid - which is exactly how
+   they got there. The one deliberate exception is the Watch later id lookup,
+   which must resolve embers too because they open in the Shorts panel; it
+   carries a comment saying so. Everything else has to say which kind it wants. */
+function checkKindFilters() {
+  const files = [["public/mobile/index.html", "/api/videos?"], ["public/app.js", "/api/videos?"]];
+  let bad = 0;
+  for (const [rel, needle] of files) {
+    const lines = readFileSync(join(ROOT, rel), "utf8").split("\n");
+    lines.forEach((l, i) => {
+      if (!l.includes(needle)) return;
+      if (l.includes("kind=")) return;
+      // The exception, and it has to justify itself nearby.
+      const near = lines.slice(Math.max(0, i - 6), i).join("\n");
+      if (/NOT\s*\n?\s*kind=video|Deliberately NOT/.test(near)) return;
+      bad++;
+      console.log(`  FAIL  kind    ${rel}:${i + 1} fetches ${needle} with no kind filter`);
+    });
+  }
+  if (bad) return false;
+  console.log("  ok    kind    every video list asks for a kind; only the Watch later lookup is unfiltered");
+  return true;
+}
+
 let failed = false;
 server.listen(PORT, async () => {
+  if (!checkKindFilters()) failed = true;
   prepare();
   for (const path of ["/", "/mobile/"]) {
     const r = await load(path);
@@ -399,12 +455,16 @@ server.listen(PORT, async () => {
       const want = { shortsOpen: "yes", slides: "2", railButtons: "4", snapX: "yes",
         stageRatio: "9/16", objectFit: "contain", muteLabel: "yes", shortsClosed: "yes", leftBehind: "0",
         sideBySide: "no", stageNarrower: "yes",
+        studioView: "yes", studioBrand: "FirFall Studio", studioFlame: "yes",
+        entryCards: "2", cardCustomise: "yes", cardVideos: "yes", navStudio: "yes",
+        btnBannerChange: "yes", btnPictureChange: "yes", aboutField: "yes",
+        btnAboutSave: "yes", kindTabs: "2", visibilityFilter: "yes",
         simultaneous: "1", commentPanel: "yes", commentUI: "yes", signinUI: "yes",
         navEmbers: "yes", embersRoute: "#/embers" };
       for (const [k, v] of Object.entries(want)) {
         if (r[k] !== v) { failed = true; console.log(`  FAIL  drive-desktop  ${k} was "${r[k]}", expected "${v}"`); }
       }
-      for (const k of ["earlyError", "lateError", "playError"]) if (r[k]) { failed = true; console.log(`  FAIL  drive-desktop  threw: ${r[k]}`); }
+      for (const k of ["earlyError", "lateError", "playError", "studioError", "studioLateError"]) if (r[k]) { failed = true; console.log(`  FAIL  drive-desktop  threw: ${r[k]}`); }
       console.log(`  ${failed ? "FAIL" : "ok  "}  drive-desktop  shorts panel builds (${r.slides} slides, ${r.railButtons} rail buttons, snap-x)`);
     }
   }
