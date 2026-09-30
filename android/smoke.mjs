@@ -247,8 +247,14 @@ setTimeout(function(){
                 rec("bannerAspect", (ART_SPEC && ART_SPEC.banner && ART_SPEC.banner.aspect) || 0);
                 rec("avatarAspect", (ART_SPEC && ART_SPEC.avatar && ART_SPEC.avatar.aspect) || 0);
                 rec("btnOpenStudio", document.querySelector('a[href="#/studio"].pill-btn') ? "yes" : "no");
-                rec("chRemoveBanner", document.getElementById("chBannerRemove") ? "yes" : "no");
-                rec("chRemovePicture", document.getElementById("chAvatarRemove") ? "yes" : "no");
+                // The channel page used to carry its own row of edit buttons.
+                // Editing lives in Studio now; the page is for watching.
+                const ownBar = document.getElementById("chOwnBar");
+                rec("chOwnBarButtons", ownBar ? ownBar.querySelectorAll("button").length : -1);
+                rec("chOwnBarLinks", ownBar ? ownBar.querySelectorAll("a").length : -1);
+                rec("chEditButtonsGone",
+                  ["chBannerEdit", "chAvatarEdit", "chBannerRemove", "chAvatarRemove", "chAboutEdit"]
+                    .some(i => document.getElementById(i)) ? "no" : "yes");
               }catch(e){ rec("studioLateError", e.message); }
             }, 800);
           }catch(e){ rec("studioError", e.message); }
@@ -419,10 +425,34 @@ function checkCustomPlayer() {
   return ok;
 }
 
+/* Every getElementById('x') in app.js must have a matching id somewhere.
+   Deleting markup is how a page picks up a handler for an element that no
+   longer exists, which throws on load and takes the whole script with it -
+   exactly what would have happened when the channel page lost its row of edit
+   buttons. Ids built at runtime into innerHTML count, because those are
+   legitimately created by the script that then looks them up. */
+function checkDanglingIds() {
+  const html = readFileSync(join(ROOT, "public", "index.html"), "utf8");
+  const js = readFileSync(join(ROOT, "public", "app.js"), "utf8");
+  const ids = new Set([
+    ...[...html.matchAll(/id="([^"]+)"/g)].map(m => m[1]),
+    ...[...js.matchAll(/id="([A-Za-z0-9_]+)"/g)].map(m => m[1])
+  ]);
+  const used = new Set([...js.matchAll(/getElementById\(['"]([A-Za-z0-9_]+)['"]\)/g)].map(m => m[1]));
+  const missing = [...used].filter(i => !ids.has(i));
+  if (missing.length) {
+    console.log("  FAIL  ids     app.js looks up ids that are neither in index.html nor built by app.js: " + missing.join(", "));
+    return false;
+  }
+  console.log(`  ok    ids     all ${used.size} getElementById targets exist (markup or runtime-built)`);
+  return true;
+}
+
 let failed = false;
 server.listen(PORT, async () => {
   if (!checkKindFilters()) failed = true;
   if (!checkCustomPlayer()) failed = true;
+  if (!checkDanglingIds()) failed = true;
   prepare();
   for (const path of ["/", "/mobile/"]) {
     const r = await load(path);
@@ -497,7 +527,8 @@ server.listen(PORT, async () => {
         btnAboutSave: "yes", kindTabs: "2", visibilityFilter: "yes",
         anRange: "yes", anChart: "yes", anRetention: "yes",
         cropperDefined: "yes", bannerAspect: "6", avatarAspect: "1",
-        btnOpenStudio: "yes", chRemoveBanner: "yes", chRemovePicture: "yes",
+        btnOpenStudio: "yes", chOwnBarButtons: "0", chOwnBarLinks: "1",
+        chEditButtonsGone: "yes",
         simultaneous: "1", commentPanel: "yes", commentUI: "yes", signinUI: "yes",
         navEmbers: "yes", embersRoute: "#/embers" };
       for (const [k, v] of Object.entries(want)) {

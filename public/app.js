@@ -340,10 +340,16 @@ async function subStatus(name) {
     return await r.json();
   } catch { return { subscribed: false, notify: 'none', subscribers: 0, own: false }; }
 }
+/* Notification bell. An emoji rendered differently on every platform and sat
+   next to proper SVG icons looking borrowed; these are drawn like the rest. */
+const ICON = {
+  bell: '<svg viewBox="0 0 24 24"><path d="M12 22a2.2 2.2 0 0 0 2.2-2.2H9.8A2.2 2.2 0 0 0 12 22zm7-6v-5a7 7 0 0 0-5.5-6.83V3a1.5 1.5 0 0 0-3 0v1.17A7 7 0 0 0 5 11v5l-1.7 1.7a1 1 0 0 0 .7 1.7h16a1 1 0 0 0 .7-1.7L19 16z"/></svg>',
+  bellOff: '<svg viewBox="0 0 24 24"><path d="M20 18.7 3.3 2 2 3.3 4 5.3V11a7 7 0 0 0 5.5 6.83V19.8A2.2 2.2 0 0 0 11.7 22h.6a2.2 2.2 0 0 0 2.2-2.2v-.4l5.2 5.2L21 19.3l-1-1zM12 4a1.5 1.5 0 0 0-1 1.32V6.6l2 2V5.32A1.5 1.5 0 0 0 12 4zm7 12v-5a7 7 0 0 0-4.5-6.6l3.2 3.2c.9.5 1.3 1.3 1.3 2.4V16h2z"/></svg>'
+};
 function paintBell(bell, notify, subscribed) {
   if (!bell) return;
   bell.classList.toggle('hidden', !subscribed);
-  bell.textContent = notify === 'all' ? '🔔' : '🔕';
+  bell.innerHTML = notify === 'all' ? ICON.bell : ICON.bellOff;
   bell.title = notify === 'all' ? 'Notified of all uploads (click to mute)' : 'Muted (click for all notifications)';
 }
 async function wireSubBtn(btn, name, bellBtn) {
@@ -824,10 +830,6 @@ async function renderChannel(name) {
     if (c.avatar) { avImg.src = API + c.avatar + '?t=' + Date.now(); avImg.classList.remove('hidden'); avFb.classList.add('hidden'); }
     else { avImg.classList.add('hidden'); avFb.classList.remove('hidden'); avFb.textContent = c.username[0].toUpperCase(); }
     document.getElementById('chOwnBar').classList.toggle('hidden', !own);
-    // Remove only appears when there is something to remove - a button that is
-    // always there and does nothing is worse than no button.
-    document.getElementById('chBannerRemove').classList.toggle('hidden', !c.banner);
-    document.getElementById('chAvatarRemove').classList.toggle('hidden', !c.avatar);
     meta.textContent = '@' + c.username + ' • ' + fmt(c.subscribers) + ' subscribers • ' + c.videos + ' videos';
     document.getElementById('chAbout').textContent = c.about || 'This channel has no description yet.';
     document.getElementById('chStats').textContent = fmt(c.views) + ' total views • joined ' + new Date(c.joined).toLocaleDateString();
@@ -863,48 +865,11 @@ document.querySelectorAll('[data-chtab]').forEach(t => {
     document.getElementById('chSort').style.display = t.dataset.chtab === 'videos' ? '' : 'none';
   };
 });
-// Own-channel customisation (banner / picture / description).
-// These go through the same cropper as FirFall Studio, so the framing you
-// choose here is the framing you get there and on every other client. The old
-// version uploaded the picked file immediately, which meant a mis-click could
-// replace a good banner with a badly-framed one and there was no way back.
-function ownChannelReload() {
-  const m = document.getElementById('chMeta');
-  if (m && m.dataset.owner) renderChannel(m.dataset.owner);
-}
-function channelArtChanged(kind, file) {
-  const err = document.getElementById('chAboutErr');
-  uploadArtFile(kind, file)
-    .then(ownChannelReload)
-    .catch(e => { if (err) { err.textContent = e.message || 'Upload failed.'; } else alert(e.message); });
-}
-function channelArtRemove(kind) {
-  const err = document.getElementById('chAboutErr');
-  confirmRemove(kind, () => removeArtRemote(kind).then(ownChannelReload), e => { if (err) err.textContent = e; });
-}
-document.getElementById('chBannerEdit').onclick = () => pickAndCrop('banner', f => channelArtChanged('banner', f));
-document.getElementById('chAvatarEdit').onclick = () => pickAndCrop('avatar', f => channelArtChanged('avatar', f));
-document.getElementById('chBannerRemove').onclick = () => channelArtRemove('banner');
-document.getElementById('chAvatarRemove').onclick = () => channelArtRemove('avatar');
-document.getElementById('chAboutEdit').onclick = () => {
-  document.getElementById('chAboutForm').classList.remove('hidden');
-  document.getElementById('chAboutText').value = document.getElementById('chAbout').textContent === 'This channel has no description yet.' ? '' : document.getElementById('chAbout').textContent;
-};
-document.getElementById('chAboutSave').onclick = async () => {
-  const err = document.getElementById('chAboutErr');
-  err.textContent = '';
-  try {
-    const r = await fetch(API + '/api/channel/edit', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
-      body: JSON.stringify({ about: document.getElementById('chAboutText').value })
-    });
-    const j = await r.json();
-    if (!r.ok) { err.textContent = j.error || 'Save failed.'; return; }
-    document.getElementById('chAboutForm').classList.add('hidden');
-    const m = document.getElementById('chMeta');
-    if (m && m.dataset.owner) renderChannel(m.dataset.owner);
-  } catch { err.textContent = 'Save failed — service unreachable.'; }
-};
+// Own-channel editing used to live here as a row of five buttons: change and
+// remove for the banner and the picture, plus edit description. They are gone.
+// Everything they did now happens in FirFall Studio, which has the cropper,
+// staged saves and confirmations. Two ways into the same settings drift apart,
+// and the channel page is somewhere people go to watch, not to administer.
 
 let currentVideo = null;
 let upFilter = '';
@@ -1171,21 +1136,67 @@ async function loadComments(vid, target) {
   const list = target || document.getElementById('cList');
   list.innerHTML = '';
   try {
-    const r = await fetch(API + '/api/comments?video=' + encodeURIComponent(vid));
+    const r = await fetch(API + '/api/comments?video=' + encodeURIComponent(vid),
+      me() ? { headers: { 'Authorization': 'Bearer ' + token() } } : undefined);
     const { comments } = await r.json();
     const cc = document.getElementById('cCount');
     if (cc) cc.textContent = comments.length + ' Comments';
-    if (!comments.length) list.innerHTML = '<p class="modal-sub">No comments yet.</p>';
+    if (!comments.length) { list.innerHTML = '<p class="modal-sub">No comments yet.</p>'; return; }
+    // Flat list, newest first, rendered as one level of replies underneath
+    // their parent. The worker already collapses a reply-to-a-reply onto the
+    // same parent, so this only has to bucket them.
+    const mine = me();
+    const own = mine && currentVideo && currentVideo.owner === mine;
+    const byId = {};
+    comments.forEach(c => { byId[c.id] = c; });
+    const kids = {};
     comments.forEach(c => {
+      const p = (c.parent_id && byId[c.parent_id]) ? c.parent_id : null;
+      (p === null ? kids['root'] : kids[p] = kids[p] || []).push(c);
+    });
+    const render = (c, isReply) => {
       const d = document.createElement('div');
-      d.className = 'comment';
+      d.className = 'comment' + (isReply ? ' reply' : '');
       d.innerHTML = '<strong></strong><span></span><p></p>';
       d.querySelector('strong').textContent = '@' + c.user;
       d.querySelector('span').textContent = ' ' + timeAgo(c.created_at);
       d.querySelector('p').textContent = c.text;
-      // No button on your own comment: the server rejects it anyway, and
-      // offering it would just be a dead control.
-      if (me() && c.user !== me()) {
+      const row = document.createElement('div');
+      row.className = 'c-acts';
+      // Heart: only the person who uploaded the video. The server refuses
+      // anyone else, so the button is not shown to them at all.
+      if (own && !(c.user === mine)) {
+        const h = document.createElement('button');
+        h.className = 'heart-btn' + (c.owner_hearted ? ' on' : '');
+        h.textContent = (c.owner_hearted ? '♥ ' : '♡ ') + (c.hearts || 0);
+        h.title = c.owner_hearted ? 'Remove the heart' : 'Heart this comment';
+        h.onclick = async (e) => {
+          e.stopPropagation();
+          h.disabled = true;
+          try {
+            const rr = await fetch(API + '/api/comments/heart', {
+              method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+              body: JSON.stringify({ id: c.id })
+            });
+            const j = await rr.json();
+            if (!rr.ok) { alert(j.error || 'Could not do that.'); h.disabled = false; return; }
+            h.classList.toggle('on', j.hearted);
+            h.textContent = (j.hearted ? '♥ ' : '♡ ') + j.hearts;
+            h.disabled = false;
+          } catch { h.disabled = false; }
+        };
+        row.appendChild(h);
+      }
+      if (mine) {
+        const rp = document.createElement('button');
+        rp.className = 'reply-btn';
+        rp.textContent = 'Reply';
+        rp.onclick = () => openReplyBox(d, c, vid, list, isReply);
+        row.appendChild(rp);
+      }
+      // No report button on your own comment: the server rejects it anyway,
+      // and offering it would just be a dead control.
+      if (mine && c.user !== mine) {
         const b = document.createElement('button');
         b.className = 'report-btn';
         b.textContent = 'Report';
@@ -1193,11 +1204,48 @@ async function loadComments(vid, target) {
         b.title = 'Report this comment to the moderators';
         b.onclick = () => openReport('comment', c.id, '@' + c.user + ': "' + c.text.slice(0, 60) + (c.text.length > 60 ? '...' : '') + '"');
         if (myReports.has('comment:' + c.id)) { b.textContent = 'Reported'; b.classList.add('done'); b.disabled = true; }
-        d.appendChild(b);
+        row.appendChild(b);
       }
-      list.appendChild(d);
-    });
+      if (row.children.length) d.appendChild(row);
+      if (!isReply) {
+        (kids[c.id] || []).forEach(k => { d.appendChild(render(k, true)); });
+      }
+      return d;
+    };
+    (kids['root'] || []).forEach(c => list.appendChild(render(c, false)));
   } catch { list.innerHTML = '<p class="modal-sub">Could not load comments.</p>'; }
+}
+
+// The reply box lives under the comment it answers, so the thread keeps its
+// shape while you type instead of jumping to the composer at the bottom.
+function openReplyBox(commentEl, parent, vid, list, isReply) {
+  const existing = commentEl.querySelector('.reply-box');
+  if (existing) { existing.remove(); return; }
+  const box = document.createElement('div');
+  box.className = 'reply-box';
+  box.innerHTML = '<textarea rows="2" maxlength="500" placeholder="Reply to @' +
+    (parent.reply_to || parent.user).replace(/[<>&"]/g, '') + '..."></textarea>' +
+    '<div><button class="ghost-btn" data-x>Cancel</button> <button class="auth-go" data-send>Reply</button></div>';
+  commentEl.appendChild(box);
+  const ta = box.querySelector('textarea');
+  ta.focus();
+  box.querySelector('[data-x]').onclick = () => box.remove();
+  box.querySelector('[data-send]').onclick = async () => {
+    const text = ta.value.trim();
+    if (!text) return;
+    const btn = box.querySelector('[data-send]');
+    btn.disabled = true;
+    try {
+      const r = await fetch(API + '/api/comments', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+        body: JSON.stringify({ video_id: vid, text, parent_id: parent.id, reply_to: parent.user })
+      });
+      const j = await r.json();
+      if (!r.ok) { alert(j.error || 'Could not post that reply.'); btn.disabled = false; return; }
+      box.remove();
+      loadComments(vid, list);
+    } catch { alert('Could not post that reply - service unreachable.'); btn.disabled = false; }
+  };
 }
 const renderComments = (vid, target) => loadComments(vid, target);
 document.getElementById('cSend').onclick = async () => {
@@ -1598,10 +1646,12 @@ function openCropper(file, spec, cb) {
     '<button class="modal-x static" data-x aria-label="Close">&times;</button>' +
     '<h2 style="margin:0 0 4px;font-size:19px">Crop ' + esc(spec.label.toLowerCase()) + '</h2>' +
     '<p class="crop-note" style="margin:0 0 16px">Drag to move it, and zoom or scroll to scale. ' +
-      (spec.aspect === 1 ? 'The preview is a circle - the saved picture is shown as a circle everywhere.'
+      (spec.aspect === 1 ? 'Keep your face inside the circle - that is the shape it is shown as everywhere.'
                          : 'Narrow windows crop the sides a little further.') + '</p>' +
     '<div class="crop-frame" id="cropFrame" style="aspect-ratio:' + spec.aspect + '">' +
-      '<div class="crop-ring"></div></div>' +
+      '<div class="crop-ring"></div>' +
+      (spec.aspect === 1 ? '<div class="crop-mask on"><div class="crop-hole"></div></div>' : '') +
+      '</div>' +
     '<div class="crop-zoom"><span style="font-size:12.5px;color:#aaa">Zoom</span>' +
       '<input type="range" id="cropZoom" min="100" max="300" value="100"><span id="cropPct" style="font-size:12.5px;color:#aaa;width:44px">100%</span></div>' +
     '<div class="fs-btns" style="justify-content:flex-end;margin-top:18px">' +

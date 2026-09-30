@@ -239,6 +239,12 @@ input,textarea{font:inherit}
 .cfoot{display:flex;align-items:center;gap:10px;margin-top:6px}
 .cfoot button{font-size:12px;font-weight:600;color:var(--dim)}
 .cfoot .replied{color:var(--dim2);font-size:12px}
+/* Replies sit one level in, under a rule, so a thread is readable at a glance
+   without turning into an ever-deeper staircase. */
+.comment.reply{margin:10px 0 0 10px;padding-left:10px;border-left:2px solid #2f2f2f}
+.comment.reply .ctext{font-size:13.5px}
+.crep{color:var(--blue);font-weight:600}
+.rbtn.heart.on{color:#ff5a5a}
 .cadd{display:flex;gap:8px;align-items:flex-start;margin-bottom:24px}
 .cadd .cav{width:32px;height:32px;font-size:13px}
 .cadd textarea{flex:1;background:none;border:0;outline:0;color:var(--txt);resize:none;
@@ -647,6 +653,10 @@ var K_LATER="ff_later", K_HIST="ff_hist", K_SPEED="ff_speed", K_SEEN="ff_seen";
 
 var me = null, myRole = "user";
 var curTab = "home", curVideo = null, curChannel = null;
+// Who uploaded the video currently on screen. Hearts on a comment are the
+// uploader's alone, so both the watch page and the Shorts panel have to say
+// whose comments they are looking at.
+var curOwner = null;
 var feedSort = "new", searchQ = "";
 var libFilter = "recent";
 var subState = {}, myReports = {};
@@ -1378,6 +1388,7 @@ async function loadWatch(id){
   // full page on purpose; the flag is consumed either way.
   if (v.kind === "ember" && !watchPlain) { watchPlain = false; openShorts(null, v.id); return; }
   watchPlain = false;
+  curOwner = v.owner;
   api("/api/video/view", { method:"POST", body:{ id: v.id, viewer: viewerId() } }).catch(function(){});
   var w = window._watch;
   var mine = me && v.owner === me;
@@ -1608,24 +1619,89 @@ function loadComments(vid, target){
   api("/api/comments?video=" + encodeURIComponent(vid)).then(function(j){
     var list = target || $("cList"); if (!list) return;
     var cs = j.comments || [];
-    if (!cs.length) { list.innerHTML = '<div style="color:var(--dim);font-size:14px">No comments yet.</div>'; return; }
-    list.innerHTML = cs.map(function(c){
+    if (!cs.length) { list.innerHTML = "<div style=\"color:var(--dim);font-size:14px\">No comments yet.</div>"; return; }
+    // Flat list from the API, rendered as one level of replies under their
+    // parent. The server collapses a reply-to-a-reply onto the same parent, so
+    // this only has to bucket them.
+    var own = me && curOwner === me;
+    var byId = {};
+    cs.forEach(function(c){ byId[c.id] = c; });
+    var kids = {};
+    cs.forEach(function(c){
+      var par = (c.parent_id && byId[c.parent_id]) ? c.parent_id : null;
+      if (par === null) { (kids.root = kids.root || []).push(c); } else { (kids[par] = kids[par] || []).push(c); }
+    });
+    function one(c, isReply){
       var mine = me && c.user === me;
-      return '<div class="comment"><div class="cav vav">' + esc(initials(c.user)) + '</div><div class="cbody">' +
-        '<div class="cwho">@' + esc(c.user) + '<span class="ctime">' + esc(ago(c.created_at)) + '</span></div>' +
-        '<div class="ctext">' + esc(c.text) + '</div>' +
-        (mine ? '' : '<div class="cfoot"><button class="rbtn" data-k="comment" data-i="' + c.id + '" style="color:var(--redSoft)">Report</button></div>') +
-        '</div></div>';
-    }).join("");
+      var acts = "";
+      // Heart: only the person who uploaded the video gets one, and the server
+      // refuses anyone else, so it is not offered to them at all.
+      if (own && c.user !== me) {
+        acts += "<button class=\"rbtn heart" + (c.owner_hearted ? " on" : "") + "\" data-h=\"" + esc(c.id) + "\" style=\"color:" + (c.owner_hearted ? "#ff5a5a" : "var(--dim)") + "\">" + (c.owner_hearted ? "\u2665" : "\u2661") + " " + (c.hearts || 0) + "</button>";
+      }
+      if (me) acts += "<button class=\"rbtn\" data-r=\"" + esc(c.id) + "\">Reply</button>";
+      if (!mine) acts += "<button class=\"rbtn\" data-k=\"comment\" data-i=\"" + esc(c.id) + "\" style=\"color:var(--redSoft)\">Report</button>";
+      var at = isReply && c.reply_to ? "<span class=\"crep\">@" + esc(c.reply_to) + "</span> " : "";
+      return "<div class=\"comment" + (isReply ? " reply" : "") + "\"><div class=\"cav vav\">" + esc(initials(c.user)) +
+        "</div><div class=\"cbody\"><div class=\"cwho\">@" + esc(c.user) + "<span class=\"ctime\">" + esc(ago(c.created_at)) +
+        "</span></div><div class=\"ctext\">" + at + esc(c.text) + "</div>" +
+        (acts ? "<div class=\"cfoot\">" + acts + "</div>" : "") + "</div></div>" +
+        ((kids[c.id] || []).map(function(k){ return one(k, true); }).join(""));
+    }
+    list.innerHTML = (kids.root || []).map(function(c){ return one(c, false); }).join("");
     Array.prototype.forEach.call(list.querySelectorAll(".rbtn"), function(b){
+      if (b.dataset.h) {
+        b.onclick = function(){
+          b.disabled = true;
+          api("/api/comments/heart", { method:"POST", body:{ id: b.dataset.h } }).then(function(r){
+            b.classList.toggle("on", r.hearted);
+            b.style.color = r.hearted ? "#ff5a5a" : "var(--dim)";
+            b.textContent = (r.hearted ? "\u2665" : "\u2661") + " " + r.hearts;
+            b.disabled = false;
+          }).catch(function(e){ b.disabled = false; toast(e.message || "Could not do that"); });
+        };
+        return;
+      }
+      if (b.dataset.r) {
+        b.onclick = function(){
+          var c = cs.filter(function(x){ return String(x.id) === String(b.dataset.r); })[0];
+          if (c) replySheet(vid, c, list);
+        };
+        return;
+      }
       if (myReports[b.dataset.k + ":" + b.dataset.i]) { b.textContent = "Reported"; b.disabled = true; b.style.opacity = ".45"; return; }
       b.onclick = function(){
         var cid = b.dataset.i;
         var c = cs.filter(function(x){ return String(x.id) === String(cid); })[0];
-        reportSheet("comment", cid, "@" + (c?c.user:"") + ': "' + (c?c.text.slice(0,60):"") + '"');
+        reportSheet("comment", cid, "@" + (c?c.user:"") + ": " + (c?c.text.slice(0,60):""));
       };
     });
-  }).catch(function(){ var l = target || $("cList"); if (l) l.innerHTML = '<div style="color:var(--dim);font-size:14px">Comments unavailable.</div>'; });
+  }).catch(function(){ var l = target || $("cList"); if (l) l.innerHTML = "<div style=\"color:var(--dim);font-size:14px\">Comments unavailable.</div>"; });
+}
+/* Replies go in a sheet rather than an inline box: the watch page is already a
+   long scroll and the Shorts panel has no room to grow a thread sideways.
+   Either way the reply carries its parent id, so it lands in the right thread
+   when the list reloads. */
+function replySheet(vid, parent, list){
+  openSheet(
+    "<div id=\"sheetTitle\">Reply</div>" +
+    "<div id=\"sheetSub\">Replying to @" + esc(parent.reply_to || parent.user) + "</div>" +
+    "<div class=\"ctext\" style=\"border-left:2px solid #333;padding-left:10px;margin-bottom:14px;color:var(--dim)\">" +
+      esc(parent.text.slice(0, 200)) + "</div>" +
+    "<div class=\"field\"><textarea id=\"rpText\" rows=\"3\" maxlength=\"500\" placeholder=\"Add a reply...\"></textarea></div>" +
+    "<div class=\"sheet-msg\" id=\"rpMsg\"></div>" +
+    "<button class=\"sheet-go\" id=\"rpSend\">Reply</button>" +
+    "<button class=\"sheet-alt\" id=\"rpCancel\">Cancel</button>"
+  );
+  $("rpCancel").onclick = closeSheet;
+  $("rpSend").onclick = function(){
+    var t = $("rpText").value.trim();
+    if (!t) return;
+    $("rpSend").disabled = true;
+    api("/api/comments", { method:"POST", body:{ video_id: vid, text: t, parent_id: parent.id, reply_to: parent.user } })
+      .then(function(){ closeSheet(); toast("Reply posted"); loadComments(vid, list); })
+      .catch(function(e){ $("rpSend").disabled = false; toast(e.message || "Could not post that reply."); });
+  };
 }
 
 /* =====================================================================
@@ -2590,6 +2666,7 @@ function observeShorts(){
 function shortActivate(sl){
   var v = shortsList[+sl.dataset.i];
   if (!v) return;
+  curOwner = v.owner;   // the heart button in the comments panel needs this
   // Exactly one clip plays, always. The observer alone could not guarantee
   // that: it fires once per intersection change, so during the opening scroll
   // - or on a screen narrow enough that a neighbour is still >60% visible -
@@ -2669,6 +2746,7 @@ function feedVideoById(id){
 function shortComments(sl){
   var v = shortsList[+sl.dataset.i];
   if (!v) return;
+  curOwner = v.owner;
   openSheet(
     '<div id="sheetTitle">Comments</div>' +
     '<div id="sheetSub">' + esc(v.title) + '</div>' +

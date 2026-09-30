@@ -58,6 +58,30 @@ __name(REPORT_REASONS, "REPORT_REASONS");
 // blocked on somebody remembering to run a migration against production.
 // schema.sql still declares it, so a fresh database has it from the start.
 let statsReady = null;
+/* ---------- replies and hearts ----------
+   replies live in comments.parent_id, hearts in their own table. Both are
+   added lazily for the same reason as video_stats: a deploy should not depend
+   on somebody remembering to run a migration against production. ALTER TABLE
+   has no IF NOT EXISTS, so a duplicate-column error is the success case here
+   and must not be treated as a failure. */
+let commentsExtReady = null;
+function ensureCommentsExt(env) {
+  if (!commentsExtReady) {
+    commentsExtReady = (async () => {
+      try { await env.DB.prepare("ALTER TABLE comments ADD COLUMN parent_id TEXT").run(); }
+      catch (e) { if (!/duplicate column|already exists/i.test(String(e && e.message || e))) throw e; }
+      try { await env.DB.prepare("ALTER TABLE comments ADD COLUMN reply_to TEXT").run(); }
+      catch (e) { if (!/duplicate column|already exists/i.test(String(e && e.message || e))) throw e; }
+      await env.DB.prepare(
+        "CREATE TABLE IF NOT EXISTS comment_likes(comment_id INTEGER NOT NULL, username TEXT NOT NULL," +
+        " PRIMARY KEY (comment_id, username))"
+      ).run();
+      await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_clikes_comment ON comment_likes(comment_id)").run();
+    })().catch(e => { commentsExtReady = null; throw e; });
+  }
+  return commentsExtReady;
+}
+__name(ensureCommentsExt, "ensureCommentsExt");
 function ensureStats(env) {
   if (!statsReady) {
     statsReady = env.DB.prepare(
@@ -1112,7 +1136,16 @@ var index_default = {
           // id is selected so the client can attach a report button to each
           // comment; status='clean' means a moderator-removed comment drops out
           // of this list without any extra filtering on the client.
-          const res = await env.DB.prepare("SELECT id,user,text,created_at FROM comments WHERE video_id=? AND status='clean' ORDER BY id DESC LIMIT 50").bind(vid).all();
+          // hearts is the total and ownerHearted is whether the viewer is the
+          // person who owns the video - only they get a heart button, so the
+          // client never has to decide who is allowed to see one.
+          await ensureCommentsExt(env);
+          const res = await env.DB.prepare(
+            "SELECT c.id,c.user,c.text,c.created_at,c.parent_id,c.reply_to," +
+            " (SELECT COUNT(*) FROM comment_likes l WHERE l.comment_id=c.id) AS hearts," +
+            " (SELECT COUNT(*) FROM comment_likes l2 WHERE l2.comment_id=c.id AND l2.username=?) AS owner_hearted " +
+            "FROM comments c WHERE c.video_id=? AND c.status='clean' ORDER BY c.id ASC LIMIT 100"
+          ).bind((await authedUser() || {}).username || "", vid).all();
           const rows = res && res.results ? res.results : [];
           return json(200, { comments: rows });
         } catch (e) {
@@ -1123,7 +1156,7 @@ var index_default = {
       if (req.method === "POST" && url.pathname === "/api/comments") {
         const user = await authedUser();
         if (!user) return json(401, { error: "Sign in to comment." });
-        const { video_id, text } = await req.json();
+        const { video_id, text, parent_id, reply_to } = await req.json();
         const t = String(text || "").trim();
         if (!t || t.length > 500) return json(400, { error: "Comment 1-500 chars." });
         const vid = await env.DB.prepare("SELECT id FROM videos WHERE id=? AND status='clean'").bind(video_id).first();
@@ -1131,11 +1164,41 @@ var index_default = {
         const verdict = scanText(t);
         if (verdict === "severe") return json(400, { error: "Blocked: prohibited content. This was logged." });
         if (verdict !== "clean") return json(400, { error: "Blocked by comment filter (" + verdict + "). Keep it clean." });
-        const recent = await env.DB.prepare("SELECT created_at FROM comments WHERE user=? ORDER BY id DESC LIMIT 1").bind(user.username).first();
-        if (recent && Date.now() - new Date(recent.created_at).getTime() < 5e3)
-          return json(429, { error: "Slow down — 5s between comments." });
-        await env.DB.prepare("INSERT INTO comments(video_id,user,text,status,created_at) VALUES(?,?,?,'clean',?)").bind(video_id, user.username, t, (/* @__PURE__ */ new Date()).toISOString()).run();
+        // Replies belong to a comment on THIS video. Without that check a
+        // comment on one video could be used as the parent of a reply on
+        // another, and the thread would span two unrelated videos.
+        let parent = null;
+        if (parent_id != null && parent_id !== "") {
+          parent = await env.DB.prepare("SELECT id,user FROM comments WHERE id=? AND video_id=? AND status='clean'")
+            .bind(parent_id, video_id).first();
+          if (!parent) return json(400, { error: "That comment no longer exists." });
+        }
+        await ensureCommentsExt(env);
+        // One level only: a reply to a reply becomes a sibling, so threads stay
+        // readable instead of indenting forever.
+        const pid = parent ? (parent.parent_id || parent.id) : null;
+        const to = parent ? String(reply_to || parent.user || "").slice(0, 40) : null;
+        await env.DB.prepare("INSERT INTO comments(video_id,user,text,status,parent_id,reply_to,created_at) VALUES(?,?,?,'clean',?,?,?)")
+          .bind(video_id, user.username, t, pid, to || null, (/* @__PURE__ */ new Date()).toISOString()).run();
         return json(200, { ok: true });
+      }
+      // Hearts are the video owner's alone - this is the creator acknowledging
+      // a comment, not a public like button. Server-side, so a client cannot
+      // simply send a different id.
+      if (req.method === "POST" && url.pathname === "/api/comments/heart") {
+        const user = await authedUser();
+        if (!user) return json(401, { error: "Sign in." });
+        const { id } = await req.json();
+        await ensureCommentsExt(env);
+        const row = await env.DB.prepare("SELECT c.id FROM comments c JOIN videos v ON v.id=c.video_id WHERE c.id=? AND v.owner=?")
+          .bind(String(id), user.username).first();
+        if (!row) return json(403, { error: "Only the person who uploaded this video can heart its comments." });
+        const had = await env.DB.prepare("SELECT 1 AS x FROM comment_likes WHERE comment_id=? AND username=?")
+          .bind(row.id, user.username).first();
+        if (had) await env.DB.prepare("DELETE FROM comment_likes WHERE comment_id=? AND username=?").bind(row.id, user.username).run();
+        else await env.DB.prepare("INSERT INTO comment_likes(comment_id,username) VALUES(?,?)").bind(row.id, user.username).run();
+        const n = await env.DB.prepare("SELECT COUNT(*) AS c FROM comment_likes WHERE comment_id=?").bind(row.id).first();
+        return json(200, { hearts: n ? n.c : 0, hearted: !had });
       }
       if (req.method === "POST" && url.pathname === "/api/report") {
         const user = await authedUser();
@@ -1369,6 +1432,15 @@ var index_default = {
           await s3Delete(row.r2_key);
           if (row.thumb_key) await s3Delete(row.thumb_key);
         }
+        // Heart rows are collected BEFORE the comments go: the subquery that would
+        // find them runs against comments that no longer exist, so doing it in
+        // this order would quietly orphan every heart on a deleted video.
+        try {
+          await ensureCommentsExt(env);
+          const cidRows = await env.DB.prepare("SELECT id FROM comments WHERE video_id=?").bind(id).all();
+          for (const c of (cidRows.results || []))
+            await env.DB.prepare("DELETE FROM comment_likes WHERE comment_id=?").bind(c.id).run();
+        } catch (e) { console.error("DELETE_HEARTS:", String(e && e.message || e)); }
         await env.DB.prepare("DELETE FROM comments WHERE video_id=?").bind(id).run();
         await env.DB.prepare("DELETE FROM videos WHERE id=?").bind(id).run();
         return json(200, { ok: true });

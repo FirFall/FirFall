@@ -52,9 +52,24 @@ CREATE TABLE IF NOT EXISTS comments(
   user TEXT NOT NULL,
   text TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'clean',
+  -- A reply points at the comment it answers. One level only: the worker stores
+  -- the GRANDparent, so a reply to a reply becomes a sibling and threads stay
+  -- readable instead of indenting forever.
+  parent_id INTEGER,
+  -- "@someone" this comment answers, so the UI can say who it is aimed at
+  -- without a second lookup.
+  reply_to TEXT,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_comments_video ON comments(video_id);
+-- Hearts on a comment are the person who uploaded the video saying "yes, this
+-- one". Only they can give one, and that is enforced in the worker.
+CREATE TABLE IF NOT EXISTS comment_likes(
+  comment_id INTEGER NOT NULL,
+  username TEXT NOT NULL,
+  PRIMARY KEY (comment_id, username)
+);
+CREATE INDEX IF NOT EXISTS idx_clikes_comment ON comment_likes(comment_id);
 CREATE TABLE IF NOT EXISTS video_likes(
   video_id TEXT NOT NULL,
   username TEXT NOT NULL,

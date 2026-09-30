@@ -6,6 +6,7 @@ button:focus-visible,.yt-chip:focus-visible{outline:2px solid #3ea6ff;outline-of
 .h-center{flex:1;max-width:720px;justify-content:center}
 .yt-icon-btn{background:transparent;border:0;color:#fff;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .yt-icon-btn:hover{background:#272727}
+.yt-icon-btn svg{width:22px;height:22px;fill:currentColor}
 .yt-logo{display:flex;align-items:center;gap:6px;color:#fff;text-decoration:none;font-size:19px;font-weight:600;letter-spacing:-.5px}
 .fire-badge{display:flex;filter:drop-shadow(0 0 6px rgba(255,90,0,.55))}
 .logo-word{letter-spacing:-.5px}
@@ -341,6 +342,23 @@ body:not(.site-down) #downOverlay{display:none}
 .short-top svg{width:22px;height:22px;fill:#fff}
 .short-top .sh-lbl{flex:1;text-align:center;font-size:15px;font-weight:700;color:#fff;
   text-shadow:0 1px 3px rgba(0,0,0,.7)}
+/* Comment threads. One level only - the server flattens a reply-to-a-reply
+   onto the same parent so this cannot indent forever. */
+.c-acts{display:flex;align-items:center;gap:14px;margin-top:6px}
+.c-acts button{background:none;border:0;color:#aaa;font:inherit;font-size:12.5px;
+  font-weight:600;cursor:pointer;padding:0}
+.c-acts button:hover{color:#fff}
+.comment.reply{margin:12px 0 0 20px;padding-left:12px;border-left:2px solid #272727}
+.comment.reply p{font-size:13.5px}
+.comment .reply_to{color:#3ea6ff}
+.heart-btn.on{color:#ff5a5a}
+.reply-box{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+.reply-box textarea{width:100%;background:#0f0f0f;border:1px solid #3f3f3f;border-radius:10px;
+  color:#f1f1f1;padding:10px 12px;font:inherit;font-size:13.5px;resize:vertical;outline:0}
+.reply-box textarea:focus{border-color:#ff6a00}
+.reply-box .auth-go{padding:8px 18px;font-size:13.5px;width:auto}
+.reply-box .ghost-btn{padding:8px 14px;font-size:13.5px}
+
 /* ---- FirFall Studio ----
    Deliberately its own visual language: the site is a YouTube pastiche, and
    the creator side should not pretend to be YouTube Studio. FirFall's orange
@@ -480,6 +498,16 @@ body:not(.site-down) #downOverlay{display:none}
 .crop-ring{position:absolute;inset:0;pointer-events:none;z-index:2}
 .crop-ring::before{content:"";position:absolute;inset:0;border:2px solid rgba(255,255,255,.5);
   border-radius:inherit}
+/* The picture is shown as a circle everywhere, so the cropper says so: a
+   translucent mask with a clear hole in it, the same shape the avatar will
+   actually be. The hole is a circle with a very large spread shadow, which
+   dims everything outside it without needing nine divs or an SVG mask. */
+.crop-mask{position:absolute;inset:0;z-index:2;pointer-events:none;display:none}
+.crop-mask.on{display:block}
+.crop-hole{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:78%;height:78%;border-radius:50%;box-sizing:border-box;
+  border:2px solid rgba(255,255,255,.9);
+  box-shadow:0 0 0 9999px rgba(0,0,0,.55)}
 .crop-zoom{display:flex;align-items:center;gap:12px;margin:16px 0 4px}
 .crop-zoom input[type=range]{flex:1;accent-color:#ff6a00}
 .crop-note{color:#aaa;font-size:12.5px;line-height:1.5}
