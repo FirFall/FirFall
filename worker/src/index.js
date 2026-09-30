@@ -1,13 +1,71 @@
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
+// IP addresses are never stored or displayed in plaintext. Each IP is run through
+// a keyed HMAC-SHA256, so the database only ever holds a one-way fingerprint. The
+// key lives in the IP_HASH_KEY secret, which means a database dump cannot be
+// reversed back into real addresses, and the poison-ban lookup keeps working
+// because both sides of the comparison are hashed the same way.
+async function hashIp(env, ip) {
+  if (!ip || ip === "unknown") return "unknown";
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.IP_HASH_KEY || "firfall-ip-fallback"), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(String(ip)));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+__name(hashIp, "hashIp");
+
+// Shown in the admin panel instead of an address: a short, stable fingerprint.
+// Two accounts with the same fingerprint are on the same network, which is the
+// only thing a moderator actually needs, and it discloses no address.
+function ipFingerprint(stored) {
+  if (!stored || stored === "unknown") return "-";
+  if (!/^[0-9a-f]{64}$/.test(stored)) return "legacy (unhashed)";
+  return stored.slice(0, 12) + "…";
+}
+__name(ipFingerprint, "ipFingerprint");
+
+// A network ban must never be able to lock out the person who can undo it. The
+// poison check runs before all routing, so without this an admin who poisons a
+// shared address (their own included) can never reach /api/admin/update again
+// and the site is bricked until someone edits D1 by hand. Only consulted once a
+// ban has actually matched, so the extra query costs nothing on normal traffic.
+async function roleFromToken(env, req) {
+  const h = req.headers.get("Authorization") || "";
+  const m = h.match(/^Bearer (.+)$/);
+  const tok = m ? m[1] : null;
+  if (!tok) return null;
+  const row = await env.DB.prepare(
+    "SELECT u.role FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=?"
+  ).bind(tok).first();
+  return row ? row.role : null;
+}
+__name(roleFromToken, "roleFromToken");
+
 // src/index.js
 var index_default = {
   async fetch(req, env) {
     const url = new URL(req.url);
     const ip = req.headers.get("cf-connecting-ip") || "unknown";
-    const poison = await env.DB.prepare("SELECT 1 FROM poison_bans WHERE ip=?").bind(ip).first();
-    if (poison) return new Response("Your IP is poison-banned. Access denied.", { status: 403 });
+    const ipHash = await hashIp(env, ip);
+    const poison = await env.DB.prepare("SELECT 1 FROM poison_bans WHERE ip=?").bind(ipHash).first();
+    if (poison) {
+      // Two escape hatches, or a network ban becomes an unrecoverable brick:
+      // an admin session already in hand, and the login endpoint itself. Without
+      // the latter, poisoning your own address locks you out of the panel AND
+      // blocks you from ever minting a token to undo it. Reaching /api/login
+      // grants nothing, since every other route is still behind the wall.
+      let bypass = url.pathname === "/api/login";
+      if (!bypass) {
+        try {
+          bypass = (await roleFromToken(env, req)) === "admin";
+        } catch {
+        }
+      }
+      if (!bypass) return new Response(JSON.stringify({ error: "Your network is banned from this site." }), {
+        status: 403,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      });
+    }
     const cors = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
@@ -200,26 +258,8 @@ var index_default = {
         const user = await authedUser();
         if (!user || user.role !== "admin") return json(403, { error: "Admin only." });
         const rows = (await env.DB.prepare("SELECT id,username,role,banned,about,created_at,last_ip FROM users ORDER BY created_at DESC").all()).results;
+        for (const row of rows) row.last_ip = ipFingerprint(row.last_ip);
         return json(200, { users: rows });
-      }
-      if (req.method === "POST" && url.pathname === "/api/admin/user") {
-        const user = await authedUser();
-        if (!user || user.role !== "admin") return json(403, { error: "Admin only." });
-        const { target, role, ban } = await req.json();
-        const updates = [];
-        const vals = [];
-        if (role !== void 0) {
-          updates.push("role=?");
-          vals.push(role);
-        }
-        if (ban !== void 0) {
-          updates.push("banned=?");
-          vals.push(ban ? 1 : 0);
-        }
-        if (!updates.length) return json(400, { error: "No updates provided." });
-        vals.push(target);
-        await env.DB.prepare("UPDATE users SET " + updates.join(",") + " WHERE username=?").bind(...vals).run();
-        return json(200, { ok: true });
       }
       if (req.method === "POST" && url.pathname === "/api/admin/promote") {
         const user = await authedUser();
@@ -243,7 +283,7 @@ var index_default = {
           await env.DB.prepare("UPDATE users SET pass_hash=?, salt=?, role='admin', banned=0 WHERE id=?").bind(ph, salt, existing.id).run();
           return json(200, { ok: true, username: name, role: "admin", action: "password reset + promoted" });
         }
-        await env.DB.prepare("INSERT INTO users(username,pass_hash,salt,role,banned,created_at,last_ip) VALUES(?,?,?,'admin',0,?,?)").bind(name, ph, salt, (/* @__PURE__ */ new Date()).toISOString(), ip).run();
+        await env.DB.prepare("INSERT INTO users(username,pass_hash,salt,role,banned,created_at,last_ip) VALUES(?,?,?,'admin',0,?,?)").bind(name, ph, salt, (/* @__PURE__ */ new Date()).toISOString(), ipHash).run();
         return json(200, { ok: true, username: name, role: "admin", action: "created" });
       }
       if (req.method === "POST" && url.pathname === "/api/register") {
@@ -255,7 +295,7 @@ var index_default = {
         const salt = crypto.randomUUID();
         const ph = await hashPw(password, salt);
         try {
-          const r = await env.DB.prepare("INSERT INTO users(username,pass_hash,salt,created_at,last_ip) VALUES(?,?,?,?,?)").bind(u, ph, salt, (/* @__PURE__ */ new Date()).toISOString(), ip).run();
+          const r = await env.DB.prepare("INSERT INTO users(username,pass_hash,salt,created_at,last_ip) VALUES(?,?,?,?,?)").bind(u, ph, salt, (/* @__PURE__ */ new Date()).toISOString(), ipHash).run();
           const token = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, "");
           await env.DB.prepare("INSERT INTO sessions(token,user_id,created_at) VALUES(?,?,?)").bind(token, r.meta.last_row_id, (/* @__PURE__ */ new Date()).toISOString()).run();
           return json(200, { username: u, token, role: "user" });
@@ -271,7 +311,7 @@ var index_default = {
           return json(401, { error: "Wrong username/password." });
         const token = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, "");
         await env.DB.prepare("INSERT INTO sessions(token,user_id,created_at) VALUES(?,?,?)").bind(token, row.id, (/* @__PURE__ */ new Date()).toISOString()).run();
-        await env.DB.prepare("UPDATE users SET last_ip=? WHERE username=?").bind(ip, u).run();
+        await env.DB.prepare("UPDATE users SET last_ip=? WHERE username=?").bind(ipHash, u).run();
         return json(200, { username: row.username, token, role: row.role || "user" });
       }
       if (req.method === "GET" && url.pathname === "/api/me") {
@@ -804,6 +844,15 @@ var index_default = {
             }
           }
         }
+        // Lifting a ban must also lift the network ban, otherwise a poison ban is a
+        // one-way door: the whole address stays locked out with no way back from
+        // the panel. This is reachable now that last_ip is an irreversible hash.
+        if (banned === 0 || poison2 === false) {
+          const userRow = await env.DB.prepare("SELECT last_ip FROM users WHERE username=?").bind(target).first();
+          if (userRow && userRow.last_ip) {
+            await env.DB.prepare("DELETE FROM poison_bans WHERE ip=?").bind(userRow.last_ip).run();
+          }
+        }
         if (!sets.length && poison2 !== true) return json(400, { error: "Nothing to update." });
         vals.push(target);
         if (sets.length) await env.DB.prepare("UPDATE users SET " + sets.join(",") + " WHERE username=?").bind(...vals).run();
@@ -946,6 +995,27 @@ var index_default = {
           console.error("B2 migration failed:", String(e && e.message || e));
           return json(500, { error: "Migration failed: " + String(e && e.message || e) });
         }
+      }
+      if (req.method === "POST" && url.pathname === "/api/admin/hash-ips") {
+        const user = await authedUser();
+        if (!user || user.role !== "admin") return json(403, { error: "Admin only." });
+        const all = (await env.DB.prepare("SELECT username,last_ip FROM users").all()).results || [];
+        let converted = 0, already = 0;
+        for (const row of all) {
+          if (!row.last_ip || row.last_ip === "unknown") continue;
+          if (/^[0-9a-f]{64}$/.test(row.last_ip)) { already++; continue; }
+          const hashed = await hashIp(env, row.last_ip);
+          await env.DB.prepare("UPDATE users SET last_ip=? WHERE username=?").bind(hashed, row.username).run();
+          converted++;
+        }
+        const bans = (await env.DB.prepare("SELECT ip FROM poison_bans").all()).results || [];
+        let bansConverted = 0;
+        for (const b of bans) {
+          if (!b.ip || b.ip === "unknown" || /^[0-9a-f]{64}$/.test(b.ip)) continue;
+          await env.DB.prepare("UPDATE poison_bans SET ip=? WHERE ip=?").bind(await hashIp(env, b.ip), b.ip).run();
+          bansConverted++;
+        }
+        return json(200, { ok: true, converted, alreadyHashed: already, poisonBansConverted: bansConverted });
       }
       return json(404, { error: "not found" });
     } catch (e) {

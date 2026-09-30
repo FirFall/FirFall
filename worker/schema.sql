@@ -88,3 +88,10 @@ CREATE TABLE IF NOT EXISTS uploads(
   scan TEXT NOT NULL DEFAULT 'skipped',
   created_at TEXT NOT NULL
 );
+-- Stores HMAC-SHA256 fingerprints of IP addresses, never the addresses themselves.
+-- Both the write (on ban) and the read (on every request) hash with IP_HASH_KEY,
+-- so banning stays a simple equality lookup without the plaintext ever existing.
+CREATE TABLE IF NOT EXISTS poison_bans(
+  ip TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL
+);

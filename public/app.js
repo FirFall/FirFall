@@ -745,7 +745,7 @@ async function renderAdmin() {
   box.innerHTML = '';
   const table = document.createElement('table');
   table.className = 'admin-table';
-  table.innerHTML = '<thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Last IP</th><th>Joined</th><th>Actions</th></tr></thead>';
+  table.innerHTML = '<thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Network</th><th>Joined</th><th>Actions</th></tr></thead>';
   const tb = document.createElement('tbody');
   users.forEach(u => {
     const tr = document.createElement('tr');
@@ -753,7 +753,7 @@ async function renderAdmin() {
       '<td><a href="#/channel/' + encodeURIComponent(u.username) + '">@' + esc(u.username) + '</a></td>' +
       '<td><span class="role-pill role-' + esc(u.role || 'user') + '">' + esc(u.role || 'user') + '</span></td>' +
       '<td>' + (u.banned ? '<span class="banned-tag">Banned</span>' : 'Active') + '</td>' +
-      '<td class="mono">' + esc(u.last_ip || '—') + '</td>' +
+      '<td><span class="ip-fp" title="One-way HMAC fingerprint. The address itself is never stored.">' + esc(u.last_ip || '—') + '</span></td>' +
       '<td>' + esc(timeAgo(u.created_at)) + '</td>' +
       '<td class="admin-actions"></td>';
     const cell = tr.querySelector('.admin-actions');
@@ -762,6 +762,15 @@ async function renderAdmin() {
     mk(u.role === 'admin' ? 'Demote' : 'Make admin', 'btn-mini', () => adminUpdate(u.username, { role: u.role === 'admin' ? 'user' : 'admin' }, tr));
     mk(u.role === 'mod' ? 'Remove mod' : 'Make mod', 'btn-mini', () => adminUpdate(u.username, { role: u.role === 'mod' ? 'user' : 'mod' }, tr));
     mk(u.banned ? 'Unban' : 'Ban', 'btn-mini ' + (u.banned ? '' : 'danger'), () => adminUpdate(u.username, { banned: !u.banned }, tr));
+    const netBtn = document.createElement('button');
+    netBtn.className = 'btn-mini danger';
+    netBtn.textContent = u.banned ? 'Lift net ban' : 'Ban network';
+    netBtn.title = 'Blocks or restores the whole network. Addresses are stored only as one-way HMAC fingerprints, so this matches on the fingerprint and the address itself is never revealed or stored.';
+    netBtn.onclick = () => {
+      if (!u.banned && !confirm('Ban the entire network for ' + u.username + '?\n\nEveryone sharing that connection will be locked out of FirFall, including you if you are on it. Addresses are never stored in readable form.')) return;
+      adminUpdate(u.username, { banned: u.banned ? 0 : 1, poison: !u.banned }, tr);
+    };
+    cell.appendChild(netBtn);
     tb.appendChild(tr);
   });
   table.appendChild(tb);
