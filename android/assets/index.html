@@ -319,10 +319,12 @@ input,textarea{font:inherit}
 @keyframes sp{to{transform:rotate(360deg)}}
 
 /* ---------- sheets (report / sign in) ---------- */
-#scrim{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:80;opacity:0;
+/* Above #shorts (90): the Shorts panel opens the comments sheet, and a sheet
+   that renders underneath a full-screen video is a sheet you cannot read. */
+#scrim{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:95;opacity:0;
   pointer-events:none;transition:opacity .18s}
 #scrim.on{opacity:1;pointer-events:auto}
-#sheet{position:fixed;left:0;right:0;bottom:0;background:var(--bg2);z-index:81;
+#sheet{position:fixed;left:0;right:0;bottom:0;background:var(--bg2);z-index:96;
   border-radius:16px 16px 0 0;padding:8px 16px calc(20px + var(--safeBot));
   transform:translateY(102%);transition:transform .2s;max-height:86vh;overflow-y:auto}
 #sheet.on{transform:translateY(0)}
@@ -737,8 +739,11 @@ function ago(iso){
   if (!t || isNaN(t)) return "";
   var s = Math.max(0,(Date.now()-t)/1000);
   if (s < 60) return "just now";
-  if (s < 3600) return Math.floor(s/60)+" minute"+(s<120?"":"s")+" ago";
-  if (s < 86400){ var m=Math.floor(s/60); return m+" minute"+(m===1?"":"s")+" ago"; }
+  // The hours branch used to divide by 60 and label the result "minutes", so
+  // anything from an hour to a day old was printed as a total - a 2 hour old
+  // video read "120 minutes ago". Each step now divides by its own span.
+  if (s < 3600){ var m = Math.floor(s/60); return m+" minute"+(m===1?"":"s")+" ago"; }
+  if (s < 86400){ var h = Math.floor(s/3600); return h+" hour"+(h===1?"":"s")+" ago"; }
   if (s < 172800) return "1 day ago";
   if (s < 2592000){ var d=Math.floor(s/86400); return d+" day"+(d===1?"":"s")+" ago"; }
   if (s < 31536000){ var mo=Math.floor(s/2592000); return mo+" month"+(mo===1?"":"s")+" ago"; }
@@ -1548,9 +1553,11 @@ function refreshSub(channel){
     .then(function(j){ subState[channel] = j; var el = $("chSub"); if (el) el.textContent = num(j.subscribers||0) + " subscriber" + (j.subscribers===1?"":"s"); })
     .catch(function(){});
 }
-function loadComments(vid){
+/* target defaults to the watch page's list; the Shorts panel passes its own so
+   the same renderer and the same report buttons serve both. */
+function loadComments(vid, target){
   api("/api/comments?video=" + encodeURIComponent(vid)).then(function(j){
-    var list = $("cList"); if (!list) return;
+    var list = target || $("cList"); if (!list) return;
     var cs = j.comments || [];
     if (!cs.length) { list.innerHTML = '<div style="color:var(--dim);font-size:14px">No comments yet.</div>'; return; }
     list.innerHTML = cs.map(function(c){
@@ -1569,7 +1576,7 @@ function loadComments(vid){
         reportSheet("comment", cid, "@" + (c?c.user:"") + ': "' + (c?c.text.slice(0,60):"") + '"');
       };
     });
-  }).catch(function(){ var l = $("cList"); if (l) l.innerHTML = '<div style="color:var(--dim);font-size:14px">Comments unavailable.</div>'; });
+  }).catch(function(){ var l = target || $("cList"); if (l) l.innerHTML = '<div style="color:var(--dim);font-size:14px">Comments unavailable.</div>'; });
 }
 
 /* =====================================================================
@@ -2316,7 +2323,7 @@ function emberThumb(file){
    and plays it. Every video is muted and looping by default because that is
    the only combination a browser will autoplay without a user gesture, and
    unmuting is one tap away in the top bar. */
-var shortsIO = null, shortsList = [], shortsMuted = true;
+var shortsIO = null, shortsList = [], shortsMuted = true, shortsCurrent = null;
 var curFeedList = [];
 /* One-shot. The comment button sends you to the full watch page on purpose,
    so loadWatch has to know not to bounce you straight back into here. */
@@ -2384,9 +2391,7 @@ function wireShorts(){
     sl.querySelector(".sh-av").onclick = function(){ closeShorts(); curChannel = v.owner; go("channel", true); };
     sl.querySelector('[data-a="like"]').onclick = function(){ shortReact(sl, "like"); };
     sl.querySelector('[data-a="dislike"]').onclick = function(){ shortReact(sl, "dislike"); };
-    sl.querySelector('[data-a="comment"]').onclick = function(){
-      watchPlain = true; closeShorts(); curVideo = v.id; go("watch", true);
-    };
+    sl.querySelector('[data-a="comment"]').onclick = function(){ shortComments(sl); };
     sl.querySelector('[data-a="share"]').onclick = function(){ shareVideo(v, this); };
   });
 }
@@ -2396,7 +2401,9 @@ function observeShorts(){
     for (var i = 0; i < entries.length; i++) {
       var sl = entries[i].target, video = sl.querySelector("video");
       if (entries[i].isIntersecting && entries[i].intersectionRatio > 0.6) shortActivate(sl);
-      else if (video && !video.paused) video.pause();
+      // Never pause the slide that is currently playing - the observer can
+      // report a second entry for it after a scroll has already moved on.
+      else if (video && sl !== shortsCurrent) video.pause();
     }
   }, { root: $("shortsTrack"), threshold: [0, 0.6] });
   Array.prototype.forEach.call($("shortsTrack").querySelectorAll(".short"), function(sl){ shortsIO.observe(sl); });
@@ -2404,6 +2411,18 @@ function observeShorts(){
 function shortActivate(sl){
   var v = shortsList[+sl.dataset.i];
   if (!v) return;
+  // Exactly one clip plays, always. The observer alone could not guarantee
+  // that: it fires once per intersection change, so during the opening scroll
+  // - or on a screen narrow enough that a neighbour is still >60% visible -
+  // two slides could both be told they were current and both start. Pausing
+  // every other video here makes it an invariant rather than a hope.
+  if (shortsCurrent && shortsCurrent !== sl) {
+    var other = shortsCurrent.querySelector("video");
+    // Unconditional: pausing a video that is already paused is a no-op, but
+    // guarding on .paused means a stale read lets the old clip keep going.
+    if (other) other.pause();
+  }
+  shortsCurrent = sl;
   var video = sl.querySelector("video");
   if (!video.getAttribute("src")) video.src = mediaUrl("v", v.id);
   try { video.currentTime = 0; } catch(e){}
@@ -2445,6 +2464,7 @@ function toggleShortMute(){
 }
 function closeShorts(){
   if (shortsIO) { shortsIO.disconnect(); shortsIO = null; }
+  shortsCurrent = null;
   var t = $("shortsTrack");
   Array.prototype.forEach.call(t.querySelectorAll("video"), function(v){
     try { v.pause(); v.removeAttribute("src"); v.load(); } catch(e){}
@@ -2463,6 +2483,41 @@ paintShortMute();
 function feedVideoById(id){
   for (var i = 0; i < curFeedList.length; i++) if (curFeedList[i].id === id) return curFeedList[i];
   return null;
+}
+/* Comments, the way a Short does it: a sheet over the player, not a jump to
+   another page. The clip keeps playing behind it, which is the whole point of
+   reading comments while watching. */
+function shortComments(sl){
+  var v = shortsList[+sl.dataset.i];
+  if (!v) return;
+  openSheet(
+    '<div id="sheetTitle">Comments</div>' +
+    '<div id="sheetSub">' + esc(v.title) + '</div>' +
+    '<div id="scList" style="max-height:44vh;overflow-y:auto;margin-bottom:14px"></div>' +
+    (me ? '<div class="cadd"><div class="cav vav">' + esc(initials(me)) + '</div>' +
+          '<textarea id="scInput" rows="1" maxlength="500" placeholder="Add a comment..."></textarea>' +
+          '<button class="cbtn" id="scSend">Comment</button></div>'
+        : '<button class="sheet-go" id="scSignin">Sign in to comment</button>')
+  );
+  loadComments(v.id, $("scList"));
+  if ($("scSignin")) $("scSignin").onclick = function(){ closeSheet(); authSheet("login"); };
+  var ta = $("scInput"), send = $("scSend");
+  if (ta && send) {
+    ta.addEventListener("input", function(){
+      ta.style.height = "auto";
+      ta.style.height = Math.min(120, ta.scrollHeight) + "px";
+      send.classList.toggle("go", !!ta.value.trim());
+    });
+    send.onclick = function(){
+      var t = ta.value.trim();
+      if (!t) return;
+      send.disabled = true;
+      api("/api/comments", { method:"POST", body:{ video_id: v.id, text: t } })
+        .then(function(){ ta.value = ""; ta.style.height = "auto"; send.classList.remove("go"); send.disabled = false;
+                          toast("Comment posted"); loadComments(v.id, $("scList")); })
+        .catch(function(e){ send.disabled = false; toast(e.message || "Could not post that."); });
+    };
+  }
 }
 
 /* =====================================================================

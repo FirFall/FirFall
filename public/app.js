@@ -506,6 +506,7 @@ async function loadEmbers() {
 // gesture, and a Shorts panel that sits silent because play() was rejected is
 // worse than one that starts quiet with an obvious unmute button.
 let shortsIO = null, shortsList = [], shortsMuted = true, watchPlain = false;
+let shortsCurrent = null;
 // True when the panel was opened from a #/watch/... link rather than the shelf,
 // so closing it puts the address bar back where it started.
 let shortsPushed = false;
@@ -567,9 +568,9 @@ function wireShorts() {
     sl.querySelector('.sh-av').onclick = () => { closeShorts(); location.hash = '#/channel/' + v.owner; };
     sl.querySelector('[data-a="like"]').onclick = () => shortReact(sl, 'like');
     sl.querySelector('[data-a="dislike"]').onclick = () => shortReact(sl, 'dislike');
-    // Comments live on the full watch page, so that button asks for it - and
-    // watchPlain stops renderWatch bouncing an ember straight back in here.
-    sl.querySelector('[data-a="comment"]').onclick = () => { watchPlain = true; closeShorts(); location.hash = '#/watch/' + v.id; };
+    // Comments open over the player rather than throwing you out to the watch
+    // page - the clip keeps playing behind the panel, which is the point.
+    sl.querySelector('[data-a="comment"]').onclick = () => openShortComments(v);
     sl.querySelector('[data-a="share"]').onclick = e => shareShort(e.currentTarget, v);
   });
 }
@@ -579,7 +580,9 @@ function observeShorts() {
     entries.forEach(e => {
       const video = e.target.querySelector('video');
       if (e.isIntersecting && e.intersectionRatio > 0.6) shortActivate(e.target);
-      else if (video && !video.paused) video.pause();
+      // Never pause the slide that is currently playing - the observer can
+      // report a second entry for it after a scroll has already moved on.
+      else if (video && e.target !== shortsCurrent) video.pause();
     });
   }, { root: document.getElementById('shortsTrack'), threshold: [0, 0.6] });
   document.querySelectorAll('#shortsTrack .short').forEach(sl => shortsIO.observe(sl));
@@ -587,6 +590,18 @@ function observeShorts() {
 function shortActivate(sl) {
   const v = shortsList[+sl.dataset.i];
   if (!v) return;
+  // Exactly one clip plays, always. The observer alone could not guarantee
+  // that: it fires once per intersection change, so during the opening scroll
+  // - or on a window narrow enough that a neighbour is still >60% visible -
+  // two slides could both be told they were current and both start playing.
+  // Pausing the previous one here makes it an invariant, not a hope.
+  if (shortsCurrent && shortsCurrent !== sl) {
+    const other = shortsCurrent.querySelector('video');
+    // Unconditional: pausing a video that is already paused is a no-op, but
+    // guarding on .paused means a stale read lets the old clip keep going.
+    if (other) other.pause();
+  }
+  shortsCurrent = sl;
   const video = sl.querySelector('video');
   if (!video.getAttribute('src')) video.src = mediaUrlWithToken('v', v.id);
   try { video.currentTime = 0; } catch (e) {}
@@ -633,6 +648,85 @@ async function shareShort(btn, v) {
   try { await navigator.clipboard.writeText(link); done(); }
   catch { prompt('Copy link:', link); }
 }
+// ---- Comments inside the Shorts panel ----
+// A slide panel over the player, not a route change. The comment renderer is
+// the same one the watch page uses - only the target element differs - so a
+// comment looks and behaves identically in both places, including the report
+// buttons.
+function openShortComments(v) {
+  const panel = document.getElementById('shortsComments');
+  const list = document.getElementById('scList');
+  const foot = document.getElementById('scFoot');
+  document.getElementById('scTitle').textContent = 'Comments';
+  panel.classList.add('on');
+  list.innerHTML = '<p class="modal-sub">Loading...</p>';
+  renderComments(v.id, list);
+  foot.innerHTML = me()
+    ? '<textarea id="scInput" rows="1" maxlength="500" placeholder="Add a comment..."></textarea>' +
+      '<button class="sc-go" id="scSend">Comment</button>'
+    : '<button class="sc-signin" id="scSignin">Sign in to comment</button>';
+  if (!me()) {
+    document.getElementById('scSignin').onclick = () => { setMode('login'); modal.classList.remove('hidden'); };
+    return;
+  }
+  const ta = document.getElementById('scInput'), send = document.getElementById('scSend');
+  ta.addEventListener('input', () => {
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(110, ta.scrollHeight) + 'px';
+  });
+  send.onclick = () => {
+    const text = ta.value.trim();
+    if (!text) return;
+    send.disabled = true;
+    fetch(API + '/api/comments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+      body: JSON.stringify({ video_id: v.id, text })
+    }).then(r => r.json()).then(() => {
+      ta.value = ''; ta.style.height = 'auto'; send.disabled = false;
+      renderComments(v.id, list);
+    }).catch(() => { send.disabled = false; });
+  };
+}
+document.getElementById('scClose').onclick = () => document.getElementById('shortsComments').classList.remove('on');
+
+/* The Embers page. The shelf under the home grid is a row you scroll sideways
+   and run out of; this is the same set of clips as a grid, with its own route
+   so it can be linked to and bookmarked. */
+async function renderEmbers() {
+  show(listView); markNav('embers');
+  document.getElementById('listCount').textContent = '';
+  document.getElementById('listClearBtn').classList.add('hidden');
+  document.getElementById('listTitle').textContent = 'Embers';
+  const box = document.getElementById('listGrid');
+  box.className = 'ember-grid';
+  box.innerHTML = '<div class="blank-state"><p>Loading...</p></div>';
+  let list = [];
+  try {
+    const r = await fetch(API + '/api/videos?kind=ember&limit=60');
+    const { videos } = await r.json();
+    list = (videos || []).filter(v => v.visibility === 'public');
+  } catch { list = []; }
+  box.innerHTML = '';
+  if (!list.length) {
+    box.className = 'yt-grid';
+    box.innerHTML = '<div class="blank-state"><h2>No embers yet</h2><p>Record one in the FirFall Android app.</p></div>';
+    return;
+  }
+  list.forEach(v => {
+    const b = document.createElement('button');
+    b.className = 'ember-card';
+    b.innerHTML = '<div class="ember-thumb"><img alt="" loading="lazy" src="' + esc(API + '/t/' + v.id) + '">' +
+      (v.duration ? '<span class="ember-dur">' + fmtDur(v.duration) + '</span>' : '') +
+      '<span class="ember-views">' + fmt(v.views || 0) + ' views</span></div>' +
+      '<div class="ember-meta"><h3></h3><p></p></div>';
+    b.querySelector('h3').textContent = v.title;
+    b.querySelector('p').textContent = v.owner + ' \u2022 ' + timeAgo(v.created_at);
+    b.onclick = () => openShorts(list, v.id);
+    box.appendChild(b);
+  });
+}
+
 function mediaUrlWithToken(kind, id) {
   const u = API + (kind === 'v' ? '/v/' : '/t/') + encodeURIComponent(id);
   return token() ? u + '?token=' + encodeURIComponent(token()) : u;
@@ -650,6 +744,9 @@ function toggleShortMute() {
 }
 function closeShorts() {
   if (shortsIO) { shortsIO.disconnect(); shortsIO = null; }
+  shortsCurrent = null;
+  const sc = document.getElementById('shortsComments');
+  if (sc) sc.classList.remove('on');
   const track = document.getElementById('shortsTrack');
   track.querySelectorAll('video').forEach(v => { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} });
   track.innerHTML = '';
@@ -1023,13 +1120,17 @@ document.getElementById('wSaveBtn').onclick = () => {
   paintSave();
 };
 
-async function loadComments(vid) {
-  const list = document.getElementById('cList');
+// target defaults to the watch page's list. The Shorts panel passes its own,
+// so both places share one renderer and one set of report buttons instead of
+// the panel growing a plainer, less capable copy later.
+async function loadComments(vid, target) {
+  const list = target || document.getElementById('cList');
   list.innerHTML = '';
   try {
     const r = await fetch(API + '/api/comments?video=' + encodeURIComponent(vid));
     const { comments } = await r.json();
-    document.getElementById('cCount').textContent = comments.length + ' Comments';
+    const cc = document.getElementById('cCount');
+    if (cc) cc.textContent = comments.length + ' Comments';
     if (!comments.length) list.innerHTML = '<p class="modal-sub">No comments yet.</p>';
     comments.forEach(c => {
       const d = document.createElement('div');
@@ -1054,6 +1155,7 @@ async function loadComments(vid) {
     });
   } catch { list.innerHTML = '<p class="modal-sub">Could not load comments.</p>'; }
 }
+const renderComments = (vid, target) => loadComments(vid, target);
 document.getElementById('cSend').onclick = async () => {
   const err = document.getElementById('cErr');
   err.textContent = '';
@@ -1484,6 +1586,7 @@ function router() {
   m = location.hash.match(/^#\/channel\/([A-Za-z0-9_]+)\/?$/);
   if (m) { renderChannel(m[1]); return; }
   if (location.hash === '#/subs') { renderSubs(); return; }
+  if (location.hash === '#/embers') { renderEmbers(); return; }
   if (location.hash === '#/history') { renderHistory(); return; }
   if (location.hash === '#/later') { renderLater(); return; }
   if (location.hash === '#/admin') { renderAdmin(); return; }

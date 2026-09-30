@@ -68,6 +68,12 @@ const TRAP = `<script>
    checks the image actually decoded - and reports the result in the DOM. */
 const DRIVE = `<script>
 (function(){
+  // play() rejects on a clip that has no media, so the real thing cannot be
+  // observed here. Stub it to set a flag instead, which makes "is more than
+  // one clip playing" a question with a definite answer.
+  var P = HTMLMediaElement.prototype;
+  P.play = function(){ this.__playing = true; return Promise.resolve(); };
+  P.pause = function(){ this.__playing = false; };
   function out(){
     var d = document.createElement("div");
     d.id = "driveOut";
@@ -107,6 +113,26 @@ const DRIVE = `<script>
               closeShorts();
               rec("shortsClosed", sh.classList.contains("on") ? "no" : "yes");
               rec("leftBehind", tr.children.length);
+              // Only ever one clip playing: activate two in a row and count.
+              openShorts([{ id: "b1", title: "One", owner: "ada", kind: "ember" },
+                          { id: "b2", title: "Two", owner: "bob", kind: "ember" }], "b1");
+              setTimeout(function(){
+                try{
+                  var sl = tr.querySelectorAll(".short");
+                  window.shortActivate(sl[0]);
+                  window.shortActivate(sl[1]);
+                  var playing = 0;
+                  sl.forEach(function(s){ if (s.querySelector("video").__playing) playing++; });
+                  rec("simultaneous", playing);
+                  // Comments open a UI over the player, not another page.
+                  window.shortComments(sl[1]);
+                  rec("commentUI", document.getElementById("scList") ? "yes" : "no");
+                  rec("commentCount", document.querySelectorAll("#scList .comment").length);
+                  rec("agoHours", window.ago(new Date(Date.now() - 2.4 * 3600 * 1000).toISOString()));
+                  rec("agoDays", window.ago(new Date(Date.now() - 3 * 86400 * 1000).toISOString()));
+                  closeShorts(); closeSheet();
+                }catch(e){ rec("playError", e.message); }
+              }, 400);
             }catch(e){ rec("shortsLateError", e.message); }
           }, 500);
         }catch(e){ rec("shortsError", e.message); }
@@ -130,6 +156,9 @@ const DRIVE = `<script>
    its own driver. The check that matters is the same one: does openShorts()
    build a real panel, and does closeShorts() leave nothing behind. */
 const DRIVE_DESKTOP = `<script>
+var P = HTMLMediaElement.prototype;
+P.play = function(){ this.__playing = true; return Promise.resolve(); };
+P.pause = function(){ this.__playing = false; };
 setTimeout(function(){
   var box = document.createElement("div");
   box.id = "driveOut"; box.style.display = "none";
@@ -153,6 +182,25 @@ setTimeout(function(){
         closeShorts();
         rec("shortsClosed", sh.classList.contains("on") ? "no" : "yes");
         rec("leftBehind", tr.children.length);
+        openShorts([{ id: "e1", title: "One", owner: "ada", kind: "ember" },
+                    { id: "e2", title: "Two", owner: "bob", kind: "ember" }], "e1");
+        setTimeout(function(){
+          try{
+            var sl = tr.querySelectorAll(".short");
+            shortActivate(sl[0]); shortActivate(sl[1]);
+            var playing = 0;
+            sl.forEach(function(s){ if (s.querySelector("video").__playing) playing++; });
+            rec("simultaneous", playing);
+            openShortComments(shortsList[1]);
+            rec("commentPanel", document.getElementById("shortsComments").classList.contains("on") ? "yes" : "no");
+            rec("commentUI", document.getElementById("scList") ? "yes" : "no");
+            rec("signinUI", document.getElementById("scSignin") ? "yes" : "no");
+            rec("navEmbers", document.querySelector('[data-nav="embers"]') ? "yes" : "no");
+            location.hash = "#/embers";
+            rec("embersRoute", location.hash);
+            closeShorts();
+          }catch(e){ rec("playError", e.message); }
+        }, 400);
       }catch(e){ rec("lateError", e.message); }
     }, 500);
   }catch(e){ rec("earlyError", e.message); }
@@ -315,14 +363,15 @@ server.listen(PORT, async () => {
         logoAbsolute: "no", logoDecoded: "yes", logoFallback: "no", navFound: "yes",
         curTab: "embers", feedVisible: "yes", feedVertical: "yes", chipsHidden: "yes",
         shortsOpen: "yes", slides: "2", railButtons: "4", snapY: "yes",
-        stageRatio: "9/16", objectFit: "contain", shortsClosed: "yes", leftBehind: "0"
+        stageRatio: "9/16", objectFit: "contain", shortsClosed: "yes", leftBehind: "0",
+        simultaneous: "1", commentUI: "yes", agoHours: "2 hours ago", agoDays: "3 days ago"
       };
       // getComputedStyle reports aspect-ratio as "9 / 16", spaces and all.
       if (r.stageRatio) r.stageRatio = r.stageRatio.replace(/\s+/g, "");
       for (const [k, v] of Object.entries(want)) {
         if (r[k] !== v) { failed = true; console.log(`  FAIL  drive  ${k} was "${r[k]}", expected "${v}"`); }
       }
-      for (const k of ["earlyError", "lateError", "shortsError", "shortsLateError"]) {
+      for (const k of ["earlyError", "lateError", "shortsError", "shortsLateError", "playError"]) {
         if (r[k]) { failed = true; console.log(`  FAIL  drive  threw: ${r[k]}`); }
       }
       console.log(`  ${failed ? "FAIL" : "ok  "}  drive  embers button routes (tab=${r.curTab}, vertical=${r.feedVertical}), logo loaded (${r.logoSrc})`);
@@ -340,11 +389,13 @@ server.listen(PORT, async () => {
       for (const kv of dm[1].split(";")) { const i = kv.indexOf("="); if (i > 0) r[kv.slice(0, i)] = kv.slice(i + 1); }
       if (r.stageRatio) r.stageRatio = r.stageRatio.replace(/\s+/g, "");
       const want = { shortsOpen: "yes", slides: "2", railButtons: "4", snapX: "yes",
-        stageRatio: "9/16", objectFit: "contain", muteLabel: "yes", shortsClosed: "yes", leftBehind: "0" };
+        stageRatio: "9/16", objectFit: "contain", muteLabel: "yes", shortsClosed: "yes", leftBehind: "0",
+        simultaneous: "1", commentPanel: "yes", commentUI: "yes", signinUI: "yes",
+        navEmbers: "yes", embersRoute: "#/embers" };
       for (const [k, v] of Object.entries(want)) {
         if (r[k] !== v) { failed = true; console.log(`  FAIL  drive-desktop  ${k} was "${r[k]}", expected "${v}"`); }
       }
-      for (const k of ["earlyError", "lateError"]) if (r[k]) { failed = true; console.log(`  FAIL  drive-desktop  threw: ${r[k]}`); }
+      for (const k of ["earlyError", "lateError", "playError"]) if (r[k]) { failed = true; console.log(`  FAIL  drive-desktop  threw: ${r[k]}`); }
       console.log(`  ${failed ? "FAIL" : "ok  "}  drive-desktop  shorts panel builds (${r.slides} slides, ${r.railButtons} rail buttons, snap-x)`);
     }
   }
