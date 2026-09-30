@@ -316,9 +316,13 @@ if (lastVer !== currentVer) {
   document.body.appendChild(log);
   document.getElementById('upLogOk').onclick = () => { store.set('firfall_ver', currentVer); log.remove(); };
 }
-function fmt(n) { return n >= 1000 ? (n / 1000).toFixed(1).replace('.0', '') + 'K' : String(n); }
+// Undefined/NaN would print as "undefined views", so anything not a real
+// number reads as 0.
+function fmt(n) { n = Number(n) || 0; return n >= 1000 ? (n / 1000).toFixed(1).replace('.0', '') + 'K' : String(n); }
 function timeAgo(iso) {
-  const s = Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  const t = new Date(iso == null ? null : iso).getTime();
+  if (!t || isNaN(t)) return '';
+  const s = Math.max(1, Math.floor((Date.now() - t) / 1000));
   if (s < 60) return s + 's ago';
   const m = Math.floor(s / 60);
   if (m < 60) return m + 'm ago';
@@ -412,7 +416,10 @@ const homeView = document.getElementById('homeView');
 const channelView = document.getElementById('channelView');
 const watchView = document.getElementById('watchView');
 const listView = document.getElementById('listView');
-function show(el) { [homeView, channelView, watchView, listView].forEach(v => v.classList.add('hidden')); el.classList.remove('hidden'); }
+function show(el) { [homeView, channelView, watchView, listView].forEach(v => v.classList.add('hidden')); el.classList.remove('hidden');
+  // The Embers shelf belongs to the home feed only; every other view hides it.
+  document.getElementById('emberShelf').classList.toggle('hidden', el !== homeView);
+}
 function markNav(name) {
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === name));
 }
@@ -439,7 +446,9 @@ async function loadHome() {
   const grid = document.getElementById('grid');
   grid.innerHTML = '';
   try {
-    const r = await fetch(API + '/api/videos');
+    // kind=video keeps the grid to proper 16:9 uploads; embers render in
+    // their own shelf below instead of letterboxed in the grid.
+    const r = await fetch(API + '/api/videos?kind=video');
     const j = await r.json();
     homeCache = j.videos || [];
   } catch { homeCache = []; }
@@ -451,6 +460,37 @@ async function loadHome() {
   else if (!list.length)
     document.querySelector('#emptyState p').textContent = 'Be the first to upload.';
   list.forEach(v => grid.appendChild(card(v)));
+  loadEmbers();
+}
+// ---- Embers: vertical clips recorded in the mobile app ----
+// The worker filters them out of the ordinary feed (kind='video' excludes
+// embers), so the desktop site never showed them at all. They render as a
+// horizontal shelf of 9:16 cards under the main grid; a failed fetch just
+// leaves the shelf hidden.
+async function loadEmbers() {
+  const shelf = document.getElementById('emberShelf');
+  const row = document.getElementById('emberRow');
+  try {
+    const r = await fetch(API + '/api/videos?kind=ember&limit=20');
+    if (!r.ok) { shelf.classList.add('hidden'); return; }
+    const { videos } = await r.json();
+    const list = (videos || []).filter(v => v.visibility === 'public');
+    if (!list.length) { shelf.classList.add('hidden'); return; }
+    row.innerHTML = '';
+    list.forEach(v => {
+      const b = document.createElement('button');
+      b.className = 'ember-card';
+      b.innerHTML = '<div class="ember-thumb"><img alt="" loading="lazy" src="' + API + '/t/' + v.id + '">' +
+        (v.duration ? '<span class="ember-dur">' + fmtDur(v.duration) + '</span>' : '') +
+        '<span class="ember-views">' + fmt(v.views || 0) + ' views</span></div>' +
+        '<div class="ember-meta"><h3></h3><p></p></div>';
+      b.querySelector('h3').textContent = v.title;
+      b.querySelector('p').textContent = v.owner + ' • ' + timeAgo(v.created_at);
+      b.onclick = () => { location.hash = '#/watch/' + v.id; };
+      row.appendChild(b);
+    });
+    shelf.classList.remove('hidden');
+  } catch { shelf.classList.add('hidden'); }
 }
 // Search + chips (working)
 document.getElementById('searchInput').addEventListener('input', (e) => { homeQuery = e.target.value.trim(); loadHome(); });
@@ -748,7 +788,7 @@ async function loadUpNext(v) {
   const box = document.getElementById('upNext');
   box.innerHTML = '';
   try {
-    const r = await fetch(API + '/api/videos');
+    const r = await fetch(API + '/api/videos?kind=video');
     const { videos } = await r.json();
     let list = videos.filter(x => x.id !== v.id);
     if (upFilter === 'from') list = list.filter(x => x.owner === v.owner);
@@ -784,7 +824,7 @@ function paintSave() {
 document.getElementById('wSaveBtn').onclick = () => {
   let later = store.get('firfall_later', []);
   if (later.some(x => x.id === currentVideo.id)) later = later.filter(x => x.id !== currentVideo.id);
-  else later.unshift({ id: currentVideo.id, title: currentVideo.title, owner: currentVideo.owner });
+  else later.unshift({ id: currentVideo.id, title: currentVideo.title, owner: currentVideo.owner, at: Date.now() });
   store.set('firfall_later', later.slice(0, 100));
   paintSave();
 };
@@ -911,29 +951,65 @@ function markReported(kind, id) {
 }
 
 // ---- Library views: subs / history / later ----
-function renderList(title, items, empty) {
+// History and Watch later are device-local lists of {id,title,owner}, not API
+// rows, so they render their own card: a "when" line instead of the view count
+// they do not have, and an ✕ to remove one entry. renderList keeps serving the
+// API-backed lists (Subscriptions) with the normal card.
+function savedCard(v, opts) {
+  const d = document.createElement('div');
+  d.className = 'card';
+  const when = opts.saved === 'history' && v.at ? 'Watched ' + timeAgo(v.at) : '';
+  d.innerHTML = '<div class="thumb"><video muted preload="metadata" playsinline src="' + API + '/v/' + v.id + '" poster="' + API + '/t/' + v.id + '"></video>' +
+    '<button class="card-x" aria-label="Remove from list">✕</button></div>' +
+    '<div class="meta"><div class="chan">' + ((v.owner || '?')[0] || '?').toUpperCase() + '</div><div><h3></h3><p></p>' +
+    (when ? '<p class="card-when"></p>' : '') + '</div></div>';
+  d.querySelector('h3').textContent = v.title;
+  d.querySelector('p').textContent = v.owner;
+  if (when) d.querySelector('.card-when').textContent = when;
+  const vid = d.querySelector('video');
+  vid.onmouseenter = () => { vid.play().catch(() => {}); };
+  vid.onmouseleave = () => { vid.pause(); };
+  d.querySelector('.card-x').onclick = (e) => {
+    e.stopPropagation();
+    // Remove from the underlying list too, or the entry is back on reload.
+    store.set(opts.clear, store.get(opts.clear, []).filter(x => x.id !== v.id));
+    d.remove();
+    if (!document.getElementById('listGrid').children.length) router();
+  };
+  d.onclick = () => { location.hash = '#/watch/' + v.id; };
+  return d;
+}
+function renderList(title, items, empty, opts) {
+  opts = opts || {};
   show(listView); markNav(title === 'Subscriptions' ? 'subs' : title === 'History' ? 'history' : 'later');
   document.getElementById('listTitle').textContent = title;
+  document.getElementById('listCount').textContent = items.length ? items.length + (items.length === 1 ? ' video' : ' videos') : '';
+  const clearBtn = document.getElementById('listClearBtn');
+  clearBtn.classList.toggle('hidden', !opts.clear);
+  if (opts.clear) clearBtn.onclick = () => {
+    store.set(opts.clear, []);
+    renderList(title, [], empty, opts);
+  };
   const g = document.getElementById('listGrid');
   g.className = 'yt-grid';
   g.innerHTML = items.length ? '' : '<p class="modal-sub">' + empty + '</p>';
-  items.forEach(v => g.appendChild(card(v)));
+  items.forEach(v => g.appendChild(opts.saved ? savedCard(v, opts) : card(v)));
 }
 async function renderSubs() {
-  if (!me()) { renderList('Subscriptions', [], 'Sign in to see uploads from channels you subscribe to.'); return; }
+  if (!me()) { renderList('Subscriptions', [], 'Sign in to see uploads from channels you subscribe to.'); document.getElementById('listCount').textContent = ''; return; }
   try {
     const s = await (await fetch(API + '/api/subscriptions', { headers: { 'Authorization': 'Bearer ' + token() } })).json();
     const names = (s.subscriptions || []).map(x => x.channel);
     if (!names.length) { renderList('Subscriptions', [], 'Channels you subscribe to will show up here.'); return; }
-    const all = await (await fetch(API + '/api/videos')).json();
+    const all = await (await fetch(API + '/api/videos?kind=video')).json();
     renderList('Subscriptions', (all.videos || []).filter(v => names.includes(v.owner)), 'No uploads from your subscriptions yet.');
   } catch { renderList('Subscriptions', [], 'Could not load.'); }
 }
 function renderHistory() {
-  renderList('History', store.get('firfall_history', []), 'Videos you watch will show up here.');
+  renderList('History', store.get('firfall_history', []), 'Videos you watch will show up here.', { saved: 'history', clear: 'firfall_history' });
 }
 function renderLater() {
-  renderList('Watch later', store.get('firfall_later', []), 'Save videos with + Watch later to find them here.');
+  renderList('Watch later', store.get('firfall_later', []), 'Save videos with + Watch later to find them here.', { saved: 'later', clear: 'firfall_later' });
 }
 
 // ---- Admin panel: user list + role/ban controls. Server re-checks role on every call. ----
@@ -942,6 +1018,8 @@ function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ 
 async function renderAdmin() {
   if (!isStaff()) { renderList('Admin Panel', [], 'You do not have staff access.'); return; }
   show(listView); markNav('admin');
+  document.getElementById('listCount').textContent = '';
+  document.getElementById('listClearBtn').classList.add('hidden');
   const sh = document.getElementById('adminShieldBtn');
   if (sh) sh.classList.add('on');
   const box = document.getElementById('listGrid');

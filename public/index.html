@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="/logo-192.png?v=20">
 <meta property="og:title" content="FirFall">
 <meta property="og:image" content="/logo-512.png?v=20">
-<link rel="stylesheet" href="styles.css?v=19" />
+<link rel="stylesheet" href="styles.css?v=20" />
 </head>
 <body>
 <div id="downOverlay" role="alertdialog" aria-modal="true" aria-labelledby="downTitle">
@@ -145,6 +145,16 @@
       <p>Be the first to upload.</p>
     </div>
     <div class="yt-grid" id="grid"></div>
+    <section id="emberShelf" class="ember-shelf hidden">
+      <div class="shelf-head">
+        <span class="shelf-flame" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z" fill="#ff6a00"/></svg>
+        </span>
+        <h2>Embers</h2>
+        <span class="shelf-sub">Quick vertical clips from the mobile app</span>
+      </div>
+      <div class="shelf-row" id="emberRow"></div>
+    </section>
    </div>
    <div id="watchView" class="hidden">
      <div class="watch-cols">
@@ -232,7 +242,13 @@
      </div>
    </div>
     <div id="listView" class="hidden">
-      <h2 id="listTitle"></h2>
+      <div class="list-head">
+        <h2 id="listTitle"></h2>
+        <span class="list-tools">
+          <span id="listCount" class="list-count"></span>
+          <button id="listClearBtn" class="ghost-btn hidden">Clear all</button>
+        </span>
+      </div>
       <div class="yt-grid" id="listGrid"></div>
     </div>
   </main>
@@ -337,6 +353,6 @@
 </div>
 
 <script>window.FIRFALL_API = "https://firfall-auth.b8golddude.workers.dev";</script>
-<script src="app.js?v=19"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>
