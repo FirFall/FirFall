@@ -1217,7 +1217,13 @@ async function loadComments(vid, target) {
       return d;
     };
     (kids['root'] || []).forEach(c => list.appendChild(render(c, false)));
-  } catch { list.innerHTML = '<p class="modal-sub">Could not load comments.</p>'; }
+  } catch (e) {
+    // Silent before, which made this impossible to report: the page said
+    // "Could not load comments." and the console said nothing at all, so a
+    // broken renderer and a dead network looked identical from the outside.
+    console.error('Comments failed to load:', e);
+    list.innerHTML = '<p class="modal-sub">Could not load comments.</p>';
+  }
 }
 
 // The reply box lives under the comment it answers, so the thread keeps its

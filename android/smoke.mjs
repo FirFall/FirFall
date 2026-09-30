@@ -66,6 +66,47 @@ const TRAP = `<script>
    are correct JavaScript that does the wrong thing, so this drives the real DOM
    after boot - presses the button, reads the router's own state back out, and
    checks the image actually decoded - and reports the result in the DOM. */
+/* Comment threading is the one code path that only runs when a video has a
+   reply on it, and no fixture has one - the API is unreachable here and the
+   production videos have no replies. So the renderer is handed a canned thread
+   through a fetch stub scoped to the comment call: two top-level comments and
+   one reply under the first. This is the bug that took the whole list down -
+   pushing the first top-level comment onto an undefined bucket threw, and the
+   catch turned it into a silent "Could not load comments." The check is that
+   every line of the thread is on screen afterwards. */
+const THREAD_CHECK = `
+setTimeout(function(){
+  var box = document.getElementById("driveOut");
+  if (!box) return;
+  function rec2(k, v){ box.textContent += k + "=" + v + ";"; }
+  var SYNTH = { comments: [
+    { id: 1, user: "ada", text: "root one", created_at: "2026-09-30T10:00:00.000Z", parent_id: null, reply_to: null, hearts: 0, owner_hearted: 0 },
+    { id: 2, user: "bob", text: "root two", created_at: "2026-09-30T10:01:00.000Z", parent_id: null, reply_to: null, hearts: 0, owner_hearted: 0 },
+    { id: 3, user: "cleo", text: "reply to one", created_at: "2026-09-30T10:02:00.000Z", parent_id: 1, reply_to: "ada", hearts: 0, owner_hearted: 0 }
+  ]};
+  var real = window.fetch;
+  window.fetch = function(u){
+    u = String(u && u.url ? u.url : u);
+    if (u.indexOf("/api/comments?") >= 0) {
+      return Promise.resolve({ ok: true, json: function(){ return Promise.resolve(SYNTH); } });
+    }
+    return real.apply(window, arguments);
+  };
+  var scratch = document.createElement("div");
+  document.body.appendChild(scratch);
+  try {
+    loadComments("synthetic", scratch);
+    setTimeout(function(){
+      window.fetch = real;
+      var txt = scratch.textContent || "";
+      rec2("ctRoots", scratch.querySelectorAll(".comment:not(.reply)").length);
+      rec2("ctReplies", scratch.querySelectorAll(".comment.reply").length);
+      rec2("ctAll", ["root one", "root two", "reply to one"].every(function(s){ return txt.indexOf(s) >= 0; }) ? "yes" : "no");
+      scratch.remove();
+    }, 700);
+  } catch(e){ window.fetch = real; rec2("ctError", e.message); }
+}, 5000);`;
+
 const DRIVE = `<script>
 (function(){
   // play() rejects on a clip that has no media, so the real thing cannot be
@@ -150,6 +191,7 @@ const DRIVE = `<script>
     }catch(e){ rec("earlyError", e.message); }
   }, 1800);
 })();
+${THREAD_CHECK}
 </script>`;
 
 /* The desktop site has its own copy of the Shorts panel, in app.js, so it gets
@@ -263,6 +305,7 @@ setTimeout(function(){
     }, 500);
   }catch(e){ rec("earlyError", e.message); }
 }, 1800);
+${THREAD_CHECK}
 </script>`;
 
 function prepare() {
@@ -494,14 +537,15 @@ server.listen(PORT, async () => {
         curTab: "embers", feedVisible: "yes", feedVertical: "yes", chipsHidden: "yes",
         shortsOpen: "yes", slides: "2", railButtons: "4", snapY: "yes",
         stageRatio: "9/16", objectFit: "contain", shortsClosed: "yes", leftBehind: "0",
-        simultaneous: "1", commentUI: "yes", agoHours: "2 hours ago", agoDays: "3 days ago"
+        simultaneous: "1", commentUI: "yes", agoHours: "2 hours ago", agoDays: "3 days ago",
+        ctRoots: "2", ctReplies: "1", ctAll: "yes"
       };
       // getComputedStyle reports aspect-ratio as "9 / 16", spaces and all.
       if (r.stageRatio) r.stageRatio = r.stageRatio.replace(/\s+/g, "");
       for (const [k, v] of Object.entries(want)) {
         if (r[k] !== v) { failed = true; console.log(`  FAIL  drive  ${k} was "${r[k]}", expected "${v}"`); }
       }
-      for (const k of ["earlyError", "lateError", "shortsError", "shortsLateError", "playError"]) {
+      for (const k of ["earlyError", "lateError", "shortsError", "shortsLateError", "playError", "ctError"]) {
         if (r[k]) { failed = true; console.log(`  FAIL  drive  threw: ${r[k]}`); }
       }
       console.log(`  ${failed ? "FAIL" : "ok  "}  drive  embers button routes (tab=${r.curTab}, vertical=${r.feedVertical}), logo loaded (${r.logoSrc})`);
@@ -530,11 +574,12 @@ server.listen(PORT, async () => {
         btnOpenStudio: "yes", chOwnBarButtons: "0", chOwnBarLinks: "1",
         chEditButtonsGone: "yes",
         simultaneous: "1", commentPanel: "yes", commentUI: "yes", signinUI: "yes",
-        navEmbers: "yes", embersRoute: "#/embers" };
+        navEmbers: "yes", embersRoute: "#/embers",
+        ctRoots: "2", ctReplies: "1", ctAll: "yes" };
       for (const [k, v] of Object.entries(want)) {
         if (r[k] !== v) { failed = true; console.log(`  FAIL  drive-desktop  ${k} was "${r[k]}", expected "${v}"`); }
       }
-      for (const k of ["earlyError", "lateError", "playError", "studioError", "studioLateError"]) if (r[k]) { failed = true; console.log(`  FAIL  drive-desktop  threw: ${r[k]}`); }
+      for (const k of ["earlyError", "lateError", "playError", "studioError", "studioLateError", "ctError"]) if (r[k]) { failed = true; console.log(`  FAIL  drive-desktop  threw: ${r[k]}`); }
       console.log(`  ${failed ? "FAIL" : "ok  "}  drive-desktop  shorts panel builds (${r.slides} slides, ${r.railButtons} rail buttons, snap-x)`);
     }
   }

@@ -1676,7 +1676,12 @@ function loadComments(vid, target){
         reportSheet("comment", cid, "@" + (c?c.user:"") + ": " + (c?c.text.slice(0,60):""));
       };
     });
-  }).catch(function(){ var l = target || $("cList"); if (l) l.innerHTML = "<div style=\"color:var(--dim);font-size:14px\">Comments unavailable.</div>"; });
+  }).catch(function(e){
+    // Logged rather than swallowed: "Comments unavailable." on its own cannot be
+    // told apart from a broken renderer when someone reports it.
+    if (window.console && console.error) console.error("Comments failed to load:", e);
+    var l = target || $("cList"); if (l) l.innerHTML = "<div style=\"color:var(--dim);font-size:14px\">Comments unavailable.</div>";
+  });
 }
 /* Replies go in a sheet rather than an inline box: the watch page is already a
    long scroll and the Shorts panel has no room to grow a thread sideways.
