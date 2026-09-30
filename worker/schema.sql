@@ -70,6 +70,13 @@ CREATE TABLE IF NOT EXISTS comment_likes(
   PRIMARY KEY (comment_id, username)
 );
 CREATE INDEX IF NOT EXISTS idx_clikes_comment ON comment_likes(comment_id);
+-- The uploader's heart on a comment, kept apart from the like anyone can give.
+CREATE TABLE IF NOT EXISTS comment_hearts(
+  comment_id INTEGER NOT NULL,
+  username TEXT NOT NULL,
+  PRIMARY KEY (comment_id, username)
+);
+CREATE INDEX IF NOT EXISTS idx_chears_comment ON comment_hearts(comment_id);
 CREATE TABLE IF NOT EXISTS video_likes(
   video_id TEXT NOT NULL,
   username TEXT NOT NULL,

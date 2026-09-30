@@ -230,6 +230,15 @@ input,textarea{font:inherit}
 .sect-h .count{font-weight:400;color:var(--dim);font-size:14px}
 .comment{display:flex;gap:12px;padding:0 0 16px}
 .comment .cav{width:32px;height:32px;font-size:13px;flex:0 0 auto}
+.cav-img{object-fit:cover;background:none}
+.cavw{flex:0 0 auto;cursor:pointer}
+.cname{cursor:pointer}
+/* The like anyone can give, kept visually apart from the uploader's heart: a
+   filled blue thumb rather than the heart glyph the other one uses. */
+.rbtn.clike{display:inline-flex;align-items:center;gap:5px}
+.rbtn.clike svg{width:14px;height:14px;fill:currentColor}
+.rbtn.clike.on{color:#3ea6ff}
+.rbtn.clike:disabled{opacity:.5}
 .cbody{min-width:0;flex:1}
 .cwho{font-size:13px;font-weight:600;margin-bottom:2px}
 .cwho .badge-mod{background:var(--red);color:#fff;font-size:10px;font-weight:700;
@@ -1640,16 +1649,44 @@ function loadComments(vid, target){
         acts += "<button class=\"rbtn heart" + (c.owner_hearted ? " on" : "") + "\" data-h=\"" + esc(c.id) + "\" style=\"color:" + (c.owner_hearted ? "#ff5a5a" : "var(--dim)") + "\">" + (c.owner_hearted ? "\u2665" : "\u2661") + " " + (c.hearts || 0) + "</button>";
       }
       if (me) acts += "<button class=\"rbtn\" data-r=\"" + esc(c.id) + "\">Reply</button>";
+      // Like: anyone signed in, unlike the heart above which stays the
+      // uploader's alone. Two separate counters - a creator acknowledging a
+      // comment is a different thing from the crowd agreeing with it.
+      if (me && c.user !== me) {
+        acts += "<button class=\"rbtn clike" + (c.liked ? " on" : "") + "\" data-lk=\"" + esc(c.id) + "\">" +
+          ICON.like + "<span>" + (c.likes || 0) + "</span></button>";
+      }
       if (!mine) acts += "<button class=\"rbtn\" data-k=\"comment\" data-i=\"" + esc(c.id) + "\" style=\"color:var(--redSoft)\">Report</button>";
       var at = isReply && c.reply_to ? "<span class=\"crep\">@" + esc(c.reply_to) + "</span> " : "";
-      return "<div class=\"comment" + (isReply ? " reply" : "") + "\"><div class=\"cav vav\">" + esc(initials(c.user)) +
-        "</div><div class=\"cbody\"><div class=\"cwho\">@" + esc(c.user) + "<span class=\"ctime\">" + esc(ago(c.created_at)) +
+      // The author's picture, with their initial when they have not set one.
+      // Both it and the name open that channel: a comment is the one place a
+      // name turns up that is not already a channel the reader has been to.
+      var cav = c.avatar
+        ? "<img class=\"cav cav-img\" src=\"" + esc(API + c.avatar + "?t=" + Date.now()) + "\" alt=\"" + esc("@" + c.user) + "\">"
+        : "<div class=\"cav vav\">" + esc(initials(c.user)) + "</div>";
+      return "<div class=\"comment" + (isReply ? " reply" : "") + "\"><div class=\"cavw\" data-cu=\"" + esc(c.user) + "\">" + cav +
+        "</div><div class=\"cbody\"><div class=\"cwho\"><span class=\"cname\" data-cu=\"" + esc(c.user) + "\">@" + esc(c.user) +
+        "</span><span class=\"ctime\">" + esc(ago(c.created_at)) +
         "</span></div><div class=\"ctext\">" + at + esc(c.text) + "</div>" +
         (acts ? "<div class=\"cfoot\">" + acts + "</div>" : "") + "</div></div>" +
         ((kids[c.id] || []).map(function(k){ return one(k, true); }).join(""));
     }
     list.innerHTML = (kids.root || []).map(function(c){ return one(c, false); }).join("");
+    Array.prototype.forEach.call(list.querySelectorAll("[data-cu]"), function(a){
+      a.onclick = function(){ curChannel = a.dataset.cu; go("channel", true); };
+    });
     Array.prototype.forEach.call(list.querySelectorAll(".rbtn"), function(b){
+      if (b.dataset.lk) {
+        b.onclick = function(){
+          b.disabled = true;
+          api("/api/comments/like", { method:"POST", body:{ id: b.dataset.lk } }).then(function(r){
+            b.classList.toggle("on", r.liked);
+            b.querySelector("span").textContent = r.likes;
+            b.disabled = false;
+          }).catch(function(e){ b.disabled = false; toast(e.message || "Could not do that"); });
+        };
+        return;
+      }
       if (b.dataset.h) {
         b.onclick = function(){
           b.disabled = true;
@@ -1722,7 +1759,12 @@ async function loadChannel(name){
     refreshSub(name);
     $("channel").innerHTML =
       '<div id="chBanner"></div>' +
-      '<div id="chHead"><div id="chAvatar">' + esc(initials(c.username)) + '</div>' +
+      '<div id="chHead"><div id="chAvatar">' +
+        // The channel's own picture when it has one. This header fell back to
+        // an initial for everyone, so an account with a perfectly good avatar
+        // still showed a letter.
+        (c.avatar ? '<img src="' + esc(API + c.avatar + '?t=' + Date.now()) + '" alt="">' : esc(initials(c.username))) +
+      '</div>' +
         '<div style="min-width:0;flex:1"><div id="chName">' + esc(c.username) +
           (c.role === "mod" || c.role === "admin" ? '<span class="badge-mod" style="background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px">MOD</span>' : "") +
         '</div><div id="chStats">' + esc(fmt(c.views)) + ' &middot; ' + esc(num(c.subscribers) + " subscriber" + (c.subscribers===1?"":"s")) + '</div></div>' +

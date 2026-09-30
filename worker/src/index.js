@@ -77,6 +77,19 @@ function ensureCommentsExt(env) {
         " PRIMARY KEY (comment_id, username))"
       ).run();
       await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_clikes_comment ON comment_likes(comment_id)").run();
+      // comment_likes used to hold one thing only: the uploader's heart. Anyone
+      // can like a comment now, so the heart moved to its own table and the old
+      // rows follow it - otherwise the existing hearts would quietly turn into
+      // likes from whoever happened to press them.
+      await env.DB.prepare(
+        "CREATE TABLE IF NOT EXISTS comment_hearts(comment_id INTEGER NOT NULL, username TEXT NOT NULL," +
+        " PRIMARY KEY (comment_id, username))"
+      ).run();
+      await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_chears_comment ON comment_hearts(comment_id)").run();
+      await env.DB.prepare(
+        "INSERT OR IGNORE INTO comment_hearts(comment_id,username)" +
+        " SELECT comment_id,username FROM comment_likes"
+      ).run();
     })().catch(e => { commentsExtReady = null; throw e; });
   }
   return commentsExtReady;
@@ -1152,13 +1165,22 @@ var index_default = {
           // person who owns the video - only they get a heart button, so the
           // client never has to decide who is allowed to see one.
           await ensureCommentsExt(env);
+          const viewer = (await authedUser() || {}).username || "";
+          // Joined to users so each comment carries the author's picture: a
+          // comment is the one place a name turns up that is not already a
+          // channel the reader has been to.
           const res = await env.DB.prepare(
             "SELECT c.id,c.user,c.text,c.created_at,c.parent_id,c.reply_to," +
-            " (SELECT COUNT(*) FROM comment_likes l WHERE l.comment_id=c.id) AS hearts," +
-            " (SELECT COUNT(*) FROM comment_likes l2 WHERE l2.comment_id=c.id AND l2.username=?) AS owner_hearted " +
-            "FROM comments c WHERE c.video_id=? AND c.status='clean' ORDER BY c.id ASC LIMIT 100"
-          ).bind((await authedUser() || {}).username || "", vid).all();
-          const rows = res && res.results ? res.results : [];
+            " (u.avatar_key IS NOT NULL AND u.avatar_key<>'') AS has_avatar," +
+            " (SELECT COUNT(*) FROM comment_likes l WHERE l.comment_id=c.id) AS likes," +
+            " (SELECT COUNT(*) FROM comment_likes l2 WHERE l2.comment_id=c.id AND l2.username=?) AS liked," +
+            " (SELECT COUNT(*) FROM comment_hearts h WHERE h.comment_id=c.id) AS hearts," +
+            " (SELECT COUNT(*) FROM comment_hearts h2 WHERE h2.comment_id=c.id AND h2.username=?) AS owner_hearted " +
+            "FROM comments c LEFT JOIN users u ON u.username=c.user" +
+            " WHERE c.video_id=? AND c.status='clean' ORDER BY c.id ASC LIMIT 100"
+          ).bind(viewer, viewer, vid).all();
+          const rows = (res && res.results ? res.results : []).map(({ has_avatar, ...rest }) =>
+            Object.assign(rest, { avatar: has_avatar ? "/art/" + rest.user + "/avatar" : null }));
           return json(200, { comments: rows });
         } catch (e) {
           console.error("Comments fetch error:", e);
@@ -1205,12 +1227,33 @@ var index_default = {
         const row = await env.DB.prepare("SELECT c.id FROM comments c JOIN videos v ON v.id=c.video_id WHERE c.id=? AND v.owner=?")
           .bind(String(id), user.username).first();
         if (!row) return json(403, { error: "Only the person who uploaded this video can heart its comments." });
+        const had = await env.DB.prepare("SELECT 1 AS x FROM comment_hearts WHERE comment_id=? AND username=?")
+          .bind(row.id, user.username).first();
+        if (had) await env.DB.prepare("DELETE FROM comment_hearts WHERE comment_id=? AND username=?").bind(row.id, user.username).run();
+        else await env.DB.prepare("INSERT INTO comment_hearts(comment_id,username) VALUES(?,?)").bind(row.id, user.username).run();
+        const n = await env.DB.prepare("SELECT COUNT(*) AS c FROM comment_hearts WHERE comment_id=?").bind(row.id).first();
+        return json(200, { hearts: n ? n.c : 0, hearted: !had });
+      }
+      /* A like is open to anyone signed in - it is not the same gesture as the
+         heart, which stays the uploader's alone. The comment has to exist on a
+         clean video, and you cannot like your own, or the count is a number
+         people inflate with their own cursor. */
+      if (req.method === "POST" && url.pathname === "/api/comments/like") {
+        const user = await authedUser();
+        if (!user) return json(401, { error: "Sign in." });
+        const { id } = await req.json();
+        await ensureCommentsExt(env);
+        const row = await env.DB.prepare(
+          "SELECT c.id,c.user FROM comments c JOIN videos v ON v.id=c.video_id WHERE c.id=? AND c.status='clean' AND v.status='clean'"
+        ).bind(String(id)).first();
+        if (!row) return json(404, { error: "Comment not found." });
+        if (row.user === user.username) return json(400, { error: "You cannot like your own comment." });
         const had = await env.DB.prepare("SELECT 1 AS x FROM comment_likes WHERE comment_id=? AND username=?")
           .bind(row.id, user.username).first();
         if (had) await env.DB.prepare("DELETE FROM comment_likes WHERE comment_id=? AND username=?").bind(row.id, user.username).run();
         else await env.DB.prepare("INSERT INTO comment_likes(comment_id,username) VALUES(?,?)").bind(row.id, user.username).run();
         const n = await env.DB.prepare("SELECT COUNT(*) AS c FROM comment_likes WHERE comment_id=?").bind(row.id).first();
-        return json(200, { hearts: n ? n.c : 0, hearted: !had });
+        return json(200, { likes: n ? n.c : 0, liked: !had });
       }
       if (req.method === "POST" && url.pathname === "/api/report") {
         const user = await authedUser();

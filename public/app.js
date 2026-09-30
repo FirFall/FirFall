@@ -344,7 +344,10 @@ async function subStatus(name) {
    next to proper SVG icons looking borrowed; these are drawn like the rest. */
 const ICON = {
   bell: '<svg viewBox="0 0 24 24"><path d="M12 22a2.2 2.2 0 0 0 2.2-2.2H9.8A2.2 2.2 0 0 0 12 22zm7-6v-5a7 7 0 0 0-5.5-6.83V3a1.5 1.5 0 0 0-3 0v1.17A7 7 0 0 0 5 11v5l-1.7 1.7a1 1 0 0 0 .7 1.7h16a1 1 0 0 0 .7-1.7L19 16z"/></svg>',
-  bellOff: '<svg viewBox="0 0 24 24"><path d="M20 18.7 3.3 2 2 3.3 4 5.3V11a7 7 0 0 0 5.5 6.83V19.8A2.2 2.2 0 0 0 11.7 22h.6a2.2 2.2 0 0 0 2.2-2.2v-.4l5.2 5.2L21 19.3l-1-1zM12 4a1.5 1.5 0 0 0-1 1.32V6.6l2 2V5.32A1.5 1.5 0 0 0 12 4zm7 12v-5a7 7 0 0 0-4.5-6.6l3.2 3.2c.9.5 1.3 1.3 1.3 2.4V16h2z"/></svg>'
+  bellOff: '<svg viewBox="0 0 24 24"><path d="M20 18.7 3.3 2 2 3.3 4 5.3V11a7 7 0 0 0 5.5 6.83V19.8A2.2 2.2 0 0 0 11.7 22h.6a2.2 2.2 0 0 0 2.2-2.2v-.4l5.2 5.2L21 19.3l-1-1zM12 4a1.5 1.5 0 0 0-1 1.32V6.6l2 2V5.32A1.5 1.5 0 0 0 12 4zm7 12v-5a7 7 0 0 0-4.5-6.6l3.2 3.2c.9.5 1.3 1.3 1.3 2.4V16h2z"/></svg>',
+  // The same thumb the card uses, so a comment like and a video like are
+  // visibly the same gesture.
+  like: '<svg viewBox="0 0 24 24"><path d="M18.77 11h-4.23l1.52-4.94C16.38 5.03 15.54 4 14.38 4c-.58 0-1.14.24-1.52.65L7 11H3v10h4h1h9.43c1.06 0 1.98-.67 2.19-1.61l1.34-6C21.23 12.15 20.18 11 18.77 11z"/></svg>'
 };
 function paintBell(bell, notify, subscribed) {
   if (!bell) return;
@@ -1185,10 +1188,32 @@ async function loadComments(vid, target) {
     const render = (c, isReply) => {
       const d = document.createElement('div');
       d.className = 'comment' + (isReply ? ' reply' : '');
-      d.innerHTML = '<strong></strong><span></span><p></p>';
-      d.querySelector('strong').textContent = '@' + c.user;
-      d.querySelector('span').textContent = ' ' + timeAgo(c.created_at);
-      d.querySelector('p').textContent = c.text;
+      // Picture, then everything else beside it. A comment is the one place a
+      // name turns up that is not already a channel the reader has been to, so
+      // both the picture and the name open that person's channel.
+      const av = document.createElement(c.avatar ? 'img' : 'div');
+      av.className = 'cav' + (c.avatar ? ' cav-img' : '');
+      if (c.avatar) av.src = API + c.avatar + '?t=' + Date.now();
+      else av.textContent = (c.user[0] || '?').toUpperCase();
+      av.alt = '@' + c.user;
+      av.title = 'Open @' + c.user;
+      d.appendChild(av);
+      const body = document.createElement('div');
+      body.className = 'cbody';
+      d.appendChild(body);
+      const who = document.createElement('div');
+      who.className = 'crow';
+      const nm = document.createElement('strong');
+      nm.textContent = '@' + c.user;
+      nm.title = 'Open @' + c.user;
+      who.appendChild(nm);
+      const at = document.createElement('span');
+      at.textContent = ' ' + timeAgo(c.created_at);
+      who.appendChild(at);
+      body.appendChild(who);
+      const txt = document.createElement('p');
+      txt.textContent = c.text;
+      body.appendChild(txt);
       const row = document.createElement('div');
       row.className = 'c-acts';
       // Heart: only the person who uploaded the video. The server refuses
@@ -1219,8 +1244,34 @@ async function loadComments(vid, target) {
         const rp = document.createElement('button');
         rp.className = 'reply-btn';
         rp.textContent = 'Reply';
-        rp.onclick = () => openReplyBox(d, c, vid, list, isReply);
+        rp.onclick = () => openReplyBox(body, c, vid, list, isReply);
         row.appendChild(rp);
+      }
+      // Like: anyone signed in, unlike the heart below which is the uploader's
+      // alone. Two separate counters on purpose - a creator acknowledging a
+      // comment is a different thing from the crowd agreeing with it.
+      if (mine && c.user !== mine) {
+        const lk = document.createElement('button');
+        lk.className = 'like-btn' + (c.liked ? ' on' : '');
+        lk.innerHTML = ICON.like + '<span>' + (c.likes || 0) + '</span>';
+        lk.title = c.liked ? 'Remove your like' : 'Like this comment';
+        lk.onclick = async (e) => {
+          e.stopPropagation();
+          lk.disabled = true;
+          try {
+            const rr = await fetch(API + '/api/comments/like', {
+              method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+              body: JSON.stringify({ id: c.id })
+            });
+            const j = await rr.json();
+            if (!rr.ok) { alert(j.error || 'Could not do that.'); lk.disabled = false; return; }
+            lk.classList.toggle('on', j.liked);
+            lk.querySelector('span').textContent = j.likes;
+            lk.title = j.liked ? 'Remove your like' : 'Like this comment';
+            lk.disabled = false;
+          } catch { lk.disabled = false; }
+        };
+        row.appendChild(lk);
       }
       // No report button on your own comment: the server rejects it anyway,
       // and offering it would just be a dead control.
@@ -1234,10 +1285,13 @@ async function loadComments(vid, target) {
         if (myReports.has('comment:' + c.id)) { b.textContent = 'Reported'; b.classList.add('done'); b.disabled = true; }
         row.appendChild(b);
       }
-      if (row.children.length) d.appendChild(row);
+      if (row.children.length) body.appendChild(row);
+      // Replies stack under the text, not beside the avatar, so the thread
+      // reads as one block.
       if (!isReply) {
-        (kids[c.id] || []).forEach(k => { d.appendChild(render(k, true)); });
+        (kids[c.id] || []).forEach(k => { body.appendChild(render(k, true)); });
       }
+      av.onclick = nm.onclick = () => { location.hash = '#/channel/' + encodeURIComponent(c.user.toLowerCase()); };
       return d;
     };
     (kids['root'] || []).forEach(c => list.appendChild(render(c, false)));

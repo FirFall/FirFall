@@ -152,7 +152,18 @@ body:not(.site-down) #downOverlay{display:none}
 .c-form{display:flex;gap:12px;margin:8px 0;align-items:center}
 .c-form input{flex:1;background:transparent;border:0;border-bottom:1px solid #303030;border-radius:0;color:#fff;padding:9px 2px;outline:none}
 .c-form input:focus{border-bottom-color:#f1f1f1}
-.comment{background:transparent;border:0;padding:8px 0;margin:8px 0}
+.comment{background:transparent;border:0;padding:8px 0;margin:8px 0;display:flex;gap:12px;align-items:flex-start}
+/* The author's picture. An image when they have one, a coloured initial when
+   they do not - same fallback the rest of the site uses for a missing avatar. */
+.cav{width:32px;height:32px;border-radius:50%;flex:0 0 auto;display:flex;align-items:center;
+  justify-content:center;font-size:13px;font-weight:700;color:#180a00;
+  background:linear-gradient(135deg,#ffb800,#ff2d00);cursor:pointer}
+.cav-img{object-fit:cover;background:none}
+.cav:hover{opacity:.85}
+.cbody{flex:1;min-width:0}
+.crow{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+.crow strong{cursor:pointer}
+.crow strong:hover{color:#fff}
 .comment strong{color:#f1f1f1;font-size:13px}.comment span{color:#aaa;font-size:12px}.comment p{margin:4px 0 2px;font-size:14px}
 @media(max-width:1100px){.watch-cols{flex-direction:column}.watch-secondary{width:100%}.ch-avatar{width:80px;height:80px;font-size:32px}.ch-info h2{font-size:22px}}
 /* Custom FirFall player — YouTube layout, orange (fire) progress */
@@ -361,6 +372,15 @@ body:not(.site-down) #downOverlay{display:none}
 .comment.reply p{font-size:13.5px}
 .comment .reply_to{color:#3ea6ff}
 .heart-btn.on{color:#ff5a5a}
+/* The like anyone can give, next to the heart only the uploader can. A filled
+   blue thumb rather than the video's heart glyph, so the two are never
+   mistaken for one another. */
+.like-btn{display:inline-flex;align-items:center;gap:5px;background:none;border:0;color:#aaa;
+  font:inherit;font-size:12.5px;cursor:pointer;padding:0}
+.like-btn:hover{color:#fff}
+.like-btn svg{width:15px;height:15px;fill:currentColor}
+.like-btn.on{color:#3ea6ff}
+.like-btn:disabled{opacity:.5;cursor:default}
 .reply-box{margin-top:10px;display:flex;flex-direction:column;gap:8px}
 .reply-box textarea{width:100%;background:#0f0f0f;border:1px solid #3f3f3f;border-radius:10px;
   color:#f1f1f1;padding:10px 12px;font:inherit;font-size:13.5px;resize:vertical;outline:0}
