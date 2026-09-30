@@ -1152,7 +1152,11 @@ async function loadComments(vid, target) {
     const kids = {};
     comments.forEach(c => {
       const p = (c.parent_id && byId[c.parent_id]) ? c.parent_id : null;
-      (p === null ? kids['root'] : kids[p] = kids[p] || []).push(c);
+      // kids[key] = kids[key] || [] first: kids.root is undefined on the very
+      // first top-level comment, and pushing onto undefined throws, which took
+      // the whole comment list down rather than just one thread.
+      const key = p === null ? 'root' : p;
+      (kids[key] = kids[key] || []).push(c);
     });
     const render = (c, isReply) => {
       const d = document.createElement('div');
@@ -1395,7 +1399,9 @@ async function renderStudio() {
   body.innerHTML = '<div class="blank-state"><p>Loading...</p></div>';
   // The channel is needed on every tab: customise previews the banner and
   // picture from it, and the dashboard shows the avatar.
-  try { fsChannel = await (await fetch(API + '/api/channel?name=' + encodeURIComponent(me()))).json(); }
+  // The endpoint reads ?u=. Sending ?name= made every Studio load 404 and leave
+  // the customise page with no banner, no picture and no description.
+  try { fsChannel = await (await fetch(API + '/api/channel?u=' + encodeURIComponent(me()))).json(); }
   catch { fsChannel = null; }
   try {
     const r = await fetch(API + '/api/studio/videos', { headers: { 'Authorization': 'Bearer ' + token() } });

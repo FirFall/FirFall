@@ -937,24 +937,36 @@ var index_default = {
       if (req.method === "POST" && url.pathname === "/api/channel/edit") {
         const user = await authedUser();
         if (!user) return json(401, { error: "Sign in." });
-        const form = await req.formData().catch(() => null);
+        // Route on the Content-Type. This used to try formData() and fall back to
+        // json(), which cannot work: a request body can only be read once, so
+        // the failed formData() attempt left json() with nothing and every
+        // JSON edit came back "Nothing to update". Deciding from the header
+        // means the body is read exactly once, by the right reader.
+        const ct = String(req.headers.get("content-type") || "").toLowerCase();
+        const wantsForm = ct.includes("multipart/form-data") || ct.includes("application/x-www-form-urlencoded");
         let about = null, banner = null, avatar = null, removeBanner = false, removeAvatar = false;
-        if (form) {
-          const ab = form.get("about");
-          about = ab == null ? null : String(ab).slice(0, 1e3);
-          const bf = form.get("banner"), af = form.get("avatar");
-          if (bf instanceof File && bf.size > 0) banner = bf;
-          if (af instanceof File && af.size > 0) avatar = af;
+        if (wantsForm) {
+          const form = await req.formData().catch(() => null);
+          if (form) {
+            const ab = form.get("about");
+            about = ab == null ? null : String(ab).slice(0, 1e3);
+            const bf = form.get("banner"), af = form.get("avatar");
+            if (bf instanceof File && bf.size > 0) banner = bf;
+            if (af instanceof File && af.size > 0) avatar = af;
+          }
         } else {
-          try {
-            const j = await req.json();
-            about = j.about == null ? null : String(j.about).slice(0, 1e3);
+          let j = null;
+          try { j = await req.json(); } catch { }
+          if (j && typeof j === "object") {
+            // An absent key means "leave it alone"; an explicit empty string
+            // means "clear it". `about` is therefore only null when the caller
+            // did not mention it at all.
+            if ("about" in j) about = String(j.about == null ? "" : j.about).slice(0, 1e3);
             // Removing an image is not the same as saying nothing about it. If
             // the row keeps its key the old file is still served forever, so a
             // remove has to clear the column as well as drop the object.
             removeBanner = !!j.removeBanner;
             removeAvatar = !!j.removeAvatar;
-          } catch {
           }
         }
         if (!storageConfigured() && (banner || avatar)) return json(500, { error: "Video storage not configured." });
