@@ -412,6 +412,10 @@ var index_default = {
             return json(400, { error: "Invalid JSON body: " + e.message });
           }
           const { filename, mime, size, title, description, duration, visibility, scan } = body;
+          // Embers are the vertical clips recorded in the mobile app. They go
+          // through exactly the same validation, quota and moderation scan as
+          // any other upload; the only difference is which feed they appear in.
+          const kind = body.kind === "ember" ? "ember" : "video";
           const t = String(title || "").trim(), d = String(description || "").trim();
           if (!VIDEO_MIMES.includes(mime)) return json(400, { error: "Only MP4/WebM/MOV/MKV." });
           const ext = (String(filename || "").split(".").pop() || "").toLowerCase();
@@ -447,7 +451,7 @@ var index_default = {
           }
           try {
             await env.DB.prepare(
-              "INSERT INTO uploads(id,owner,title,description,storage_key,mime,size,duration,visibility,b2_file_id,b2_upload_url,b2_part_token,part_num,parts_json,uploaded,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+              "INSERT INTO uploads(id,owner,title,description,storage_key,mime,size,duration,visibility,b2_file_id,b2_upload_url,b2_part_token,part_num,parts_json,uploaded,scan,kind,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
             ).bind(
               String(id),
               user.username,
@@ -465,6 +469,7 @@ var index_default = {
               "[]",
               0,
               String(scan || "skipped"),
+              String(kind),
               (/* @__PURE__ */ new Date()).toISOString()
             ).run();
           } catch (e) {
@@ -543,7 +548,7 @@ var index_default = {
             await cancel();
           }
           await env.DB.prepare(
-            "INSERT INTO videos(id,owner,title,description,r2_key,file_id,thumb_key,thumb_id,mime,size,duration,visibility,status,flag_reason,scan,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            "INSERT INTO videos(id,owner,title,description,r2_key,file_id,thumb_key,thumb_id,mime,size,duration,visibility,status,flag_reason,scan,kind,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
           ).bind(
             up.id,
             user.username,
@@ -560,6 +565,7 @@ var index_default = {
             status,
             flagReason,
             up.scan,
+            up.kind === "ember" ? "ember" : "video",
             (/* @__PURE__ */ new Date()).toISOString()
           ).run();
           await env.DB.prepare("DELETE FROM uploads WHERE id=?").bind(up.id).run();
@@ -642,11 +648,34 @@ var index_default = {
         const requester = await authedUser();
         const vis = /* @__PURE__ */ __name((o) => requester && o && requester.username === o.toLowerCase() ? "status='clean' AND visibility IN ('public','unlisted','private')" : "status='clean' AND visibility='public'", "vis");
         try {
-          const rows = owner ? (await env.DB.prepare("SELECT id,owner,title,description,mime,size,views,duration,visibility,created_at FROM videos WHERE " + vis(owner) + " AND owner=? ORDER BY created_at DESC LIMIT 50").bind(owner.toLowerCase()).all()).results : (await env.DB.prepare("SELECT id,owner,title,description,mime,size,views,duration,visibility,created_at FROM videos WHERE status='clean' AND visibility='public' ORDER BY created_at DESC LIMIT 50").all()).results;
-          return json(200, { videos: rows || [] });
+          const SORTS = { new: "created_at DESC", old: "created_at ASC", popular: "views DESC, created_at DESC" };
+          const sort = SORTS[url.searchParams.get("sort")] || SORTS.new;
+          const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10) || 50));
+          const offset = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0);
+          const COLS = "id,owner,title,description,mime,size,views,duration,visibility,created_at,kind";
+          // kind=ember is an explicit filter; kind=video excludes embers so the
+          // normal feed does not fill up with vertical clips. With no kind
+          // parameter everything comes back, which is what the desktop site
+          // and the older app calls expect.
+          const KINDS = { video: " AND kind='video'", ember: " AND kind='ember'" };
+          const kindSql = KINDS[url.searchParams.get("kind")] || "";
+          const rows = owner ? (await env.DB.prepare("SELECT " + COLS + " FROM videos WHERE " + vis(owner) + " AND owner=?" + kindSql + " ORDER BY " + sort + " LIMIT ? OFFSET ?").bind(owner.toLowerCase(), limit, offset).all()).results : (await env.DB.prepare("SELECT " + COLS + " FROM videos WHERE status='clean' AND visibility='public'" + kindSql + " ORDER BY " + sort + " LIMIT ? OFFSET ?").bind(limit, offset).all()).results;
+          const total = owner ? (await env.DB.prepare("SELECT COUNT(*) as c FROM videos WHERE " + vis(owner) + " AND owner=?" + kindSql).bind(owner.toLowerCase()).first()).c : (await env.DB.prepare("SELECT COUNT(*) as c FROM videos WHERE status='clean' AND visibility='public'" + kindSql).first()).c;
+          return json(200, { videos: rows || [], total: total || 0 });
         } catch (e) {
           console.error("Video list error:", e);
           return json(500, { error: "Videos unavailable" });
+        }
+      }
+      if (req.method === "GET" && url.pathname === "/api/likes") {
+        const u = await authedUser();
+        if (!u) return json(401, { error: "Sign in to see liked videos" });
+        try {
+          const liked = await env.DB.prepare("SELECT v.id, v.owner, v.title, v.description, v.mime, v.size, v.views, v.duration, v.visibility, v.created_at FROM video_likes l JOIN videos v ON v.id = l.video_id WHERE l.username=? AND l.kind='like' AND v.status='clean' AND v.visibility IN ('public','unlisted') ORDER BY l.created_at DESC LIMIT 50").bind(u.username).all();
+          return json(200, { videos: liked.results || [] });
+        } catch (e) {
+          console.error("Likes list error:", e);
+          return json(500, { error: "Liked videos unavailable" });
         }
       }
       if (req.method === "GET" && url.pathname === "/api/video") {

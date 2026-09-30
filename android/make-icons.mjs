@@ -7,11 +7,14 @@
  * drawn pixel by pixel and encoded here, which keeps the APK free of any
  * binary artwork that has to be maintained by hand.
  *
- * The mark is the same shape the app uses in its top bar: a red rounded
- * rectangle with a white play triangle, on the FirFall near-black.
+ * The mark is a flame, the same shape the app uses in its top bar. It was
+ * previously a red rounded rectangle with a white play triangle, which is the
+ * YouTube logo. The points below are the FLAME list from assets/index.html,
+ * kept in a 24x24 box to match the SVG viewBox; scale() maps them into the
+ * 108-unit space the icon is drawn in.
  */
 import { deflateSync } from "node:zlib";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,7 +23,20 @@ const RES = join(HERE, "res");
 
 const BG = [0x0f, 0x0f, 0x0f];
 const RED = [0xff, 0x00, 0x00];
-const WHITE = [0xff, 0xff, 0xff];
+const ORANGE = [0xff, 0x6a, 0x00];
+
+/* Pull the flame straight out of the app so the icon and the top bar cannot
+   drift apart. Fails loudly if the name is renamed, rather than silently
+   falling back to a different shape. */
+function flameFromApp() {
+  const html = readFileSync(join(HERE, "assets", "index.html"), "utf8");
+  const m = html.match(/var FLAME = (\[[\s\S]*?\]);/);
+  if (!m) throw new Error("could not find the FLAME polygon in assets/index.html");
+  const pts = JSON.parse(m[1].replace(/(\d)\s+(\d)/g, '$1,$2'));
+  if (pts.length < 3) throw new Error("FLAME needs at least 3 points, got " + pts.length);
+  return pts;
+}
+const FLAME = flameFromApp();
 
 /* ---- minimal PNG encoder ---- */
 const CRC_TABLE = (() => {
@@ -80,28 +96,22 @@ function encodePng(size, pixels) {
 
 /* ---- drawing ---- */
 
-/** Signed distance to a rounded rectangle, for clean antialiased corners. */
-function sdRoundRect(px, py, cx, cy, hw, hh, r) {
-  const qx = Math.abs(px - cx) - (hw - r);
-  const qy = Math.abs(py - cy) - (hh - r);
-  const ax = Math.max(qx, 0), ay = Math.max(qy, 0);
-  return Math.sqrt(ax * ax + ay * ay) + Math.min(Math.max(qx, qy), 0) - r;
-}
-
-/** Signed distance to a triangle, for a crisp but antialiased play mark. */
-function sdTriangle(px, py, ax, ay, bx, by, cx, cy) {
-  const e0 = [bx - ax, by - ay], e1 = [cx - bx, cy - by], e2 = [ax - cx, ay - cy];
-  const v0 = [px - ax, py - ay], v1 = [px - bx, py - by], v2 = [px - cx, py - cy];
-  const dot = (o, e) => o[0] * e[0] + o[1] * e[1];
-  const edge = (o, e) => {
-    const t = Math.max(0, Math.min(1, dot(o, e) / (e[0] * e[0] + e[1] * e[1])));
-    const dx = o[0] - t * e[0], dy = o[1] - t * e[1];
-    return dx * dx + dy * dy;
-  };
-  const d = Math.min(edge(v0, e0), edge(v1, e1), edge(v2, e2));
-  // Only the inside of the triangle is opaque; outside reads as far away.
-  const s = (e0[0] * e2[1] - e0[1] * e2[0]) < 0 ? -1 : 1;
-  return s * Math.sqrt(d);
+/**
+ * Winding number for a closed polygon, 0 outside and 1 inside. The flame is a
+ * flat silhouette with no smooth edges to solve for, so a point test plus the
+ * existing 3x3 supersampling gives clean antialiased edges without the
+ * complexity of a real polygon distance field.
+ */
+function insidePoly(px, py, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i][0], yi = pts[i][1], xj = pts[j][0], yj = pts[j][1];
+    if ((yi > py) !== (yj > py)) {
+      const xInt = xi + ((py - yi) / (yj - yi)) * (xj - xi);
+      if (px < xInt) inside = !inside;
+    }
+  }
+  return inside;
 }
 
 /** Coverage from a signed distance, one pixel of feathering. */
@@ -111,11 +121,17 @@ function drawIcon(size, { round }) {
   const px = Buffer.alloc(size * size * 4);
   const S = size;
 
-  // Geometry in a 108-unit design space, matching the vector icon.
-  const u = S / 108;
-  const boxCx = 54, boxCy = 54, boxHw = 32 * u, boxHh = 12 * u, boxR = 8 * u;
-  // Play triangle.
-  const tAx = 48 * u, tAy = 49 * u, tBx = 48 * u, tBy = 59 * u, tCx = 58 * u, tCy = 54 * u;
+  // The flame is authored in a 24x24 box. Scale it to fill most of the icon
+  // with a margin, mapping the 24-unit box onto the 108-unit design space.
+  const FLAME_SCALE = 3.05;
+  const FLAME_OFF = (108 - 24 * FLAME_SCALE) / 2;
+  const flame = FLAME.map(([x, y]) => [(FLAME_OFF + x * FLAME_SCALE) * (S / 108),
+                                       (FLAME_OFF + y * FLAME_SCALE) * (S / 108)]);
+  // Small ember below the flame: the "fall" in FirFall. Drawn as a distance
+  // test, which is exact and needs no polygon.
+  const embX = (FLAME_OFF + 19.4 * FLAME_SCALE) * (S / 108);
+  const embY = (FLAME_OFF + 22.4 * FLAME_SCALE) * (S / 108);
+  const embR = 1.5 * FLAME_SCALE * (S / 108);
 
   for (let y = 0; y < S; y++) {
     for (let x = 0; x < S; x++) {
@@ -135,11 +151,8 @@ function drawIcon(size, { round }) {
             alpha = 1 - cover(inRound);
           }
 
-          const dBox = sdRoundRect(fx, fy, boxCx, boxCy, boxHw, boxHh, boxR);
-          if (dBox < 0) col = RED;
-
-          const dTri = sdTriangle(fx, fy, tAx, tAy, tBx, tBy, tCx, tCy);
-          if (dTri < 0) col = WHITE;
+          if (insidePoly(fx, fy, flame)) col = RED;
+          if (Math.hypot(fx - embX, fy - embY) < embR) col = ORANGE;
 
           r += col[0] * alpha; g += col[1] * alpha; b += col[2] * alpha; a += alpha;
         }

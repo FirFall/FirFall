@@ -36,8 +36,14 @@ CREATE TABLE IF NOT EXISTS videos(
   views INTEGER NOT NULL DEFAULT 0,
   duration REAL NOT NULL DEFAULT 0,
   visibility TEXT NOT NULL DEFAULT 'public',
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  -- 'video' for ordinary uploads, 'ember' for vertical clips recorded in the
+  -- mobile app. Embers are still videos; they are just filtered by shape and
+  -- shown in a vertical feed. Adding the column here means a fresh D1 comes up
+  -- with it already there.
+  kind TEXT NOT NULL DEFAULT 'video'
 );
+CREATE INDEX IF NOT EXISTS idx_videos_kind ON videos(kind, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_videos_owner ON videos(owner);
 CREATE INDEX IF NOT EXISTS idx_videos_recent ON videos(status, created_at DESC);
 CREATE TABLE IF NOT EXISTS comments(
@@ -89,7 +95,9 @@ CREATE TABLE IF NOT EXISTS uploads(
   parts_json TEXT NOT NULL DEFAULT '[]',
   uploaded INTEGER NOT NULL DEFAULT 0,
   scan TEXT NOT NULL DEFAULT 'skipped',
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  -- Carried from /api/uploads/start into videos.kind on completion.
+  kind TEXT NOT NULL DEFAULT 'video'
 );
 -- Stores HMAC-SHA256 fingerprints of IP addresses, never the addresses themselves.
 -- Both the write (on ban) and the read (on every request) hash with IP_HASH_KEY,
