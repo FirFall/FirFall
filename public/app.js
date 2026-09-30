@@ -1,4 +1,6 @@
 // FirFall — Cloudflare-only auth. No localhost.
+// Set to false to bring the site back up after the storage migration.
+const SITE_DOWN = false;
 const API = window.FIRFALL_API || 'https://firfall-auth.b8golddude.workers.dev';
 document.getElementById('menuBtn').onclick = () => {
   document.getElementById('sidebar').classList.toggle('collapsed');
@@ -39,7 +41,7 @@ function refreshAuthUI() {
   if (u) {
     signInAvatar.textContent = u[0].toUpperCase(); menuUser.textContent = '@' + u; menuAvatar.textContent = u[0].toUpperCase();
     notifKnown = parseInt(localStorage.getItem('firfall_notif_known') || '0', 10) || 0;
-    loadNotifs(false);
+    if (!SITE_DOWN) loadNotifs(false);
   } else {
     accountMenu.classList.add('hidden');
     notifPanel.classList.add('hidden');
@@ -766,6 +768,7 @@ async function adminUpdate(target, patch, tr) {
 }
 
 function router() {
+  if (SITE_DOWN) return;
   const sh = document.getElementById('adminShieldBtn');
   if (sh) sh.classList.remove('on');
   let m = location.hash.match(/^#\/watch\/([A-Za-z0-9-]+)\/?$/);
@@ -1070,4 +1073,4 @@ function captureThumb(file) {
 }
 window.addEventListener('hashchange', router);
 refreshAuthUI();
-router();
+if (!SITE_DOWN) router();

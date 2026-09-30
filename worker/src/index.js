@@ -63,112 +63,136 @@ var index_default = {
       return { username: row.username, role: row.role };
     }
     __name(authedUser, "authedUser");
-    const storageConfigured = /* @__PURE__ */ __name(() => !!(env.B2_KEY_ID && env.B2_APP_KEY && env.B2_BUCKET), "storageConfigured");
-    async function sha1hex(buf) {
-      const d = await crypto.subtle.digest("SHA-1", buf);
-      return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const storageConfigured = /* @__PURE__ */ __name(() => !!(env.S3_KEY_ID && env.S3_APP_KEY && env.S3_BUCKET), "storageConfigured");
+    const S3_ENDPOINT = "https://t3.storage.dev";
+    const S3_HOST = "t3.storage.dev";
+    const S3_REGION = "auto";
+    const S3_SERVICE = "s3";
+    const awsEnc = (s) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
+    const encPath = (p) => String(p).split("/").map(awsEnc).join("/");
+    const toHex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    async function sha256hex(buf) {
+      const data = typeof buf === "string" ? new TextEncoder().encode(buf) : buf;
+      return toHex(await crypto.subtle.digest("SHA-256", data));
     }
-    __name(sha1hex, "sha1hex");
-    async function b2auth() {
-      const now = Date.now();
-      const c = globalThis.__b2;
-      if (c && c.exp > now + 6e4) return c;
-      const cred = btoa(env.B2_KEY_ID + ":" + env.B2_APP_KEY);
-      const r = await fetch("https://api.backblazeb2.com/b2api/v2/b2_authorize_account", {
-        headers: { Authorization: "Basic " + cred }
-      });
-      if (!r.ok) throw new Error("b2 auth " + r.status);
-      const j = await r.json();
-      let bucketId = j.allowed && j.allowed.bucketId || null;
-      if (!bucketId && env.B2_BUCKET) {
-        const lb = await fetch(j.apiUrl + "/b2api/v2/b2_list_buckets", {
-          method: "POST",
-          headers: { Authorization: j.authorizationToken, "Content-Type": "application/json" },
-          body: JSON.stringify({ accountId: j.accountId })
-        });
-        if (!lb.ok) throw new Error("b2 buckets " + lb.status);
-        const bj = await lb.json();
-        const b = (bj.buckets || []).find((x) => x.bucketName === env.B2_BUCKET);
-        if (!b) throw new Error("b2 bucket not found");
-        bucketId = b.bucketId;
+    async function hmacRaw(key, msg) {
+      const k = await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+      return new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(msg)));
+    }
+    async function s3SigningKey(secret, short) {
+      let k = await hmacRaw(new TextEncoder().encode("AWS4" + secret), short);
+      k = await hmacRaw(k, S3_REGION);
+      k = await hmacRaw(k, S3_SERVICE);
+      return await hmacRaw(k, "aws4_request");
+    }
+    function s3Qs(q) {
+      const parts = [];
+      for (const k of Object.keys(q)) {
+        if (q[k] === undefined || q[k] === null) continue;
+        parts.push(awsEnc(k) + "=" + awsEnc(String(q[k])));
       }
-      const auth = { token: j.authorizationToken, apiUrl: j.apiUrl, downloadUrl: j.downloadUrl, accountId: j.accountId, bucketId, exp: now + 20 * 3600 * 1e3 };
-      globalThis.__b2 = auth;
-      return auth;
+      return parts.sort().join("&");
     }
-async function b2call(op, body, retryAuth = true) {
-  const a = await b2auth();
-  const callOnce = /* @__PURE__ */ __name(async (tok, api) => {
-    const r = await fetch(api + "/b2api/v2/" + op, {
-      method: "POST",
-      headers: { Authorization: tok, "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    });
-    if (!r.ok) {
-      const detail = await r.text().catch(() => "");
-      const err = new Error(op + " " + r.status + " " + detail.slice(0, 200));
-      err['status'] = r.status;
-      throw err;
+    async function s3Sign(method, path, query, options) {
+      const o = options || {};
+      const presign = !!o.presign;
+      const iso = (/* @__PURE__ */ new Date()).toISOString();
+      const stamp = iso.replace(/[:-]|\.\d{3}/g, "");
+      const short = iso.slice(0, 10).replace(/-/g, "");
+      const cred = env.S3_KEY_ID + "/" + short + "/" + S3_REGION + "/" + S3_SERVICE + "/aws4_request";
+      const q = Object.assign({}, query || {});
+      if (presign) {
+        q["X-Amz-Algorithm"] = "AWS4-HMAC-SHA256";
+        q["X-Amz-Credential"] = cred;
+        q["X-Amz-Date"] = stamp;
+        q["X-Amz-Expires"] = String(o.expires || 3600);
+        q["X-Amz-SignedHeaders"] = "host";
+      }
+      const hasBody = o.body !== undefined && o.body !== null;
+      const payloadHash = presign ? "UNSIGNED-PAYLOAD" : await sha256hex(hasBody ? o.body : new Uint8Array());
+      const hdrs = Object.assign({ host: S3_HOST }, o.headers || {});
+      if (!presign) {
+        hdrs["X-Amz-Date"] = stamp;
+        if (hasBody) hdrs["x-amz-content-sha256"] = payloadHash;
+      }
+      const names = Object.keys(hdrs).map((h) => h.toLowerCase()).sort();
+      const canonicalHeaders = names.map((n) => {
+        const orig = Object.keys(hdrs).find((h) => h.toLowerCase() === n);
+        return n + ":" + String(hdrs[orig]).trim() + "\n";
+      }).join("");
+      const signedHeaders = names.join(";");
+      const canonicalRequest = [method, encPath(path), s3Qs(q), canonicalHeaders, signedHeaders, payloadHash].join("\n");
+      const scope = short + "/" + S3_REGION + "/" + S3_SERVICE + "/aws4_request";
+      const stringToSign = ["AWS4-HMAC-SHA256", stamp, scope, await sha256hex(canonicalRequest)].join("\n");
+      const sig = toHex(await hmacRaw(await s3SigningKey(env.S3_APP_KEY, short), stringToSign));
+      const qs = s3Qs(q);
+      const url = S3_ENDPOINT + path + (qs ? "?" + qs : "");
+      if (presign) return url + (qs ? "&" : "?") + "X-Amz-Signature=" + sig;
+      const out = {};
+      for (const h of Object.keys(hdrs)) if (h.toLowerCase() !== "host") out[h] = hdrs[h];
+      out["Authorization"] = "AWS4-HMAC-SHA256 Credential=" + cred + ", SignedHeaders=" + signedHeaders + ", Signature=" + sig;
+      return { url, headers: out };
     }
-    return await r.json();
-  }, "callOnce");
-  try {
-    return await callOnce(a.token, a.apiUrl);
-  } catch (e) {
-    if (e['status'] === 401 && retryAuth) {
-      globalThis.__b2 = null;
-      const a2 = await b2auth();
-      return await callOnce(a2.token, a2.apiUrl);
+    function s3KeyPath(key) {
+      return "/" + env.S3_BUCKET + "/" + key;
     }
-    throw e;
-  }
-}
-    __name(b2call, "b2call");
-    async function b2freshPartUrl(fileId) {
-      const j = await b2call("b2_get_upload_part_url", { fileId });
-      return { uploadUrl: j.uploadUrl, token: j.authorizationToken };
+    function xmlTag(text, tag) {
+      const m = String(text).match(new RegExp("<" + tag + ">([\\s\\S]*?)</" + tag + ">"));
+      return m ? m[1] : null;
     }
-    __name(b2freshPartUrl, "b2freshPartUrl");
-    async function b2SmallPut(name, bytes, mime) {
-      const a = await b2auth();
-      const u = await b2call("b2_get_upload_url", { bucketId: a.bucketId });
-      const hex = await sha1hex(bytes);
-      const encName = String(name).split("/").map(encodeURIComponent).join("/");
-      const r = await fetch(u.uploadUrl, {
-        method: "POST",
-        headers: {
-          Authorization: u.authorizationToken,
-          "X-Bz-File-Name": encName,
-          "Content-Type": mime,
-          "Content-Length": String(bytes.byteLength),
-          "X-Bz-Content-Sha1": hex
-        },
-        body: bytes
-      });
-      if (!r.ok) throw new Error("b2 put " + r.status);
-      return await r.json();
+    async function s3Request(method, key, o) {
+      const opts = o || {};
+      const signed = await s3Sign(method, s3KeyPath(key), opts.query || {}, opts);
+      const init = { method, headers: signed.headers };
+      if (opts.body !== undefined && opts.body !== null) init.body = opts.body;
+      return await fetch(signed.url, init);
     }
-    __name(b2SmallPut, "b2SmallPut");
-    async function b2Delete(name, fileId) {
-      if (!fileId) return;
+    async function s3CreateMultipart(key, mime) {
+      const r = await s3Request("POST", key, { query: { uploads: "" }, headers: { "content-type": mime } });
+      const text = await r.text();
+      if (!r.ok) throw new Error("s3 create multipart " + r.status + " " + text.slice(0, 200));
+      const id = xmlTag(text, "UploadId");
+      if (!id) throw new Error("s3 create multipart returned no UploadId");
+      return id;
+    }
+    async function s3UploadPart(key, uploadId, partNum, bytes) {
+      const r = await s3Request("PUT", key, { query: { partNumber: String(partNum), uploadId }, body: bytes });
+      if (!r.ok) throw new Error("s3 part " + r.status + " " + (await r.text().catch(() => "")).slice(0, 200));
+      return r.headers.get("ETag") || "";
+    }
+    async function s3CompleteMultipart(key, uploadId, etags) {
+      const xml = "<CompleteMultipartUpload>" + (etags || []).map((e, i) => "<Part><PartNumber>" + (i + 1) + "</PartNumber><ETag>" + e + "</ETag></Part>").join("") + "</CompleteMultipartUpload>";
+      const r = await s3Request("POST", key, { query: { uploadId }, body: xml, headers: { "content-type": "application/xml" } });
+      const text = await r.text();
+      if (!r.ok) throw new Error("s3 complete " + r.status + " " + text.slice(0, 300));
+      if (/<Error>/i.test(text)) throw new Error("s3 complete reported an error: " + text.slice(0, 300));
+      return text;
+    }
+    async function s3AbortMultipart(key, uploadId) {
+      if (!uploadId) return;
       try {
-        await b2call("b2_delete_file_version", { fileName: name, fileId });
+        await s3Request("DELETE", key, { query: { uploadId } });
       } catch {
       }
     }
-    __name(b2Delete, "b2Delete");
-    async function b2PlayUrl(name, seconds) {
-      const a = await b2auth();
-      const j = await b2call(
-        "b2_get_download_authorization",
-        { bucketId: a.bucketId, fileNamePrefix: name, validDurationInSeconds: seconds }
-      );
-      return a.downloadUrl + "/file/" + env.B2_BUCKET + "/" + name + "?Authorization=" + j.authorizationToken;
+    async function s3Put(key, bytes, mime) {
+      const r = await s3Request("PUT", key, { body: bytes, headers: { "content-type": mime } });
+      if (!r.ok) throw new Error("s3 put " + r.status + " " + (await r.text().catch(() => "")).slice(0, 200));
+      return r.headers.get("ETag") || null;
     }
-    __name(b2PlayUrl, "b2PlayUrl");
+    async function s3Delete(key) {
+      if (!key) return;
+      try {
+        await s3Request("DELETE", key);
+      } catch {
+      }
+    }
+    async function s3PresignGet(key, seconds) {
+      return await s3Sign("GET", s3KeyPath(key), {}, { presign: true, expires: seconds || 3600 });
+    }
     const MAX_VIDEO_BYTES = 25e7;
     const CHUNK_BYTES = 6e6;
-    const STORAGE_QUOTA_BYTES = 9e9;
+    const STORAGE_QUOTA_BYTES = 4.5e9;
     const VIDEO_MIMES = ["video/mp4", "video/webm", "video/quicktime", "video/x-matroska"];
     const VIDEO_EXTS = ["mp4", "webm", "mov", "mkv"];
     try {
@@ -254,31 +278,6 @@ async function b2call(op, body, retryAuth = true) {
         const row = await env.DB.prepare("SELECT COUNT(*) c FROM users").first();
         return json(200, { users: row.c });
       }
-      async function b2UploadPart(fileId, uploadUrl, partToken, partNum, bytes) {
-        const hex = await sha1hex(bytes);
-        const send = /* @__PURE__ */ __name(async (u, tok) => fetch(u, {
-          method: "POST",
-          headers: {
-            Authorization: tok,
-            "X-Bz-Part-Number": String(partNum),
-            "Content-Length": String(bytes.byteLength),
-            "X-Bz-Content-Sha1": hex
-          },
-          body: bytes
-        }), "send");
-        let r = await send(uploadUrl, partToken);
-        if (!r.ok && (r.status === 401 || r.status === 503)) {
-          const fresh = await b2freshPartUrl(fileId).catch(() => null);
-          if (fresh) {
-            await env.DB.prepare("UPDATE uploads SET b2_upload_url=?, b2_part_token=? WHERE b2_file_id=?").bind(fresh.uploadUrl, fresh.token, fileId).run();
-            r = await send(fresh.uploadUrl, fresh.token);
-          }
-        }
-        if (!r.ok) throw new Error("b2 part " + r.status);
-        const j = await r.json();
-        return j.contentSha1 || hex;
-      }
-      __name(b2UploadPart, "b2UploadPart");
       if (req.method === "POST" && url.pathname === "/api/uploads/start") {
         try {
           const user = await authedUser();
@@ -303,7 +302,7 @@ async function b2call(op, body, retryAuth = true) {
           const verdict = scanText(t, d, filename);
           if (verdict === "severe" || verdict === "racism" || verdict === "extremism")
             return json(400, { error: "Blocked: prohibited content (" + verdict + "). Uploads like this get accounts banned." });
-          if (!storageConfigured()) return json(500, { error: "B2 Storage not configured: Check B2_KEY_ID, B2_APP_KEY, and B2_BUCKET secrets." });
+          if (!storageConfigured()) return json(500, { error: "Tigris storage not configured: check S3_KEY_ID, S3_APP_KEY, and S3_BUCKET secrets." });
           let used = 0;
           try {
             const uRes = await env.DB.prepare("SELECT COALESCE(SUM(size),0) s FROM videos").first();
@@ -317,15 +316,12 @@ async function b2call(op, body, retryAuth = true) {
           const dur = Math.max(0, Math.min(36e3, parseFloat(duration) || 0));
           const vis = ["public", "unlisted", "private"].includes(visibility) ? visibility : "public";
           const simple = size <= CHUNK_BYTES;
-          let fileId = "PENDING-SMALL", partUrl = { uploadUrl: "", token: "" };
+          let fileId = "PENDING-SMALL";
           if (!simple) {
             try {
-              const a = await b2auth();
-              const st = await b2call("b2_start_large_file", { bucketId: a.bucketId, fileName: key, contentType: mime });
-              fileId = st.fileId;
-              partUrl = await b2freshPartUrl(fileId);
+              fileId = await s3CreateMultipart(key, mime);
             } catch (e) {
-              return json(500, { error: "B2 Start Large File failed: " + e.message });
+              return json(500, { error: "Tigris could not start a multipart upload: " + e.message });
             }
           }
           try {
@@ -342,8 +338,8 @@ async function b2call(op, body, retryAuth = true) {
               Number(dur),
               String(vis),
               String(fileId),
-              String(partUrl.uploadUrl || ""),
-              String(partUrl.token || ""),
+              "",
+              "",
               0,
               "[]",
               0,
@@ -375,30 +371,30 @@ async function b2call(op, body, retryAuth = true) {
         if (!(chunk instanceof File) || chunk.size === 0 || chunk.size > CHUNK_BYTES + 1024)
           return json(400, { error: "Bad chunk." });
         if (up.uploaded + chunk.size > up.size) return json(400, { error: "Chunk overflow." });
-        if (up.b2_file_id === "PENDING-SMALL") {
+        if (up.size <= CHUNK_BYTES) {
           if (off !== 0 || chunk.size !== up.size)
             return json(400, { error: "Out of order — restart the upload." });
           try {
             const bytes = await chunk.arrayBuffer();
-            const put = await b2SmallPut(up.storage_key, bytes, up.mime);
-            await env.DB.prepare("UPDATE uploads SET uploaded=?, b2_file_id=? WHERE id=?").bind(chunk.size, put.fileId, sessionId).run();
+            const etag = await s3Put(up.storage_key, bytes, up.mime);
+            await env.DB.prepare("UPDATE uploads SET uploaded=?, b2_file_id=? WHERE id=?").bind(chunk.size, etag || "PENDING-SMALL", sessionId).run();
             return json(200, { uploaded: chunk.size, size: up.size });
           } catch (e) {
-            console.error("b2 small put failed:", String(e && e.message || e));
+            console.error("tigris put failed:", String(e && e.message || e));
             return json(500, { error: "Chunk failed (" + String(e && e.message || "storage") + ") — retrying resumes automatically." });
           }
         }
         const partNum = up.part_num + 1;
-        let partSha;
+        let partEtag;
         try {
           const bytes = await chunk.arrayBuffer();
-          partSha = await b2UploadPart(up.b2_file_id, up.b2_upload_url, up.b2_part_token, partNum, bytes);
+          partEtag = await s3UploadPart(up.storage_key, up.b2_file_id, partNum, bytes);
         } catch (e) {
-          console.error("b2 part failed:", String(e && e.message || e));
+          console.error("tigris part failed:", String(e && e.message || e));
           return json(500, { error: "Chunk failed (" + String(e && e.message || "storage") + ") — retrying resumes automatically." });
         }
         const parts = JSON.parse(up.parts_json || "[]");
-        parts.push(partSha);
+        parts.push(partEtag);
         const uploaded = up.uploaded + chunk.size;
         await env.DB.prepare("UPDATE uploads SET uploaded=?, part_num=?, parts_json=? WHERE id=?").bind(uploaded, partNum, JSON.stringify(parts), sessionId).run();
         return json(200, { uploaded, size: up.size });
@@ -418,10 +414,8 @@ async function b2call(op, body, retryAuth = true) {
         if (up.uploaded < up.size) return json(400, { error: "Upload incomplete — missing bytes." });
         const verdict = scanText(up.title, up.description, up.storage_key);
         const cancel = /* @__PURE__ */ __name(async () => {
-          try {
-            await b2call("b2_cancel_large_file", { fileId: up.b2_file_id });
-          } catch {
-          }
+          if (up.part_num > 0) await s3AbortMultipart(up.storage_key, up.b2_file_id);
+          else await s3Delete(up.storage_key);
         }, "cancel");
         const finalize = /* @__PURE__ */ __name(async (status, flagReason, thumbKey2, thumbId2, fileId) => {
           if (status !== "clean") {
@@ -464,9 +458,9 @@ async function b2call(op, body, retryAuth = true) {
         }
         if (up.part_num > 0) {
           try {
-            await b2call("b2_finish_large_file", { fileId: up.b2_file_id, partSha1Array: JSON.parse(up.parts_json || "[]") });
+            await s3CompleteMultipart(up.storage_key, up.b2_file_id, JSON.parse(up.parts_json || "[]"));
           } catch (e) {
-            console.error("b2 finish failed:", String(e && e.message || e));
+            console.error("tigris complete failed:", String(e && e.message || e));
             await cancel();
             await env.DB.prepare("DELETE FROM uploads WHERE id=?").bind(up.id).run();
             return json(500, { error: "Storage assemble failed (" + String(e && e.message || "unknown") + ") — try again." });
@@ -480,8 +474,7 @@ async function b2call(op, body, retryAuth = true) {
           thumbKey = "t/" + up.id + ".jpg";
           try {
             const tb = await thumb.arrayBuffer();
-            const put = await b2SmallPut(thumbKey, tb, "image/jpeg");
-            thumbId = put.fileId;
+            thumbId = await s3Put(thumbKey, tb, "image/jpeg");
           } catch {
             thumbKey = null;
           }
@@ -493,15 +486,9 @@ async function b2call(op, body, retryAuth = true) {
             const risky = ["bikini", "maillot", "brassiere", "miniskirt", "nudity"];
             const top = (Array.isArray(labels) ? labels : []).slice(0, 3);
             if (top.some((l) => l.score > 0.5 && risky.some((r) => String(l.label || "").toLowerCase().includes(r)))) {
-              try {
-                await b2Delete(up.storage_key, up.b2_file_id);
-              } catch {
-              }
+              await s3Delete(up.storage_key);
               if (thumbId) {
-                try {
-                  await b2Delete(thumbKey, thumbId);
-                } catch {
-                }
+                await s3Delete(thumbKey);
               }
               await finalize("flagged", "auto-vision: explicit thumbnail", null, null, null);
               return json(202, { id: up.id, status: "flagged", message: "Held for review: thumbnail failed the explicit-content check. File discarded." });
@@ -509,7 +496,7 @@ async function b2call(op, body, retryAuth = true) {
           } catch {
           }
         }
-        await finalize("clean", null, thumbKey, thumbId, up.b2_file_id);
+        await finalize("clean", null, thumbKey, thumbId, null);
         return json(200, { id: up.id, status: "clean", message: "Uploaded." });
       }
       if (req.method === "POST" && url.pathname === "/api/uploads/abort") {
@@ -518,11 +505,12 @@ async function b2call(op, body, retryAuth = true) {
         const { sessionId } = await req.json();
         const up = await env.DB.prepare("SELECT * FROM uploads WHERE id=?").bind(sessionId).first();
         if (up && up.owner === user.username) {
-          try {
-            if (!up.b2_file_id || up.b2_file_id === "PENDING-SMALL") {
-            } else if (up.part_num > 0) await b2call("b2_cancel_large_file", { fileId: up.b2_file_id });
-            else await b2Delete(up.storage_key, up.b2_file_id);
-          } catch {
+          if (up.b2_file_id && up.b2_file_id !== "PENDING-SMALL") {
+            try {
+              if (up.part_num > 0) await s3AbortMultipart(up.storage_key, up.b2_file_id);
+              else await s3Delete(up.storage_key);
+            } catch {
+            }
           }
           await env.DB.prepare("DELETE FROM uploads WHERE id=?").bind(sessionId).run();
         }
@@ -714,7 +702,7 @@ async function b2call(op, body, retryAuth = true) {
           if (!(file instanceof File)) continue;
           if (file.size > 5e6 || !file.type.startsWith("image/")) return json(400, { error: kind + " must be an image under 5MB." });
           const buf = await file.arrayBuffer();
-          await b2SmallPut("a/" + user.username + "/" + kind + ".jpg", buf, "image/jpeg");
+          await s3Put("a/" + user.username + "/" + kind + ".jpg", buf, "image/jpeg");
           sets.push(kind + "_key=?");
           vals.push("a/" + user.username + "/" + kind + ".jpg");
         }
@@ -730,7 +718,7 @@ async function b2call(op, body, retryAuth = true) {
         const row = await env.DB.prepare("SELECT " + (kind === "banner" ? "banner_key" : "avatar_key") + " AS k FROM users WHERE username=?").bind(uname).first();
         if (!row || !row.k || !storageConfigured()) return new Response("Not found", { status: 404 });
         try {
-          const play = await b2PlayUrl(row.k, 86400);
+          const play = await s3PresignGet(row.k, 86400);
           return Response.redirect(play, 302);
         } catch {
           return new Response("Not found", { status: 404 });
@@ -825,7 +813,7 @@ async function b2call(op, body, retryAuth = true) {
           if (!u || u.username !== row.owner) return new Response("Not found", { status: 404 });
         }
         try {
-          const play = await b2PlayUrl(row.r2_key, 3600);
+          const play = await s3PresignGet(row.r2_key, 3600);
           return Response.redirect(play, 302);
         } catch {
           return new Response("Not found", { status: 404 });
@@ -840,7 +828,7 @@ async function b2call(op, body, retryAuth = true) {
           if (!u || u.username !== row.owner) return new Response("Not found", { status: 404 });
         }
         try {
-          const play = await b2PlayUrl(row.thumb_key, 86400);
+          const play = await s3PresignGet(row.thumb_key, 86400);
           return Response.redirect(play, 302);
         } catch {
           return new Response("Not found", { status: 404 });
@@ -881,12 +869,78 @@ async function b2call(op, body, retryAuth = true) {
         const row = await env.DB.prepare("SELECT r2_key,file_id,thumb_key,thumb_id,owner FROM videos WHERE id=?").bind(id).first();
         if (!row || row.owner !== user.username) return json(404, { error: "Video not found." });
         if (storageConfigured()) {
-          await b2Delete(row.r2_key, row.file_id);
-          if (row.thumb_key) await b2Delete(row.thumb_key, row.thumb_id);
+          await s3Delete(row.r2_key);
+          if (row.thumb_key) await s3Delete(row.thumb_key);
         }
         await env.DB.prepare("DELETE FROM comments WHERE video_id=?").bind(id).run();
         await env.DB.prepare("DELETE FROM videos WHERE id=?").bind(id).run();
         return json(200, { ok: true });
+      }
+      if (req.method === "POST" && url.pathname === "/api/admin/migrate-b2") {
+        const user = await authedUser();
+        if (!user || user.role !== "admin") return json(403, { error: "Admin only." });
+        const { id } = await req.json();
+        const row = await env.DB.prepare("SELECT id,r2_key,size,mime,thumb_key FROM videos WHERE id=? AND status='clean'").bind(id).first();
+        if (!row || !row.r2_key) return json(404, { error: "Video not found." });
+        if (!env.B2_KEY_ID || !env.B2_BUCKET) return json(500, { error: "B2 source credentials are gone; this video can no longer be copied." });
+        const b2url = /* @__PURE__ */ __name(async (name) => {
+          const cred = btoa(env.B2_KEY_ID + ":" + env.B2_APP_KEY);
+          const ar = await fetch("https://api.backblazeb2.com/b2api/v2/b2_authorize_account", { headers: { Authorization: "Basic " + cred } });
+          if (!ar.ok) throw new Error("b2 auth " + ar.status);
+          const j = await ar.json();
+          let bucketId = j.allowed && j.allowed.bucketId || null;
+          if (!bucketId) {
+            const lb = await fetch(j.apiUrl + "/b2api/v2/b2_list_buckets", { method: "POST", headers: { Authorization: j.authorizationToken, "Content-Type": "application/json" }, body: JSON.stringify({ accountId: j.accountId }) });
+            const bj = await lb.json();
+            const b = (bj.buckets || []).find((x) => x.bucketName === env.B2_BUCKET);
+            if (!b) throw new Error("b2 bucket not found");
+            bucketId = b.bucketId;
+          }
+          const dr = await fetch(j.apiUrl + "/b2api/v2/b2_get_download_authorization", { method: "POST", headers: { Authorization: j.authorizationToken, "Content-Type": "application/json" }, body: JSON.stringify({ bucketId, fileNamePrefix: name, validDurationInSeconds: 36e3 }) });
+          const dj = await dr.json();
+          if (!dr.ok) throw new Error("b2 download auth " + dr.status);
+          return j.downloadUrl + "/file/" + env.B2_BUCKET + "/" + name + "?Authorization=" + dj.authorizationToken;
+        }, "b2url");
+        const copy = /* @__PURE__ */ __name(async (key, size, mime) => {
+          const dl = await b2url(key);
+          const head = await fetch(dl, { method: "HEAD" });
+          const total = Number(head.headers.get("content-length")) || size;
+          if (total <= CHUNK_BYTES) {
+            const r = await fetch(dl);
+            if (!r.ok) throw new Error("b2 get " + r.status);
+            await s3Put(key, await r.arrayBuffer(), mime);
+            return total;
+          }
+          const uploadId = await s3CreateMultipart(key, mime);
+          const etags = [];
+          let copied = 0;
+          for (let off = 0, n = 1; off < total; off += CHUNK_BYTES, n++) {
+            const end = Math.min(off + CHUNK_BYTES, total) - 1;
+            const rr = await fetch(dl, { headers: { Range: "bytes=" + off + "-" + end } });
+            if (!rr.ok) throw new Error("b2 range " + off + "-" + end + " -> " + rr.status);
+            const buf = await rr.arrayBuffer();
+            etags.push(await s3UploadPart(key, uploadId, n, buf));
+            copied += buf.byteLength;
+          }
+          await s3CompleteMultipart(key, uploadId, etags);
+          return copied;
+        }, "copy");
+        try {
+          const copied = await copy(row.r2_key, Number(row.size) || 0, row.mime || "video/mp4");
+          let thumb = "skipped";
+          if (row.thumb_key) {
+            try {
+              await copy(row.thumb_key, 0, "image/jpeg");
+              thumb = "copied";
+            } catch (e) {
+              thumb = "failed: " + e.message;
+            }
+          }
+          return json(200, { ok: true, id: row.id, key: row.r2_key, bytes: copied, expected: Number(row.size) || 0, thumb });
+        } catch (e) {
+          console.error("B2 migration failed:", String(e && e.message || e));
+          return json(500, { error: "Migration failed: " + String(e && e.message || e) });
+        }
       }
       return json(404, { error: "not found" });
     } catch (e) {
